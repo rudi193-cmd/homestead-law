@@ -476,12 +476,17 @@ def validate_value(field: str, value: object) -> None:
         raise MedicalNarrativeTooLong(field)
 
 
-# ── deadline templates (item 3) — data only, read by the sibling rules.py ───
+# ── deadline templates — empty here, and the shape check that keeps it honest ─
 #
-# TEMPLATES is data, not behaviour: it names an anchor field, a day count, a
-# counting rule and a citation, and the counting itself is the parallel
-# L3-deadline-templates bite's job (`homestead_law.rules`, not imported here —
-# these two bites run side by side and neither depends on the other's module).
+# A template is data, not behaviour: an anchor field, a day count, a counting
+# rule and a citation, read by `homestead_law.rules` (never imported here —
+# that module is the one place a date is counted). This pack declares none:
+# all three New Mexico rules it carries anchor on a field it declares `L4`,
+# and a computed template may only anchor on `L1` (see the module docstring's
+# ruling). The check below still runs at import, so the day a template *is*
+# added it is held to the shape and to the anchor rule by the build, and
+# `rules.validate_templates` holds it again at registry time once that bite
+# lands.
 
 #: The closed set `direction` may take.
 TEMPLATE_DIRECTIONS = frozenset({"forward", "backward"})
