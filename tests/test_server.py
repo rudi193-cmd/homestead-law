@@ -1693,6 +1693,8 @@ def test_sync_preview_holds_for_ten_minutes_then_expires(ui, monkeypatch):
     `_post_sync_send` both call."""
     import time as time_mod
 
+    ui.json("/api/store", {"matter": "custody", "field": "courthouse",
+                           "value": "Dept 4"})
     now = [1_000.0]
     monkeypatch.setattr(time_mod, "monotonic", lambda: now[0])
 
@@ -1705,10 +1707,153 @@ def test_sync_preview_holds_for_ten_minutes_then_expires(ui, monkeypatch):
     status, data = ui.json("/api/sync/send", {"envelope_id": envelope_id})
     assert status == 410 and data["ok"] is False
 
-    # still within the window: a fresh preview delivers.
+    # …and the expired preview is discarded, not merely declined: sending it
+    # again inside a fresh window finds nothing on file rather than delivering.
     now[0] = 1_000.0
+    status, data = ui.json("/api/sync/send", {"envelope_id": envelope_id})
+    assert status == 404 and data["ok"] is False
+
+    # still within the window: a fresh preview delivers.
     status, preview2 = ui.json(
         "/api/sync/preview", {"matters": ["custody"], "ceiling": "L3"})
     status, sent = ui.json(
         "/api/sync/send", {"envelope_id": preview2["envelope_id"]})
     assert status == 200 and sent["ok"] is True
+
+
+def test_sync_send_refuses_when_the_destination_moved_after_the_preview(ui, monkeypatch):
+    """**The click is the confirm — of the preview that was shown.**
+
+    The regression this pins, found by the L5-sync audit: `/api/sync/send`
+    resolved the destination a second time and handed `deliver()` a confirm
+    that returned `True` whatever `Wire` it was given. A `fleet.url` written
+    between Preview and Send — by the operator in another window, by a
+    restored backup — turned a previewed `FILE …` drop into a `POST` to that
+    URL, approved by a callback that could not tell the difference. That is
+    an ambient permission wearing a confirm's signature, and it is exactly
+    the divergence `keep/egress.py` ("the preview is the payload") exists to
+    make impossible.
+
+    Now the destination is resolved once, at preview, and held; and
+    `confirm_exactly` declines any `Wire` that is not the shown one. The
+    mocked `egress.send` here would record a URL delivery if one happened —
+    it records nothing.
+    """
+    import homestead.keep.egress as egress_mod
+    from homestead.keep import paths as engine_paths
+
+    dialled = {}
+
+    def fake_send(url, payload, *, confirm=None, transport=None, method="POST"):
+        wire = egress_mod.Wire(method=method, url=url, body=json.dumps(payload))
+        if confirm is None or not confirm(wire):
+            raise egress_mod.EgressRefused("declined at the mocked transport")
+        dialled["url"] = url
+        return b"ok"
+
+    monkeypatch.setattr(egress_mod, "send", fake_send)
+
+    ui.json("/api/store", {"matter": "custody", "field": "courthouse",
+                           "value": "Dept 4"})
+    status, preview = ui.json(
+        "/api/sync/preview", {"matters": ["custody"], "ceiling": "L3"})
+    assert status == 200
+    assert preview["destination_preview"].startswith("FILE ")
+
+    (engine_paths.home() / "fleet.url").write_text("https://elsewhere.example/ingest\n")
+
+    status, sent = ui.json(
+        "/api/sync/send", {"envelope_id": preview["envelope_id"]})
+
+    assert status == 200 and sent["ok"] is True
+    assert dialled == {}, "the envelope must not have gone to the new URL"
+    assert sent["destination"] == preview["destination_preview"].removeprefix("FILE ")
+
+
+def test_sync_previews_are_capped_so_a_page_cannot_grow_them_without_bound(ui):
+    """A preview holds a whole composed envelope in memory and only the tab
+    that asked for it ever wants it. Before the cap, every distinct
+    scope/ceiling combination a caller asked for stayed held for ten minutes
+    — clicking Preview in a loop grew the process without bound. At most
+    eight are kept, oldest first out; the oldest is then "no preview on
+    file" rather than a silent delivery of something stale."""
+    ui.json("/api/store", {"matter": "custody", "field": "courthouse",
+                           "value": "Dept 4"})
+    ui.json("/api/store", {"matter": "custody", "field": "case_number",
+                           "value": "D-202-DM-2026-00123"})
+
+    held = []
+    for n in range(12):
+        # A distinct scope each time, so each composes its own envelope id.
+        ui.json("/api/store", {"matter": "custody", "field": "docket",
+                               "value": f"entry {n}"})
+        status, data = ui.json(
+            "/api/sync/preview", {"matters": ["custody"], "ceiling": "L3"})
+        assert status == 200
+        held.append(data["envelope_id"])
+
+    assert len(set(held)) == 12, "each preview composed a distinct envelope"
+    # The oldest four are gone; the newest eight are still sendable.
+    status, data = ui.json("/api/sync/send", {"envelope_id": held[0]})
+    assert status == 404 and data["ok"] is False
+    status, data = ui.json("/api/sync/send", {"envelope_id": held[-1]})
+    assert status == 200 and data["ok"] is True
+
+
+def test_sync_send_refuses_a_sealed_log_it_cannot_read(ui):
+    """A sealed integrity log with no key: the engine cannot establish that
+    this envelope was not already synced, so it delivers nothing (I-11,
+    I-38). Answered as a refusal with a status, not by letting the handler
+    die and drop the connection."""
+    from homestead.keep import paths as engine_paths
+
+    ui.json("/api/store", {"matter": "custody", "field": "courthouse",
+                           "value": "Dept 4"})
+    status, preview = ui.json(
+        "/api/sync/preview", {"matters": ["custody"], "ceiling": "L3"})
+    assert status == 200
+
+    engine_paths.logs_dir().mkdir(parents=True, exist_ok=True)
+    (engine_paths.logs_dir() / "integrity.jsonl").write_text(
+        json.dumps({"sealed": 1, "hash": "0" * 64, "prev": None,
+                    "nonce": "x", "ct": "y"}) + "\n", encoding="utf-8")
+
+    status, data = ui.json(
+        "/api/sync/send", {"envelope_id": preview["envelope_id"]})
+
+    assert status == 503 and data["ok"] is False
+    assert not (engine_paths.exports_dir() / "sync").exists()
+
+
+def test_sync_preview_refuses_a_scope_that_composes_nothing(ui):
+    """An empty envelope is refused at the preview, never offered a Send
+    button: delivering zero rows still writes a file, still appends one
+    `record_synced` row and still shows one `RECORD_SYNCED` line — a
+    ledgered sync of nothing."""
+    status, data = ui.json(
+        "/api/sync/preview", {"matters": ["custody"], "ceiling": "L1"})
+    assert status == 400 and data["ok"] is False
+    assert "nothing to sync" in data["error"]
+
+
+def test_sync_preview_refuses_an_unknown_item_type(ui):
+    """I-11: a `--types`/checkbox value no named matter holds is refused by
+    name, not carried into a scope that then matches nothing."""
+    status, data = ui.json("/api/sync/preview", {
+        "matters": ["custody"], "item_types": ["not-a-real-type"],
+        "ceiling": "L3"})
+    assert status == 400 and data["ok"] is False
+    assert "not-a-real-type" in data["error"]
+
+
+def test_every_item_type_the_sync_tab_offers_is_one_a_scope_accepts(ui):
+    """One source: the checkboxes `/api/sync/options` builds and the set
+    `scope_from` measures `--types` against are the same answer, so the page
+    can never offer a box the scope would decline."""
+    from homestead_law import sync as law_sync
+
+    status, data = ui.json("/api/sync/options")
+    assert status == 200
+    scope = law_sync.scope_from(
+        tuple(data["matters"]), tuple(data["item_types"]), "L3")
+    assert set(scope.item_types) == set(data["item_types"])

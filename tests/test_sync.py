@@ -16,15 +16,20 @@ replaced (the engine's own seam, never a real socket). "Exactly one
 """
 from __future__ import annotations
 
+import ast
 import json
+import re
 import sys
 import types
+from pathlib import Path
 
 import pytest
 
 from homestead.keep.egress import EgressRefused, Wire
 from homestead.keep.household import household_id
-from homestead.keep.logs import BOUNDARY_ACT, IntegrityLog, SEAL_BOUNDARY_ACT
+from homestead.keep.logs import (
+    BOUNDARY_ACT, IntegrityLog, IntegritySealError, SEAL_BOUNDARY_ACT,
+)
 from homestead.keep import paths as engine_paths
 from homestead.keep.rungs import Classified, Rung
 from homestead.keep.sync import AlreadyDelivered, UnnamedScope
@@ -32,6 +37,8 @@ from homestead_law import sync as law_sync
 from homestead_law import registry as registry_mod
 from homestead_law.cli import run_cli
 from homestead_law.store import Sidecar
+
+SYNC_MODULE = Path(law_sync.__file__)
 
 
 def _seed_courthouse_and_opposing_party(store: Sidecar) -> None:
@@ -172,9 +179,14 @@ def test_destination_resolution_order_and_preview_never_delivers(tmp_path, monke
     monkeypatch.delenv("HOMESTEAD_FLEET_URL")
     assert law_sync._destination_url(None) == "https://file.example/ingest"
 
+    monkeypatch.setenv("HOMESTEAD_FLEET_URL", "https://env.example/ingest")
     assert law_sync._destination_url("https://flag.example/ingest") == (
         "https://flag.example/ingest"
     )
+    assert law_sync.resolve_destination(url="https://flag.example/ingest") == (
+        "https://flag.example/ingest", None
+    )
+    monkeypatch.delenv("HOMESTEAD_FLEET_URL")
     assert not (engine_paths.exports_dir() / "sync").exists()
 
 
@@ -351,3 +363,437 @@ def test_cli_sync_init_household(tmp_path, monkeypatch, capsys):
     rc = run_cli(["sync", "--init-household"])
     assert rc == 1
     assert "refused" in capsys.readouterr().err
+
+
+# ── --types: refused by name, never a silently empty narrowing (I-11) ───────
+
+def test_scope_from_refuses_an_item_type_no_named_matter_holds():
+    """`compose()` narrows by item type, so an unknown one is not an error
+    there — it matches nothing, and the operator is handed an envelope of
+    zero rows for a scope they believe they named. Refused by name."""
+    with pytest.raises(law_sync.UnknownItemType, match="not-a-real-type"):
+        law_sync.scope_from(("custody",), ("not-a-real-type",), "L3")
+
+
+def test_scope_from_refuses_a_type_that_belongs_only_to_another_matter(monkeypatch):
+    """The check is against the *named* matters' own types, not every type
+    in the registry: a field only the second matter declares is refused for
+    a scope over the first."""
+    _register_fake_matter(monkeypatch)
+    assert "courthouse" in law_sync.item_types_for(("custody",))
+    assert "courthouse" not in law_sync.item_types_for(("_fake_sync_matter",))
+    with pytest.raises(law_sync.UnknownItemType):
+        law_sync.scope_from(("_fake_sync_matter",), ("courthouse",), "L3")
+
+
+def test_item_types_for_reads_the_registry_and_carries_deadline():
+    """I-23: the answer is each named pack's own classified fields, read
+    live, plus the one computed type every matter may hold."""
+    types = law_sync.item_types_for(("custody",))
+    assert "deadline" in types
+    assert types - {"deadline"} == set(registry_mod.matter("custody").fields)
+    with pytest.raises(law_sync.UnknownMatter):
+        law_sync.item_types_for(("not-a-real-matter",))
+
+
+def test_the_l5_ceiling_refusal_names_the_rung():
+    """The engine makes this refusal; pinning here that its *message* names
+    L5, so an operator who typed `--ceiling L5` reads why."""
+    with pytest.raises(UnnamedScope, match="L5"):
+        law_sync.scope_from(("custody",), None, "L5")
+
+
+# ── nothing to sync — refused before the confirm, never ledgered ────────────
+
+def test_send_refuses_a_zero_row_envelope_before_the_confirm(tmp_path, monkeypatch):
+    """A scope that composes nothing is not an act to approve. Before this,
+    a zero-row envelope was written to disk, appended one `record_synced`
+    row to the integrity chain and showed one `RECORD_SYNCED` line — the
+    household's own record then said a sync happened, of nothing."""
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    store = Sidecar()
+    _seed_courthouse_and_opposing_party(store)
+    # `courthouse` is L1 and `opposing_party` L3 — a ceiling of L1 over the
+    # deadline type alone matches neither.
+    scope = law_sync.scope_from(("custody",), ("deadline",), "L1")
+    envelope = law_sync.preview(store, scope)
+    assert envelope.count == 0
+
+    asked = []
+    with pytest.raises(law_sync.NothingToSync, match="nothing to sync"):
+        law_sync.send(envelope, confirm=lambda wire: asked.append(wire) or True)
+
+    assert asked == [], "the confirm was never shown"
+    assert not (engine_paths.exports_dir() / "sync").exists()
+    assert not (engine_paths.logs_dir() / "visible.jsonl").exists()
+
+
+def test_cli_sync_refuses_a_scope_that_composes_nothing(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    store = Sidecar()
+    _seed_courthouse_and_opposing_party(store)
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda prompt="": "yes")
+
+    rc = run_cli(["sync", "--matters", "custody", "--types", "deadline",
+                  "--ceiling", "L1"])
+
+    assert rc == 1
+    assert "nothing to sync" in capsys.readouterr().err
+    assert not (tmp_path / "exports" / "sync").exists()
+
+
+def test_cli_sync_refuses_an_unknown_type_by_name(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    rc = run_cli(["sync", "--matters", "custody", "--types", "nope",
+                  "--ceiling", "L3"])
+    assert rc == 1
+    assert "nope" in capsys.readouterr().err
+
+
+# ── the envelope is frozen: what leaves is what was shown ───────────────────
+
+def test_a_store_write_between_preview_and_send_changes_nothing_that_leaves(
+    tmp_path, monkeypatch
+):
+    """The held preview is the engine's frozen `Envelope`. A record written
+    after it was composed is not in the bytes that leave, the id does not
+    move, and the `head` the envelope carries is the head as it was at
+    compose time — the envelope is what the operator was shown.
+
+    A send after further writes therefore ships a *stale* pre-sync head. That
+    is deliberate and is the receiving fleet's to notice: `homestead-fleet
+    ingest` is where a stale head is refused, and `--allow-stale` is its
+    flag, not one this side has. Silently recomposing to freshen the head
+    would send an envelope nobody previewed."""
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    store = Sidecar()
+    _seed_courthouse_and_opposing_party(store)
+    envelope = law_sync.preview(store, law_sync.scope_from(("custody",), None, "L3"))
+    frozen_bytes = envelope.to_bytes()
+    frozen_id = envelope.envelope_id
+    frozen_head = envelope.head
+
+    store.put("custody", "docket", "primary",
+              Classified(Rung.L3, "later entry", derived="A docket entry is on file"))
+    recomposed = law_sync.preview(store, law_sync.scope_from(("custody",), None, "L3"))
+    assert recomposed.envelope_id != frozen_id, "the store really did change"
+
+    receipt = law_sync.send(envelope, confirm=lambda wire: True)
+
+    assert envelope.to_bytes() == frozen_bytes
+    assert receipt.envelope_id == frozen_id
+    dropped = Path(receipt.destination).read_bytes()
+    assert dropped == frozen_bytes
+    assert b"later entry" not in dropped
+    assert json.loads(dropped)["head"] == frozen_head
+
+
+def test_what_leaves_at_ceiling_l3_drops_l4_and_l5_without_deriving_them(
+    tmp_path, monkeypatch
+):
+    """Plant one row per rung and grep the envelope's own bytes: the L4 and
+    L5 values are absent — and so are their *derived* forms, because
+    Decision 5 drops above the ceiling rather than deriving (open item 5).
+    The L3 row crosses as itself."""
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    store = Sidecar()
+    store.put("custody", "custody_type", "primary",
+              Classified(Rung.L3, "joint legal",
+                         derived="A custody arrangement type is on file"))
+    store.put("custody", "child.name", "primary.a",
+              Classified(Rung.L4, "Rowan-planted-L4",
+                         derived="A child's name is on file"))
+    store.put("custody", "ssn", "primary", Classified(Rung.L5, "planted-L5-key"))
+
+    envelope = law_sync.preview(store, law_sync.scope_from(("custody",), None, "L3"))
+    raw = envelope.to_bytes().decode()
+
+    assert "planted-L5-key" not in raw
+    assert "Rowan-planted-L4" not in raw
+    assert "A child's name is on file" not in raw
+    assert {row["item_type"] for row in envelope.rows} == {"custody_type"}
+    assert "joint legal" in raw
+
+
+# ── the destination is a place, never a permission ──────────────────────────
+
+def test_the_fleet_url_file_is_read_stripped(tmp_path, monkeypatch):
+    """A file an operator edits ends in a newline, and may hold stray
+    spaces; neither is part of the URL."""
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    monkeypatch.delenv("HOMESTEAD_FLEET_URL", raising=False)
+    (engine_paths.home() / "fleet.url").write_text("  https://file.example/ingest \n\n")
+    assert law_sync._destination_url(None) == "https://file.example/ingest"
+
+    (engine_paths.home() / "fleet.url").write_text("   \n")
+    assert law_sync._destination_url(None) is None
+
+
+def test_a_plain_http_url_is_the_engines_rule_to_make_not_a_second_one_here(
+    tmp_path, monkeypatch
+):
+    """`keep/egress.send` does not score a URL's scheme — a confirmed act to
+    a named destination is the whole contract there. Law adds no second
+    rule: an `http://` destination is passed through unchanged, and the
+    operator sees the scheme in the `Wire` they confirm. If the engine ever
+    refuses a scheme, it refuses here too and this test is where that
+    shows."""
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    store = Sidecar()
+    _seed_courthouse_and_opposing_party(store)
+    envelope = law_sync.preview(store, law_sync.scope_from(("custody",), None, "L3"))
+
+    seen = []
+    monkeypatch.setattr("homestead.keep.egress.send", _fake_egress_send({}))
+    assert law_sync.preview_destination(
+        envelope.envelope_id, url="http://127.0.0.1:9/ingest"
+    ) == "POST http://127.0.0.1:9/ingest"
+
+    def confirm(wire):
+        seen.append(wire.url)
+        return True
+
+    law_sync.send(envelope, url="http://127.0.0.1:9/ingest", confirm=confirm)
+    assert seen == ["http://127.0.0.1:9/ingest"]
+
+
+def test_resolve_destination_returns_exactly_one_leg(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    monkeypatch.delenv("HOMESTEAD_FLEET_URL", raising=False)
+    dest_url, dest_dir = law_sync.resolve_destination()
+    assert dest_url is None and dest_dir is not None and dest_dir.is_absolute()
+    with pytest.raises(ValueError, match="exactly one"):
+        law_sync.send_to(object(), dest_url=None, dest_dir=None, confirm=lambda w: True)
+
+
+# ── confirm_exactly — a confirm, not a permission ──────────────────────────
+
+def test_confirm_exactly_declines_every_wire_but_the_one_that_was_shown(
+    tmp_path, monkeypatch
+):
+    """The planted violation for the guard the audit added: a callback that
+    returns `True` whatever it is handed cannot tell the approved envelope
+    from any other, which is what let a previewed file drop leave over the
+    network. This one is handed the shown `Wire`, then four that differ in
+    exactly one way each."""
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    store = Sidecar()
+    _seed_courthouse_and_opposing_party(store)
+    envelope = law_sync.preview(store, law_sync.scope_from(("custody",), None, "L3"))
+    body = envelope.to_bytes()
+
+    dest_url, dest_dir = law_sync.resolve_destination()
+    shown = law_sync.describe_destination(
+        envelope.envelope_id, dest_url=dest_url, dest_dir=dest_dir)
+    confirm = law_sync.confirm_exactly(envelope, shown)
+    path = shown.removeprefix("FILE ")
+
+    assert confirm(Wire(method="FILE", url=path, body=f"{len(body)} bytes")) is True
+    assert confirm(Wire(method="FILE", url=path, body=f"{len(body) + 1} bytes")) is False
+    assert confirm(Wire(method="FILE", url="/tmp/elsewhere.json",
+                        body=f"{len(body)} bytes")) is False
+    assert confirm(Wire(method="POST", url="https://elsewhere.example/x",
+                        body=json.dumps(envelope.to_dict()))) is False
+
+    posted = law_sync.confirm_exactly(envelope, "POST https://fleet.example/ingest")
+    assert posted(Wire(method="POST", url="https://fleet.example/ingest",
+                       body=json.dumps(envelope.to_dict()))) is True
+    assert posted(Wire(method="POST", url="https://fleet.example/ingest",
+                       body=json.dumps({"envelope_id": "another"}))) is False
+    assert posted(Wire(method="POST", url="https://fleet.example/ingest",
+                       body="not json at all")) is False
+
+
+# ── nothing here dials (I-17/I-30) ─────────────────────────────────────────
+
+NETWORK_MODULES = {
+    "urllib", "socket", "http", "httplib", "ssl", "ftplib", "smtplib",
+    "requests", "httpx", "asyncio",
+}
+
+
+def _network_reaches(source: str) -> set[str]:
+    """Every network module this source imports, and every dotted call into
+    one. A *property* scan, not a spelling one: `import urllib.request` and
+    `from urllib import request` and a bare `urlopen(...)` reached through
+    an aliased module all land here, because the check is on the root name
+    of the import and on the name a call's attribute chain starts from."""
+    tree = ast.parse(source)
+    found: set[str] = set()
+    aliases: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                root = alias.name.split(".")[0]
+                if root in NETWORK_MODULES:
+                    found.add(alias.name)
+                    aliases[(alias.asname or alias.name).split(".")[0]] = root
+        elif isinstance(node, ast.ImportFrom):
+            root = (node.module or "").split(".")[0]
+            if root in NETWORK_MODULES:
+                found.add(node.module or "")
+                for alias in node.names:
+                    aliases[alias.asname or alias.name] = root
+        elif isinstance(node, ast.Call):
+            target = node.func
+            while isinstance(target, ast.Attribute):
+                target = target.value
+            if isinstance(target, ast.Name) and target.id in aliases:
+                found.add(f"{aliases[target.id]}(call)")
+    return found
+
+
+def test_homestead_law_sync_never_reaches_the_network_itself():
+    """I-17/I-30: the one outbound path is the engine's `egress.send`, which
+    lazy-imports `urllib` *inside* its own transport after a confirmed act.
+    This module names a destination and hands it over; it opens nothing."""
+    assert _network_reaches(SYNC_MODULE.read_text(encoding="utf-8")) == set()
+
+
+def test_the_no_egress_scan_fires_on_a_planted_dial(tmp_path):
+    """A scan that has never fired has not been shown to check anything.
+    Plant the dial this module would be wrong to hold — a direct
+    `urllib.request.urlopen` on the resolved destination — in a copy of the
+    real file, and run the real scan over it."""
+    planted = SYNC_MODULE.read_text(encoding="utf-8").replace(
+        "def send_to(",
+        "def _planted_dial(url, body):\n"
+        "    import urllib.request\n"
+        "    return urllib.request.urlopen(url, body)\n\n\n"
+        "def send_to(",
+        1,
+    )
+    assert "_planted_dial" in planted, "the plant must land in the real source"
+    copy = tmp_path / "planted_sync.py"
+    copy.write_text(planted, encoding="utf-8")
+
+    reaches = _network_reaches(copy.read_text(encoding="utf-8"))
+    assert "urllib.request" in reaches
+    assert "urllib(call)" in reaches
+
+
+def test_url_delivery_goes_only_through_the_engines_egress_send():
+    """The one call that can dial is named, so a future edit that reaches
+    past `keep/egress` shows up as a second one."""
+    source = SYNC_MODULE.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    dialers = {
+        node.func.id if isinstance(node.func, ast.Name) else node.func.attr
+        for node in ast.walk(tree) if isinstance(node, ast.Call)
+        and isinstance(node.func, (ast.Name, ast.Attribute))
+    }
+    assert "urlopen" not in dialers and "send" not in dialers
+    assert "deliver" in dialers, "the engine's deliver() is the only outbound door"
+
+
+# ── the household id ───────────────────────────────────────────────────────
+
+def test_the_household_id_is_hh_plus_sixteen_hex_and_is_read_never_reminted(
+    tmp_path, monkeypatch
+):
+    """I-9's shape: the file is created O_EXCL once and read back after. A
+    second id would fork a household whose fleet rows are keyed by the
+    first, so `--init-household` refuses rather than replacing it."""
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    minted = law_sync.init_household()
+    assert re.fullmatch(r"hh-[0-9a-f]{16}", minted)
+
+    with pytest.raises(law_sync.HouseholdAlreadyInitialized):
+        law_sync.init_household()
+
+    assert (tmp_path / "household.id").read_text().strip() == minted
+    assert household_id() == minted == household_id()
+
+    store = Sidecar()
+    _seed_courthouse_and_opposing_party(store)
+    envelope = law_sync.preview(store, law_sync.scope_from(("custody",), None, "L3"))
+    assert envelope.household == minted
+
+
+# ── a log that cannot be read refuses, by name, before delivering ──────────
+
+def _seal_the_log() -> None:
+    """One ciphertext-wrapper line in the integrity log, with no key beside
+    it — the shape `keep/sealed.py` writes and `IntegrityLog._entries()`
+    refuses to read without the key and the `sealed` extra."""
+    engine_paths.logs_dir().mkdir(parents=True, exist_ok=True)
+    (engine_paths.logs_dir() / "integrity.jsonl").write_text(
+        json.dumps({"sealed": 1, "hash": "0" * 64, "prev": None,
+                    "nonce": "x", "ct": "y"}) + "\n",
+        encoding="utf-8",
+    )
+
+
+def test_a_sealed_log_refuses_by_name_before_anything_is_delivered(
+    tmp_path, monkeypatch
+):
+    """The engine's `_already_delivered` cannot establish that an envelope
+    was not already synced when the log is sealed and the key is absent, so
+    `deliver()` raises rather than delivering twice (I-11/I-38). What this
+    pins is that the refusal reaches a law caller *as a refusal*: nothing is
+    written, and the CLI prints `refused:` instead of dying with a
+    traceback."""
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    store = Sidecar()
+    _seed_courthouse_and_opposing_party(store)
+    envelope = law_sync.preview(store, law_sync.scope_from(("custody",), None, "L3"))
+    _seal_the_log()
+
+    with pytest.raises(IntegritySealError):
+        law_sync.send(envelope, confirm=lambda wire: True)
+    assert not (engine_paths.exports_dir() / "sync").exists()
+
+
+def test_cli_sync_refuses_a_sealed_log_by_name(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    store = Sidecar()
+    _seed_courthouse_and_opposing_party(store)
+    _seal_the_log()
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda prompt="": "yes")
+
+    rc = run_cli(["sync", "--matters", "custody", "--ceiling", "L3"])
+
+    assert rc == 1
+    assert "refused:" in capsys.readouterr().err
+    assert not (tmp_path / "exports" / "sync").exists()
+
+
+# ── the CLI asks after it has shown the Wire, and shows the Wire itself ─────
+
+def test_cli_sync_prints_the_wire_it_is_about_to_send_before_it_asks(
+    tmp_path, monkeypatch, capsys
+):
+    """"The preview is the payload" (`keep/egress.py`), held at this door:
+    the text printed before `input()` is `Wire.preview()` of the very object
+    the engine hands its transport, not a separately-composed summary. The
+    input is captured so the order — printed, then asked — is a fact of the
+    test rather than a reading of the code."""
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    store = Sidecar()
+    _seed_courthouse_and_opposing_party(store)
+    envelope = law_sync.preview(store, law_sync.scope_from(("custody",), None, "L3"))
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+
+    seen_at_prompt = []
+
+    def fake_input(prompt=""):
+        seen_at_prompt.append(capsys.readouterr().out)
+        return "yes"
+
+    monkeypatch.setattr("builtins.input", fake_input)
+
+    rc = run_cli(["sync", "--matters", "custody", "--ceiling", "L3"])
+
+    assert rc == 0
+    assert len(seen_at_prompt) == 1, "asked exactly once"
+    shown = seen_at_prompt[0]
+    expected = Wire(
+        method="FILE",
+        url=str(engine_paths.exports_dir().resolve() / "sync"
+                / f"{envelope.envelope_id}.json"),
+        body=f"{len(envelope.to_bytes())} bytes",
+        content_type="text/plain",
+    ).preview()
+    assert expected in shown, "the Wire itself was shown before the yes"

@@ -602,6 +602,18 @@ value (I-15/I-37/I-38). A `--url` flag, `HOMESTEAD_FLEET_URL`, or a
 `fleet.url` file names a destination and never a permission — the confirm
 the operator is shown decides that, and a declined one ledgers nothing.
 
+The destination is decided once, when the preview is composed, and the Send
+click approves *that* preview: a `fleet.url` that appears in between cannot
+turn a previewed file drop into a POST, because the click's confirm declines
+anything but the envelope and the destination that were on the screen. A
+scope that composes no rows is refused before the confirm rather than
+delivered as a ledgered sync of nothing, and a `--types` value no named
+matter holds is refused by name instead of quietly matching nothing. The
+Sync tab's held previews live in the running process only — at most a
+handful at a time, expiring after ten minutes, each good for one Send — so
+restarting the server (or leaving the tab open too long) means previewing
+again, never sending something older than what was shown.
+
 ## What is enforced here today
 
 *The record invariants, carried from `homestead.keep.record` and held more

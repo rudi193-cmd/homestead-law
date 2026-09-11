@@ -987,6 +987,7 @@ def _cmd_sync(args: Sequence[str]) -> int:
     """
     from homestead_law import sync as law_sync
     from homestead.keep.egress import EgressRefused
+    from homestead.keep.logs import IntegritySealError
     from homestead.keep.sync import AlreadyDelivered
 
     matters_opt: str | None = None
@@ -1060,6 +1061,10 @@ def _cmd_sync(args: Sequence[str]) -> int:
     print(f"  rows:    {envelope.count}")
     print(f"  head:    {envelope.head}")
 
+    # The `yes` is read *after* the Wire's own preview is printed — and the
+    # Wire printed is the object `egress.send`/`deliver` hands the transport,
+    # so what was approved is what leaves (`keep/egress.py`, "the preview is
+    # the payload"). Nothing is re-serialized between this and the send.
     def confirm(wire) -> bool:
         print(wire.preview())
         answer = input("send? [y/N] ").strip().lower()
@@ -1067,7 +1072,12 @@ def _cmd_sync(args: Sequence[str]) -> int:
 
     try:
         receipt = law_sync.send(envelope, url=url_opt, confirm=confirm)
-    except (EgressRefused, AlreadyDelivered) as exc:
+    except (EgressRefused, AlreadyDelivered, law_sync.NothingToSync,
+            IntegritySealError) as exc:
+        # `IntegritySealError`: a sealed log this process has no key for.
+        # The engine cannot establish that this envelope was not already
+        # synced, so it delivers nothing — refused by name here (I-11)
+        # rather than escaping the command as a traceback.
         print(f"refused: {exc}", file=sys.stderr)
         return 1
 

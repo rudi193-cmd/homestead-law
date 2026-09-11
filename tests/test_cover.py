@@ -130,3 +130,20 @@ def test_the_anonymity_floor_is_two():
     """K is the smallest set in which 'which one?' has no answer. Pinned so the
     two gates cannot be loosened to 1 without a test saying so."""
     assert K == 2
+
+
+def test_the_cover_arithmetic_has_exactly_one_implementation():
+    """L5-sync retired law's vendored copy (E4-cover-distribution audit): the
+    names this module exports **are** the engine's objects, not a second
+    implementation kept in step by hand. Identity, not equality — a
+    re-vendored copy would pass an equality check on its answers right up
+    until the two drifted."""
+    from homestead.app import cover as engine_cover
+    from homestead_law.app import cover as law_cover
+
+    assert law_cover.cover_counts is engine_cover.cover_counts
+    assert law_cover.K is engine_cover.K
+    # The retirement is struck through in place, never deleted (house style).
+    from pathlib import Path
+    source = Path(law_cover.__file__).read_text(encoding="utf-8")
+    assert "~~" in source and "used to carry its own" in source

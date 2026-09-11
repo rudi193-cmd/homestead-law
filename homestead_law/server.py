@@ -995,6 +995,7 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
 
     from homestead.keep import paths
     from homestead.keep.egress import EgressRefused
+    from homestead.keep.logs import IntegritySealError
     from homestead.keep.rungs import Disposition, derived_of
     from homestead.keep.store import InvalidKey, RecordExists
     from homestead.keep.sync import AlreadyDelivered, UnnamedScope
@@ -1025,9 +1026,36 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
 
     # Decision 5: Preview holds the composed Envelope in memory, keyed by
     # its own envelope_id, so Send delivers exactly the object shown —
-    # time.monotonic() so a test can patch the clock directly.
+    # time.monotonic() so a test can patch the clock directly. The resolved
+    # destination is held with it: resolving again at Send time let a
+    # `fleet.url` written in between turn a previewed FILE drop into a POST
+    # (this bite's audit). Held in this process only — a restart drops every
+    # preview, and Send then answers "no preview on file", which is the
+    # right answer: the envelope a restarted process would recompose is not
+    # the one the operator was shown.
     _SYNC_TTL_SECONDS = 600
-    _sync_previews: dict[str, tuple[object, float]] = {}
+    #: At most this many previews are held at once, oldest evicted. A
+    #: preview costs one whole composed envelope in memory and is only ever
+    #: wanted by the tab that just asked for it, so a page (or a script)
+    #: clicking Preview in a loop must not be able to grow this without
+    #: bound. Eight is far more than one operator's tab has open at once and
+    #: small enough that the ceiling is the memory of eight envelopes.
+    _SYNC_MAX_PREVIEWS = 8
+    _sync_previews: dict[str, tuple[object, float, object, object, str]] = {}
+
+    def _hold_preview(envelope, expires_at, dest_url, dest_dir, shown):
+        """Record one preview, dropping expired ones first and then the
+        oldest until the cap holds. `dict` preserves insertion order, so
+        "oldest" is the front of it; re-previewing an id already held
+        refreshes it in place rather than adding a second entry."""
+        now = time.monotonic()
+        for held in [k for k, v in _sync_previews.items() if now >= v[1]]:
+            del _sync_previews[held]
+        _sync_previews.pop(envelope.envelope_id, None)
+        while len(_sync_previews) >= _SYNC_MAX_PREVIEWS:
+            del _sync_previews[next(iter(_sync_previews))]
+        _sync_previews[envelope.envelope_id] = (
+            envelope, expires_at, dest_url, dest_dir, shown)
 
     class _H(http.server.BaseHTTPRequestHandler):
 
@@ -1327,14 +1355,16 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
 
         def _get_sync_options(self):
             """`GET /api/sync/options` — the registry's own matters, and every
-            item type a sync scope could name (each pack's field names, plus
-            `"deadline"`, which every matter may hold) — for the Sync tab's
+            item type a sync scope could name — for the Sync tab's
             checkboxes. Live off the registry (I-23), never a literal list
-            kept on this page."""
-            types: set[str] = {"deadline"}
-            for name in all_matters():
-                types.update(matter(name).fields)
-            self._json({"matters": list(all_matters()), "item_types": sorted(types)})
+            kept on this page, and read through `sync.item_types_for()`, the
+            same answer `scope_from` refuses an unknown `--types` against,
+            so the page cannot offer a box the scope would then decline."""
+            matters = list(all_matters())
+            self._json({
+                "matters": matters,
+                "item_types": sorted(law_sync.item_types_for(matters)),
+            })
 
         # ── POST ──────────────────────────────────────────────────────
 
@@ -1733,8 +1763,20 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
                 return self._json({"ok": False, "error": str(exc)}, 400)
 
             envelope = law_sync.preview(sidecar, scope)
-            expires_at = time.monotonic() + _SYNC_TTL_SECONDS
-            _sync_previews[envelope.envelope_id] = (envelope, expires_at)
+            if envelope.count == 0:
+                # Refused here rather than held: a preview of nothing is not
+                # an act to offer a Send button for (law_sync.NothingToSync).
+                return self._json({
+                    "ok": False,
+                    "error": "nothing to sync: this scope composed 0 rows",
+                }, 400)
+            # Resolved once, held with the envelope, and handed back to
+            # `send_to()` unchanged — see `_sync_previews`.
+            dest_url, dest_dir = law_sync.resolve_destination()
+            shown = law_sync.describe_destination(
+                envelope.envelope_id, dest_url=dest_url, dest_dir=dest_dir)
+            _hold_preview(envelope, time.monotonic() + _SYNC_TTL_SECONDS,
+                          dest_url, dest_dir, shown)
 
             self._json({
                 "ok": True,
@@ -1743,9 +1785,7 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
                 "ceiling": scope.ceiling.value,
                 "matters": list(scope.matters),
                 "head": envelope.head,
-                "destination_preview": law_sync.preview_destination(
-                    envelope.envelope_id
-                ),
+                "destination_preview": shown,
             })
 
         def _post_sync_send(self, body):
@@ -1765,7 +1805,7 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
                     {"ok": False, "error": "no preview on file for this envelope_id"},
                     404,
                 )
-            envelope, expires_at = entry
+            envelope, expires_at, dest_url, dest_dir, shown = entry
             # Single-use the moment Send is called, success or not: a second
             # Send of this id — racing or repeated — finds nothing here and is
             # refused above, rather than either re-delivering or silently
@@ -1777,15 +1817,26 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
                     410,
                 )
 
-            def confirm(wire):
-                return True
-
+            # The click is the confirm — of *this* preview. `confirm_exactly`
+            # declines any Wire that is not the envelope and the destination
+            # the operator was shown; a callback that just returned True
+            # would be an ambient permission, and shipped a previewed FILE
+            # drop to a URL that appeared in between (this bite's audit).
             try:
-                receipt = law_sync.send(envelope, confirm=confirm)
+                receipt = law_sync.send_to(
+                    envelope, dest_url=dest_url, dest_dir=dest_dir,
+                    confirm=law_sync.confirm_exactly(envelope, shown),
+                )
+            # No `NothingToSync` arm: `_post_sync_preview` refuses a zero-row
+            # scope before a preview is ever held, so an envelope that
+            # reaches here has rows. `send_to()` is still the enforcer — the
+            # refusal is stated once, where every caller passes.
             except AlreadyDelivered as exc:
                 return self._json({"ok": False, "error": str(exc)}, 409)
             except EgressRefused as exc:
                 return self._json({"ok": False, "error": str(exc)}, 502)
+            except IntegritySealError as exc:
+                return self._json({"ok": False, "error": str(exc)}, 503)
 
             self._json({
                 "ok": True,
