@@ -149,7 +149,13 @@ homestead-law show custody child.name primary.c1     # the detail pane, that chi
 ```
 
 `--sub` on any other custody field is refused by name (not declared
-`REPEATABLE`).
+`REPEATABLE`) — and a `REPEATABLE` field written *without* one is refused too,
+because it would otherwise land in the instance's single slot, where the
+second child overwrites the first. `REPEATABLE` holds **field names**, not a
+concept: `child.name`, `child.dob`, `child.school`, each a field the pack
+declares, because both guards that read it (`cli._cmd_put` and
+`registry._validate`) compare a member against the field string a `put`
+actually names.
 
 `GET /api/instances?matter=` and `POST /api/matter/open` are the browser UI's
 doors onto the same two functions; `/api/store` and `/api/deadline` accept
@@ -179,23 +185,33 @@ docstring — `diagnosis`, `notes`, `ssn`), the relocation bite (wave 3) adds:
 **What the app can compute, and what the operator enters.** Deadline
 *templates* are declared as data (`custody.TEMPLATES`) for a parallel bite's
 engine-backed `rules.py` to read and compute from — this module does not
-compute a date itself (I-2: one door). Today:
+compute a date itself (I-2: one door). Every row anchors on an **L1** field
+(the anchor is named in refusals, and only a public-in-this-forum rung
+survives that), carries a **name that is a legal sub-id** (`--accept` files
+the result at `"<instance>.<template>"`), and carries a name that is
+**unique in the pack** (a template is found by name; the jurisdiction belongs
+to the instance). Today:
 
-* **NM registration contest** — 20 court days forward from
-  `uccjea_registration_date`, `VERIFIED` against secondary restatements
-  (NMSA 1978 § 40-10A-305(b); the primary text is blocked from this build —
-  see the pack's own `PROVENANCE` note).
-* **OR registration contest** — 20 vs 21 days is `UNCERTAIN`; the operator
-  enters the date from the court's own notice.
-* **OR relocation notice** — ORS 107.159 says only "reasonable notice", no
-  fixed day count; `UNCERTAIN`, the operator enters the date. There is no NM
-  relocation-notice template — nothing in New Mexico's own forum needs one
-  once the family has moved.
+* **`nm-registration-contest`** — 20 days forward from
+  `uccjea_registration_date`, `VERIFIED` (NMSA 1978 § 40-10A-305). The
+  primary text is blocked from this build, so the row's `source` carries a
+  dated `PROVENANCE` sentence naming the hosts that were refused and the
+  converging restatements read instead. A pinpoint subsection is deliberately
+  not cited: it could not be confirmed from here.
+* **`or-registration-contest`** — `UNCERTAIN`. Secondary sources say 21 days
+  (ORS 109.787) and 21 is what the row carries, but the uniform section and
+  every other state enactment read here say 20, and the primary is unread. The
+  operator enters the date from the court's own notice.
+* **No relocation-notice template, in either forum.** New Mexico has none, and
+  Oregon's (ORS 107.159) requires "reasonable notice" without fixing a day
+  count — there is no period to count. The date notice was actually given is
+  **entered, not computed**, as the `relocation_notice_date` field.
 
-An `UNCERTAIN` template is a documented refusal, never a guess: the app will
-not compute a date it cannot stand behind, so the operator's own read of the
-court's notice is what actually goes on file, at the rung `deadline` was
-always given at (L1 by default).
+An `UNCERTAIN` template is a documented refusal, never a guess, and a missing
+template is the same refusal in its strongest form: the app will not compute a
+date it cannot stand behind, so the operator's own read of the court's notice
+is what goes on file, at the rung `deadline` was always given at (L1 by
+default).
 
 ## What is enforced here today
 

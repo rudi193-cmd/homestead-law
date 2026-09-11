@@ -286,3 +286,31 @@ def test_child_name_is_struck_through_never_deleted():
     assert custody.FIELDS["child_name"] is Rung.L4
     assert "~~`child_name`~~" in custody.__doc__
     assert "2026-09-11" in custody.__doc__
+
+
+def test_child_name_and_child_dot_name_both_exist_until_l4_surfaces_retires_it():
+    """The retirement of `child_name` is a *visible, tested* change, not a
+    quiet one (audit, 2026-09-11).
+
+    `child_name` is superseded by the repeatable `child.name` and struck
+    through in the pack's prose, but it is still live: `cli.py`'s
+    `party_fields`, `server.py`'s intake form and `app/demo.py` all address
+    it. This test holds **both** on file at L4 for as long as that is true.
+    The bite that retires the field is L4-surfaces (wave 4) — the bite that
+    already rewrites every door naming it — and this assertion is what that
+    bite will have to come here and change, deliberately, rather than
+    discovering afterwards that a door went quiet.
+    """
+    assert custody.FIELDS["child_name"] is Rung.L4
+    assert custody.FIELDS["child.name"] is Rung.L4
+    assert custody.SCHEMA["child_name"]["derived"] == "A minor child is named in this matter"
+    assert custody.SCHEMA["child.name"]["derived"] == "A child's name is on file"
+    # `child_name` is NOT repeatable: it is the singular field being retired,
+    # so it keeps taking no `--sub` right up until it goes.
+    assert "child_name" not in custody.REPEATABLE
+    assert "child.name" in custody.REPEATABLE
+
+    # the strike-through names the bite that retires it, and is dated.
+    why = custody.SCHEMA["child_name"]["why"]
+    assert "~~Superseded 2026-09-11 by the repeatable `child.name`~~" in why
+    assert "L4-surfaces" in why
