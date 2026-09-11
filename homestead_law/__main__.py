@@ -45,6 +45,8 @@ commands (real data, in the household root — $HOMESTEAD_HOME or ~/.homestead):
   show         show [matter] [item [id]] [--id inst] [--sub sub] — read records back, through the gate
   matter       matter open <matter> --id inst --jurisdiction code [--replace] — open an instance
   queue        queue [--today YYYY-MM-DD] — what's due
+  sync         sync --matters a,b --ceiling L1|L2|L3|L4 [--types t1,t2] [--url URL]
+               [--init-household] — copy a consented scope to the fleet
   ui           ui [--port N] — entry forms, intake and dashboard in the browser
 
   an id (--id/--sub, or matter open's --id) is a label, never a name: it is
@@ -60,7 +62,7 @@ commands that need the `entity` extra (pip install 'homestead-law[entity]'):
 
 _CLI_COMMANDS = {
     "resolve", "propose", "orders", "put", "deadline", "show", "matter",
-    "queue", "verify", "ui",
+    "queue", "sync", "verify", "ui",
 }
 
 
@@ -92,6 +94,7 @@ def main(argv: list[str] | None = None) -> int:
             rules,
             server,
             store,
+            sync,
         )
         from homestead_law.app import advisories, cover, demo, panes, view, window  # noqa: F401
         from homestead_law.packs import custody  # noqa: F401
