@@ -62,10 +62,18 @@ __all__ = ["SIGNAL_FIELDS", "flag"]
 #: arrived even on a grant record silent about the amount); `disbursement.
 #: expected` and `disbursement.account_label` are scheduling and a ledger
 #: reference, neither one itself new income or an asset.
+#:
+#: **One entry per line, sorted.** Two Wave 8 bites add producers to this one
+#: literal in parallel; a packed line is a merge conflict inside a line,
+#: while a sorted one-per-line set merges as a plain union.
 SIGNAL_FIELDS: frozenset[str] = frozenset(
     {
-        "award_amount", "disbursement.amount", "disbursement.received",
-        "safe", "equity_grant", "revenue_start",
+        "award_amount",
+        "disbursement.amount",
+        "disbursement.received",
+        "equity_grant",
+        "revenue_start",
+        "safe",
     }
 )
 

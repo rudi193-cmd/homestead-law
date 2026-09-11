@@ -19,24 +19,45 @@ it names no forum this pack ever counts a day against.
 
 ## The rung ladder, read for a matter with no court
 
-Every other pack's `L1` fields lean on step 1 of the five-step procedure —
-"public in this matter's forum" — because their forum is a court whose
-docket and calendar are posted. A grant's forum is the funder's own file,
-which is not posted anywhere; step 1 cannot answer yes for a fact no one
-publishes. This pack's `L1` dates are administrative timeline facts of the
-application/award itself instead — a submission deadline, a decision date, a
-disbursement's expected date — each entered verbatim off the funder's
-notice, resolving to no one specific person (step 2 no: a date resolves to
-the *application*, not to a party) and carrying no protected category of its
-own (step 3 no). That is the same "step 2/3 no" reasoning `custody.py` gives
-`new_residence_state` (`L2`, a coarse household fact); the one difference
-here is that a bare calendar date, unlike a destination state, is not even a
-household-*content* fact — it is pure scheduling, the smallest thing this
-model classifies, so it sits at `L1` rather than `L2`. `program`, `status`
-and `report.period`/`report.kind`/`disbursement.account_label` are the
-household-content-but-still-unattributed fields (a label, a state, a
-reference), and those *are* `L2` on exactly `new_residence_state`'s
-reasoning.
+`L1` is not "the smallest fact"; it is **public in this matter's forum**
+(step 1), and this matter has no forum. A funder's file is posted nowhere,
+so step 1 answers no for everything here except `jurisdiction`, whose value
+is a constant of this pack rather than a fact about the household. The dates
+are no exception, and this is the audit's own correction to an earlier draft
+of this pack that read them as "bare administrative timeline" facts and put
+them at `L1` (2026-09-11): a submission deadline, a decision date, an award
+date and an award period are facts about the household's finances known to
+the funder and the household, and each *reveals that an application or an
+award exists* the moment it renders — "a decision is due 2027-03-01" says an
+application is pending. An entered date that reveals an application or an
+award is at least `L2`.
+
+Two packs in this repo already drew that line. `custody.py`'s `move_date` is
+not `L1` on the sentence "nothing makes a family's moving date public in
+this forum on its own" — a fact the household may eventually tell a court is
+not thereby published. And the ledger's money table puts a transaction's
+posting `date` at `L2`, *explicitly not* `L1`, for the same reason, while
+its `amount` climbs past it. A grant's dates take the ledger's posture
+rather than `move_date`'s `L3`, because they resolve to no one person
+(step 2 no) and carry no category of their own (step 3 no): they land on
+`new_residence_state`'s rung by `new_residence_state`'s reasoning, which is
+where `program`, `status`, `report.period`/`report.kind` and
+`disbursement.account_label` already sat.
+
+**`award_date` and `award_period_*` are `L2`, not `L3`, though they sit
+beside `award_amount` at `L3`.** Adjacency does not raise a rung —
+composition is `max` over a *record* (I-12) and each of these is its own
+record — so step 2 decides it: the amount is the household's financial
+substance, the date says only when the process moved. That is the line the
+ledger already holds between a transaction's `date` and its `amount`, and
+`disbursement.received` sits on the same side of it.
+
+Two consequences, both deliberate. A template's `anchor` must be `L1`, so
+with no `L1` date here a `TEMPLATES` row cannot be added without first
+re-arguing a rung in this docstring — the plan's "no computed deadlines"
+made structural. And nothing on any surface moves, because every ceiling in
+the crossing table is `L2` or higher; what changes is that the pack no
+longer calls a household's private calendar a public record.
 
 Money and names resolve to a party or to the household's finances (step 2
 yes) without carrying a protected category of their own (step 3 no) — the
@@ -129,52 +150,65 @@ SCHEMA: dict[str, dict[str, Any]] = {
         Rung.L1,
         "a placeholder forum (see the module docstring); the value is one "
         "of JURISDICTIONS, held only so decision 1's per-instance contract "
-        "has something to read (step 5) — this pack computes no date under "
-        "it (step 1 does not apply: a grant has no court).",
+        "has something to read (step 5). The one field here that is not a "
+        "fact about the household at all — a constant of this pack — which "
+        "is why it, alone, stays at the rung step 1 would have given it; "
+        "this pack computes no date under it (a grant has no court).",
     ),
-    # ── L1 — the application/award's own administrative timeline ────────────
+    # ── L2 — the application/award's own timeline. Household content: each
+    #        date reveals that an application or an award exists, resolves to
+    #        no one person (step 2 no), carries no category (step 3 no), and
+    #        is published by no forum (step 1 no → not L1). See the module
+    #        docstring's ladder section for the full ruling. ──────────────────
     "backing_agreed_date": _field(
-        Rung.L1,
-        "the date a backer agreed to support this application — a bare "
-        "scheduling fact of the application's own record, resolving to no "
-        "one specific person (step 2 no) and carrying no category of its "
-        "own (step 3 no); entered from the backer's own correspondence.",
+        Rung.L2,
+        "the date a backer agreed to support this application — its "
+        "presence says a backed application exists, which is household "
+        "content; it resolves to no one person by itself (step 2 no: the "
+        "backer is named by `backer`, at L3) and carries no category "
+        "(step 3 no). Entered from the backer's own correspondence, "
+        "published by no forum (step 1 no).",
     ),
     "submission_deadline": _field(
-        Rung.L1,
-        "the funder's own stated deadline — the anchor every date on this "
-        "matter is entered against (there is no TEMPLATES row here to "
-        "compute one: see the module docstring). A bare date, resolving to "
-        "no one person (step 2 no), no category (step 3 no).",
+        Rung.L2,
+        "the funder's own stated deadline — the date every other date on "
+        "this matter is read against (there is no TEMPLATES row here to "
+        "compute one, and at L2 there could not be: see the module "
+        "docstring). Its presence says an application is in hand, which is "
+        "household content; step 2 no, step 3 no, and no forum publishes a "
+        "funder's calendar (step 1 no).",
     ),
     "submitted_date": _field(
-        Rung.L1,
-        "when the application was actually sent — the same administrative-"
-        "timeline posture as submission_deadline (step 2/3 no).",
+        Rung.L2,
+        "when the application was actually sent — the same posture as "
+        "submission_deadline (step 1/2/3 no), and it reveals one step more: "
+        "that the application went out.",
     ),
     "decision_date": _field(
-        Rung.L1,
-        "when the funder's decision was received — administrative timeline "
-        "(step 2/3 no), the same posture as submitted_date.",
+        Rung.L2,
+        "when the funder's decision is due or was received — the same "
+        "posture as submitted_date (step 1/2/3 no); a decision date on file "
+        "says an application is pending, which is why it is not L1.",
     ),
     "award_date": _field(
-        Rung.L1,
-        "when an award was made — administrative timeline (step 2/3 no), "
-        "the same posture as decision_date.",
+        Rung.L2,
+        "when an award was made. L2 rather than L3 beside award_amount: the "
+        "amount is the household's financial substance (step 2 yes), the "
+        "date says only when the process moved — the ledger's own line "
+        "between a transaction's date (L2) and its amount (see the module "
+        "docstring). Step 3 no; no forum publishes it (step 1 no).",
     ),
     "award_period_start": _field(
-        Rung.L1,
-        "the award's own start date, stated in the award letter — "
-        "administrative timeline (step 2/3 no).",
+        Rung.L2,
+        "the award's own start date, stated in the award letter — the same "
+        "posture as award_date (step 1/2/3 no).",
     ),
     "award_period_end": _field(
-        Rung.L1,
-        "the award's own end date, stated in the award letter — "
-        "administrative timeline (step 2/3 no), same posture as "
-        "award_period_start.",
+        Rung.L2,
+        "the award's own end date, stated in the award letter — same "
+        "posture as award_period_start (step 1/2/3 no).",
     ),
-    # ── L2 — household-content, unattributed, no category (decision: the
-    #        same reasoning custody's new_residence_state gives) ────────────
+    # ── L2 — the labels, on the same reasoning as the dates above ─────────
     "program": _field(
         Rung.L2,
         "the funder's program name is a household-content label that does "
@@ -272,15 +306,14 @@ SCHEMA: dict[str, dict[str, Any]] = {
         derived="A milestone is on file",
     ),
     "milestone.due": _field(
-        Rung.L1,
-        "a milestone's due date — administrative timeline (step 2/3 no), "
-        "entered from the award terms, the same posture as "
-        "submission_deadline.",
+        Rung.L2,
+        "a milestone's due date, entered from the award terms — the same "
+        "posture as submission_deadline (step 1/2/3 no).",
     ),
     "milestone.done": _field(
-        Rung.L1,
-        "the date a milestone was completed — administrative timeline "
-        "(step 2/3 no), same posture as milestone.due.",
+        Rung.L2,
+        "the date a milestone was completed — same posture as milestone.due "
+        "(step 1/2/3 no).",
     ),
     # ── repeatable: report (decision 2) ──────────────────────────────────────
     "report.period": _field(
@@ -290,15 +323,14 @@ SCHEMA: dict[str, dict[str, Any]] = {
         "same posture as program.",
     ),
     "report.due": _field(
-        Rung.L1,
-        "a report's due date — administrative timeline (step 2/3 no), "
-        "entered from the award terms.",
+        Rung.L2,
+        "a report's due date, entered from the award terms — same posture "
+        "as milestone.due (step 1/2/3 no).",
     ),
     "report.submitted": _field(
-        Rung.L1,
-        "the date a report was actually filed with the funder — "
-        "administrative timeline (step 2/3 no), same posture as "
-        "report.due.",
+        Rung.L2,
+        "the date a report actually went to the funder — same posture as "
+        "report.due (step 1/2/3 no).",
     ),
     "report.kind": _field(
         Rung.L2,
@@ -308,9 +340,9 @@ SCHEMA: dict[str, dict[str, Any]] = {
     ),
     # ── repeatable: disbursement (decision 2) ────────────────────────────────
     "disbursement.expected": _field(
-        Rung.L1,
-        "a tranche's expected date, stated in the award terms — "
-        "administrative timeline (step 2/3 no).",
+        Rung.L2,
+        "a tranche's expected date, stated in the award terms — same "
+        "posture as award_date (step 1/2/3 no).",
     ),
     "disbursement.amount": _field(
         Rung.L3,
@@ -322,12 +354,15 @@ SCHEMA: dict[str, dict[str, Any]] = {
         derived="A disbursement amount is on file",
     ),
     "disbursement.received": _field(
-        Rung.L1,
-        "the date a tranche actually arrived — administrative timeline "
-        "(step 2/3 no), same posture as disbursement.expected. One of "
-        "homestead_law.plan_period.SIGNAL_FIELDS: an award can be entirely "
-        "silent on disbursement.amount and still mark an asset having "
-        "arrived, so this field carries the signal on its own too.",
+        Rung.L2,
+        "the date a tranche actually arrived — a posting date, and L2 for "
+        "the reason the ledger's own posting date is: what arrived is "
+        "disbursement.amount, at L3 (step 2 no here, step 3 no, step 1 no). "
+        "One of homestead_law.plan_period.SIGNAL_FIELDS: an award can be "
+        "entirely silent on disbursement.amount and still mark an asset "
+        "having arrived, so this field carries the signal on its own too — "
+        "and its rung does not decide that, because the consumer counts a "
+        "record that renders *or* derives.",
     ),
     "disbursement.account_label": _field(
         Rung.L2,
@@ -443,9 +478,10 @@ def validate_value(field: str, value: object) -> None:
 # the module docstring); every date on this pack is entered from the
 # funder's own notice, never derived. The shape check still runs at import
 # — the same posture `workers_comp.py` takes for its own empty TEMPLATES —
-# so the day a row IS added here (a future funder that does state a counted
-# period) it is held to the contract from the first commit, not merely by
-# habit.
+# so a row added here later is held to the contract from its first commit
+# rather than by habit — and, after the audit's rung ruling, is refused
+# outright until a date's rung is re-argued (the docstring's ladder
+# section: the only `L1` field left is `jurisdiction`).
 
 _TEMPLATE_KEYS = frozenset(
     {"name", "anchor", "days", "direction", "rule", "mail",
@@ -519,9 +555,10 @@ def _check_templates(
 
 #: Empty — a grant has no court and no procedural code to count a period
 #: under; every date is entered from the funder's own notice (see the
-#: module docstring). Not an omission: `_check_templates` still runs, so a
-#: row added later is held to the shape and the L1-anchor rule from its
-#: first commit.
+#: module docstring). Not an omission: `_check_templates` still runs, and
+#: `tests/test_grant.py` plants a row against a copy of this module to
+#: prove it — a check that has never fired has not been shown to check
+#: anything.
 TEMPLATES: tuple[dict[str, Any], ...] = ()
 
 _check_templates(SCHEMA, FIELDS, JURISDICTIONS, TEMPLATES)
