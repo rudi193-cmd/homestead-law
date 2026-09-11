@@ -65,6 +65,18 @@ def test_the_pack_spans_the_ladder_with_defensible_rungs():
         "diagnosis": Rung.L4,        # a medical category attached to a person
         "notes": Rung.L4,            # free operator text; routinely carries a protected category (F-4)
         "ssn": Rung.L5,              # sealed / key material — L5 has no override
+        # ── L3-custody-relocation (wave 3) ──────────────────────────────────
+        "custody_order_date": Rung.L1,          # a fact of the court record
+        "uccjea_registration_date": Rung.L1,    # a fact of the receiving forum's record
+        "registration_contest_deadline": Rung.L1,  # posted on the court calendar
+        "mediation_date": Rung.L1,              # posted on the court calendar
+        "new_residence_state": Rung.L2,         # a household-level fact, no identity
+        "custody_type": Rung.L3,                # resolves to the family's arrangement
+        "move_date": Rung.L3,                   # resolves to the family's whereabouts
+        "relocation_notice_date": Rung.L3,      # resolves to the other parent
+        "child.name": Rung.L4,                  # a minor's name, per child (repeatable)
+        "child.dob": Rung.L4,                   # a minor's date of birth, per child
+        "child.school": Rung.L4,                # a minor's school, per child
     }
     assert custody.FIELDS == expected
 
@@ -139,7 +151,11 @@ def test_every_l3_l4_custody_field_declares_its_derived_form_in_the_pack():
                 "sentence in the pack"
             )
             checked += 1
-    assert checked == 4 + 3, "expected custody's four L3 + three L4 fields"
+    assert checked == 7 + 6, (
+        "expected custody's seven L3 + six L4 fields (L3-custody-relocation "
+        "added custody_type/move_date/relocation_notice_date at L3 and "
+        "child.name/child.dob/child.school at L4)"
+    )
 
 
 def test_derived_forms_match_the_engine_pack_where_the_field_exists():
@@ -177,3 +193,96 @@ def test_every_why_names_a_step():
     for field, spec in custody.SCHEMA.items():
         why = spec.get("why", "")
         assert step.search(why), f"{field}'s why never names a step: {why!r}"
+
+
+# ── L3-custody-relocation (wave 3) ────────────────────────────────────────────
+
+#: field → (rung, exact derived sentence) for every L3/L4 field this bite adds.
+#: A dedicated table, not folded into the generic scans above, so this bite's
+#: own exit criterion is pinned by name and does not silently ride on a
+#: generic assertion whose wording could change for an unrelated reason.
+_NEW_L3_L4_FIELDS = {
+    "custody_type": (Rung.L3, "A custody arrangement type is on file"),
+    "move_date": (Rung.L3, "A move date is on file"),
+    "relocation_notice_date": (Rung.L3, "A relocation notice date is on file"),
+    "child.name": (Rung.L4, "A child's name is on file"),
+    "child.dob": (Rung.L4, "A child's date of birth is on file"),
+    "child.school": (Rung.L4, "A school is on file"),
+}
+
+#: field → rung for the new L1/L2 fields — none of which carries (or needs) a
+#: derived form.
+_NEW_L1_L2_FIELDS = {
+    "custody_order_date": Rung.L1,
+    "uccjea_registration_date": Rung.L1,
+    "registration_contest_deadline": Rung.L1,
+    "mediation_date": Rung.L1,
+    "new_residence_state": Rung.L2,
+}
+
+
+def test_the_relocation_l3_l4_fields_declare_their_rung_and_derived_form():
+    """Every field this bite adds at L3/L4: the rung matches the plan
+    exactly, the derived sentence matches exactly (not merely "is present"),
+    and the sentence carries no digit — a schema-level stand-in is one
+    sentence for every instance of the field (I-12's composition rule
+    extended to text), so anything that varies with the value would be false
+    for some records or would restate the value it exists to withhold."""
+    for field, (rung, derived) in _NEW_L3_L4_FIELDS.items():
+        assert custody.FIELDS[field] is rung, field
+        assert custody.SCHEMA[field].get("derived") == derived, field
+        assert not any(ch.isdigit() for ch in derived), (
+            f"{field}'s derived form carries a digit: {derived!r}"
+        )
+
+
+def test_the_relocation_l1_l2_fields_declare_their_rung_and_no_derived_form():
+    """L1/L2 fields render their own payload on `S1_LIST` (decision 3 only
+    requires a stand-in for L3/L4), so none of these carries one — a `derived`
+    key here would be dead text nothing ever substitutes."""
+    for field, rung in _NEW_L1_L2_FIELDS.items():
+        assert custody.FIELDS[field] is rung, field
+        assert custody.SCHEMA[field].get("derived") is None, field
+
+
+def test_every_new_field_is_in_the_pinned_rung_tables():
+    """The two tables above account for every field `test_the_pack_spans_the
+    _ladder_with_defensible_rungs`'s `expected` dict grew by relative to the
+    pre-relocation pack — so a field added to one and not exercised here
+    cannot happen silently."""
+    pre_relocation = {
+        "courthouse", "hearing_date", "jurisdiction", "case_number", "docket",
+        "opposing_party", "parenting_time", "child_name", "diagnosis",
+        "notes", "ssn",
+    }
+    added = set(custody.SCHEMA) - pre_relocation
+    assert added == set(_NEW_L3_L4_FIELDS) | set(_NEW_L1_L2_FIELDS)
+
+
+def test_repeatable_names_the_three_child_subfields():
+    """Decision 2's `REPEATABLE`, held to the exact set — see the module
+    docstring's "The relocation" section for why the three dotted field names
+    are what is declared, rather than the bare word `"child"`: `cli._cmd_put`
+    and the registry's own `unknown_repeatable` guard both check a member
+    against the literal field string a `put` call names, and there is no bare
+    `"child"` field for either to match."""
+    assert custody.REPEATABLE == frozenset(
+        {"child.name", "child.dob", "child.school"}
+    )
+    for field in custody.REPEATABLE:
+        assert field in custody.FIELDS, field
+        assert field.startswith("child."), field
+        assert custody.FIELDS[field] is Rung.L4, field
+
+
+def test_child_name_is_struck_through_never_deleted():
+    """House style: struck through, never deleted. The old flat `child_name`
+    field is documented as superseded in the module docstring (dated
+    2026-09-11) but stays a real, classified field — `cli.py`'s
+    `party_fields`, `server.py`'s intake form and the existing regression
+    suite all still address it, and this bite does not touch any of those
+    files (out of scope; see the docstring's own account of why)."""
+    assert "child_name" in custody.SCHEMA
+    assert custody.FIELDS["child_name"] is Rung.L4
+    assert "~~`child_name`~~" in custody.__doc__
+    assert "2026-09-11" in custody.__doc__

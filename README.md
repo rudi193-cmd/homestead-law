@@ -137,13 +137,65 @@ to make it (they are a later bite).
 
 A pack may also declare `REPEATABLE` — field names that accept a `--sub`
 (a repeatable sub-record, e.g. a child of a custody matter). Custody declares
-none yet; `--sub` on any of its fields is refused by name.
+three — `child.name`, `child.dob`, `child.school` — one record per child per
+field, so a second child does not overwrite the first the way the older,
+singular `child_name` field always could:
+
+```bash
+homestead-law put custody child.name "Alex Rivera" --id primary --sub c1
+homestead-law put custody child.dob 2016-03-02 --id primary --sub c1
+homestead-law put custody child.name "Robin Rivera" --id primary --sub c2
+homestead-law show custody child.name primary.c1     # the detail pane, that child only
+```
+
+`--sub` on any other custody field is refused by name (not declared
+`REPEATABLE`).
 
 `GET /api/instances?matter=` and `POST /api/matter/open` are the browser UI's
 doors onto the same two functions; `/api/store` and `/api/deadline` accept
 `id`/`sub` alongside the existing fields. The page's own forms do not yet
 offer an instance picker — that UI wiring is left to a later (surfaces) bite;
 today they always write the `primary` instance, exactly as before this one.
+
+## The custody matter — fields, and what a deadline needs
+
+Beyond the original set (`courthouse`, `hearing_date`, `jurisdiction`,
+`case_number`, `docket`, `opposing_party`, `parenting_time`, `child_name`
+— kept, struck through, see `homestead_law/packs/custody.py`'s module
+docstring — `diagnosis`, `notes`, `ssn`), the relocation bite (wave 3) adds:
+
+| field | rung | what it is |
+|---|---|---|
+| `custody_order_date` | L1 | the date the underlying order was entered |
+| `uccjea_registration_date` | L1 | the date the order was registered with the receiving forum |
+| `registration_contest_deadline` | L1 | the deadline to contest that registration |
+| `mediation_date` | L1 | a court-ordered mediation session's date |
+| `new_residence_state` | L2 | the destination state (household-level, no identity) |
+| `custody_type` | L3 | sole / joint / legal / physical — the arrangement's shape |
+| `move_date` | L3 | the date of the household's relocation |
+| `relocation_notice_date` | L3 | the date notice of the move was given to the other parent |
+| `child.name` / `child.dob` / `child.school` | L4 each | repeatable, one record per child per field (`--sub`) |
+
+**What the app can compute, and what the operator enters.** Deadline
+*templates* are declared as data (`custody.TEMPLATES`) for a parallel bite's
+engine-backed `rules.py` to read and compute from — this module does not
+compute a date itself (I-2: one door). Today:
+
+* **NM registration contest** — 20 court days forward from
+  `uccjea_registration_date`, `VERIFIED` against secondary restatements
+  (NMSA 1978 § 40-10A-305(b); the primary text is blocked from this build —
+  see the pack's own `PROVENANCE` note).
+* **OR registration contest** — 20 vs 21 days is `UNCERTAIN`; the operator
+  enters the date from the court's own notice.
+* **OR relocation notice** — ORS 107.159 says only "reasonable notice", no
+  fixed day count; `UNCERTAIN`, the operator enters the date. There is no NM
+  relocation-notice template — nothing in New Mexico's own forum needs one
+  once the family has moved.
+
+An `UNCERTAIN` template is a documented refusal, never a guess: the app will
+not compute a date it cannot stand behind, so the operator's own read of the
+court's notice is what actually goes on file, at the rung `deadline` was
+always given at (L1 by default).
 
 ## What is enforced here today
 

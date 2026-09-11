@@ -50,6 +50,58 @@ holds the two packs to the same text by comparison, not by promise, so they
 cannot drift the way the CLI's and the browser UI's now-deleted copies of this
 same table already had (both read `homestead.keep.rungs.derived_of(schema,
 field)` instead, as of this bite).
+
+## The relocation (L3-custody-relocation, wave 3)
+
+This bite adds the fields the move itself needs: the custody arrangement and
+its order date, the move and the notice given for it, the new state, and the
+UCCJEA registration/contest/mediation dates — and it repeats one field that
+used to be singular. ~~`child_name`~~ (struck 2026-09-11) assumed one child;
+this household has two. A household with more than one minor could not tell
+`show custody child_name` which child it meant, and a second `put` silently
+overwrote the first — the exact single-slot failure `instances.py`'s
+`item_id(instance, sub)` exists to fix, one level down from matter instances,
+at *sub-records within one instance*. `child_name` is **kept, not deleted**
+(house style: struck through, never removed) — every doorway that already
+names it (`cli.py`'s `party_fields`, `server.py`'s intake form, the existing
+regression tests) is real, in-scope code and coverage this bite does not touch,
+and retiring the field out from under them is a separate, cross-file bite.
+What is new: `child.name`, `child.dob` and `child.school` — one record per
+child per field, addressed by a sub-id (`--sub c1`, `--sub c2`, …) the operator
+composes freely (I-15: a sub-id is a label, never a name) — declared
+`REPEATABLE` so `put`'s `--sub` accepts them and `instances.item_id` composes
+`"<instance>.<sub>"` for the stored key.
+
+**`REPEATABLE` names the three dotted fields, not the bare word `child`.**
+`cli._cmd_put` checks `field not in mt.repeatable` against the *exact* string
+the operator typed as the field (`"child.name"`, not `"child"` — there is no
+CLI syntax that composes a value from three separate field arguments into one
+record the way `homestead_health.doses.add_dose` does from a Python caller),
+so a `REPEATABLE` naming only `"child"` would make every one of `put custody
+child.name … --sub c1` / `child.dob …` / `child.school …` refuse with "not
+declared REPEATABLE" — the door decision 2 exists to open. The registry's own
+guard (`unknown_repeatable = ... if f not in entry.fields`) reads the same
+way: a `"child"` entry would need a bare `"child"` field in `SCHEMA` that
+nothing else here defines. Three flat `L4` fields, each independently
+addressable by sub-id, is what this pack's own write door can actually drive
+end to end.
+
+## Deadline templates as data (L3-deadline-templates, parallel)
+
+`TEMPLATES` is read-only data for the sibling bite's `rules.py` — this pack
+never imports it and never computes a date itself (I-2: arithmetic is the
+engine's, one door). Two of three rows anchor on `uccjea_registration_date`
+(`L1`, public once filed); the third, `relocation_notice`, anchors on
+`move_date`, declared `L3` two sections below — a template whose own `status`
+is `UNCERTAIN` and whose `note` says the operator enters the date by hand, so
+`compute()` never actually reads the anchor's payload for it today. Flagged
+for the orchestrator rather than resolved here: if a future `rules.py` import
+guard requires every anchor to be `L1` unconditionally, this specific row is
+the one to revisit — either `move_date` climbs to `L1` (nothing about "the
+date of a move" is *public in this forum* by itself, so that would need its
+own `why`) or the guard grows an exception for a row whose own data says
+"operator enters this." Not decided here; this bite only declares the row the
+plan specifies, verbatim.
 """
 from __future__ import annotations
 
@@ -57,7 +109,10 @@ from typing import Any
 
 from homestead.keep.rungs import Rung, classify_schema
 
-__all__ = ["MATTER", "JURISDICTION", "JURISDICTIONS", "REPEATABLE", "SCHEMA", "FIELDS"]
+__all__ = [
+    "MATTER", "JURISDICTION", "JURISDICTIONS", "REPEATABLE", "SCHEMA", "FIELDS",
+    "TEMPLATES",
+]
 
 MATTER = "custody"
 JURISDICTION = "US-NM"
@@ -71,10 +126,13 @@ JURISDICTIONS: tuple[str, ...] = ("US-NM", "US-OR")
 
 #: Field names that may carry a sub-id (`homestead_law.instances`, decision 2)
 #: — a repeatable sub-record within one instance, e.g. a child of a custody
-#: matter, one dose per subject. Empty for now: this bite's custody pack has
-#: no repeatable field yet. L3-custody-relocation (Wave 3) is what fills this
-#: in, for `child`.
-REPEATABLE: frozenset[str] = frozenset()
+#: matter, one dose per subject. The three dotted `child.*` fields below, one
+#: per child per field (`--sub c1`, `--sub c2`, …) — see the module docstring's
+#: "The relocation" section for why this names the three fields themselves
+#: rather than the bare word `"child"`: `cli._cmd_put` and the registry's own
+#: `unknown_repeatable` guard both check a `REPEATABLE` member against the
+#: literal field string, and there is no field literally named `"child"`.
+REPEATABLE: frozenset[str] = frozenset({"child.name", "child.dob", "child.school"})
 
 
 def _field(rung: Rung, why: str, *, derived: str | None = None) -> dict[str, Any]:
@@ -176,6 +234,87 @@ SCHEMA: dict[str, dict[str, Any]] = {
         "read is not a note.",
         derived="An operator note is on file",
     ),
+    # ── L3-custody-relocation (wave 3) ───────────────────────────────────────
+    "custody_order_date": _field(
+        Rung.L1,
+        "the date the underlying custody order was entered is a fact of the "
+        "court record, posted alongside the hearing and docket — public in "
+        "this matter's forum (step 1).",
+    ),
+    "uccjea_registration_date": _field(
+        Rung.L1,
+        "the date the order was registered with the receiving forum is a "
+        "fact of that forum's own public court record once filed (step 1).",
+    ),
+    "registration_contest_deadline": _field(
+        Rung.L1,
+        "the deadline to contest a UCCJEA registration is posted on the "
+        "court calendar the same way a hearing date is — public in this "
+        "matter's forum (step 1), the same posture as hearing_date.",
+    ),
+    "mediation_date": _field(
+        Rung.L1,
+        "a court-ordered mediation session's date and time are posted on "
+        "the court calendar alongside the hearing — public in this matter's "
+        "forum (step 1), the same posture as hearing_date.",
+    ),
+    "new_residence_state": _field(
+        Rung.L2,
+        "the destination state is a household-level fact — a coarse "
+        "geography that does not by itself resolve to any one person "
+        "(step 2 no) and carries no protected category, so it stays at the "
+        "household rung rather than climbing to an attributed one.",
+    ),
+    "custody_type": _field(
+        Rung.L3,
+        "the arrangement's shape (sole, joint, legal, physical) resolves to "
+        "the family's parenting structure (step 2 yes) but is not itself a "
+        "protected category (step 3 no) — the same posture parenting_time "
+        "already holds.",
+        derived="A custody arrangement type is on file",
+    ),
+    "move_date": _field(
+        Rung.L3,
+        "the date of the household's relocation resolves to the child's and "
+        "co-parent's whereabouts and schedule (step 2 yes) but is not "
+        "itself a protected category (step 3 no) — the same posture as "
+        "case_number and parenting_time. Not L1 despite being a fact the "
+        "household may eventually tell the court: nothing makes a family's "
+        "moving date public in this forum on its own.",
+        derived="A move date is on file",
+    ),
+    "relocation_notice_date": _field(
+        Rung.L3,
+        "the date notice of the move was given to the other parent resolves "
+        "to that party (step 2 yes) but is not itself a protected category "
+        "(step 3 no) — the same posture as opposing_party and docket.",
+        derived="A relocation notice date is on file",
+    ),
+    "child.name": _field(
+        Rung.L4,
+        "resolves to one specific child (step 2), who is a minor — a "
+        "category the law follows (step 3 yes); the same posture "
+        "~~child_name~~ always carried, now declared per sub-field so a "
+        "second child does not overwrite the first (struck 2026-09-11, see "
+        "the module docstring).",
+        derived="A child's name is on file",
+    ),
+    "child.dob": _field(
+        Rung.L4,
+        "resolves to that same minor (step 2); a birth date attached to a "
+        "minor is itself protected — the identifying detail a "
+        "category-following rule treats as sensitive for a child the same "
+        "way a diagnosis is for a health record (step 3 yes).",
+        derived="A child's date of birth is on file",
+    ),
+    "child.school": _field(
+        Rung.L4,
+        "resolves to that same minor (step 2); the school a child attends "
+        "is safety-sensitive content — a minor's daily location is exactly "
+        "the kind of category-carrying fact notes and diagnosis already "
+        "hold at this rung (step 3 yes).",
+        derived="A school is on file",
+    ),
     "ssn": _field(
         Rung.L5,
         "key material — sealed, and L5 has no override anywhere (step 4). The "
@@ -186,3 +325,20 @@ SCHEMA: dict[str, dict[str, Any]] = {
 #: Classified at import (I-11). This line is the build failure: remove any
 #: field's rung above and the process defining the schema dies, naming the field.
 FIELDS: dict[str, Rung] = classify_schema(SCHEMA)
+
+#: Deadline templates, as data (L3-deadline-templates, parallel bite). Neither
+#: pack imports the other; `rules.py`'s `compute()` reads this tuple and this
+#: pack's `SCHEMA`/`FIELDS`, never the reverse. Every `source` sentence carries
+#: a citation and, where a primary text could not be read from this build, a
+#: dated `PROVENANCE` note saying so (I-2: refuse, never guess) — see the
+#: module docstring's account of what was actually reachable and what a
+#: search engine's secondary restatement corroborated instead. No NM
+#: relocation-notice row: the plan is explicit that New Mexico has none.
+TEMPLATES = (
+    {"name": "registration_contest", "anchor": "uccjea_registration_date", "days": 20,
+     "direction": "forward", "rule": "court_days", "mail": False, "jurisdiction": "US-NM",
+     "source": "NMSA 1978 § 40-10A-305(b): a registered order is confirmed unless contested within 20 days after service of notice. PROVENANCE 2026-09-11: secondary restatements; nmonesource.com blocked from this build.",
+     "status": "VERIFIED", "note": "counted from service of the notice, which is entered as the anchor by the operator"},
+    {"name": "registration_contest", "anchor": "uccjea_registration_date", "days": 21, "direction": "forward", "rule": "court_days", "mail": False, "jurisdiction": "US-OR", "source": "ORS 109.787 / UCCJEA § 305; 20 vs 21 days UNCERTAIN", "status": "UNCERTAIN", "note": "operator enters the date from the notice"},
+    {"name": "relocation_notice", "anchor": "move_date", "days": 60, "direction": "backward", "rule": "court_days_before", "mail": False, "jurisdiction": "US-OR", "source": "ORS 107.159 says reasonable notice; 60 days UNCERTAIN", "status": "UNCERTAIN", "note": "operator enters the date"},
+)
