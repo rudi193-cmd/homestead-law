@@ -124,7 +124,7 @@ def test_matters_lists_every_registered_field_with_its_declared_rung(ui):
     custody = next(m for m in data["matters"] if m["name"] == "custody")
     fields = {f["name"]: f["rung"] for f in custody["fields"]}
     assert fields["courthouse"] == "L1"
-    assert fields["child_name"] == "L4"
+    assert fields["child.name"] == "L4"
     assert fields["ssn"] == "L5"
     assert all(f["why"] for f in custody["fields"])
 
@@ -163,7 +163,8 @@ def test_matters_reports_the_supported_jurisdictions(ui):
 def test_store_then_records_round_trips_through_the_gate(ui):
     status, data = ui.json("/api/store", {"matter": "custody", "field": "courthouse", "value": "Dept 4"})
     assert status == 200 and data == {"ok": True, "rung": "L1", "replaced": False}
-    status, data = ui.json("/api/store", {"matter": "custody", "field": "child_name", "value": "A. Rivera"})
+    status, data = ui.json(
+        "/api/store", {"matter": "custody", "field": "child.name", "value": "A. Rivera", "sub": "c1"})
     assert data["rung"] == "L4"
     status, data = ui.json("/api/store", {"matter": "custody", "field": "ssn", "value": "123-45-6789"})
     assert data["rung"] == "L5"
@@ -171,7 +172,7 @@ def test_store_then_records_round_trips_through_the_gate(ui):
     status, data = ui.json("/api/records?matter=custody")
     rows = {r["item_type"]: r for r in data["rows"]}
     assert rows["courthouse"]["text"] == "Dept 4"
-    assert rows["child_name"]["text"] == "A minor child is named in this matter"  # L4 derived
+    assert rows["child.name"]["text"] == "A child's name is on file"  # L4 derived
     assert "ssn" not in rows                                                       # L5, no row
     assert "123-45-6789" not in json.dumps(data)
     assert "A. Rivera" not in json.dumps(data)
@@ -186,10 +187,10 @@ def test_a_second_store_reports_the_replacement(ui):
 
 
 def test_the_detail_renders_the_l4_and_refuses_the_l5(ui):
-    ui.json("/api/store", {"matter": "custody", "field": "child_name", "value": "A. Rivera"})
+    ui.json("/api/store", {"matter": "custody", "field": "child.name", "value": "A. Rivera", "sub": "c1"})
     ui.json("/api/store", {"matter": "custody", "field": "ssn", "value": "123-45-6789"})
 
-    status, data = ui.json("/api/record?matter=custody&item_type=child_name")
+    status, data = ui.json("/api/record?matter=custody&item_type=child.name&item_id=primary.c1")
     assert status == 200
     assert data["rendered"] is True and data["value"] == "A. Rivera" and data["rung"] == "L4"
 
@@ -301,7 +302,7 @@ def test_instances_never_carries_l3_or_higher_content(ui):
     """The endpoint's own contract: codes only. A field entered under the
     instance must not leak into `/api/instances`, whatever its rung."""
     ui.json("/api/matter/open", {"matter": "custody", "id": "primary", "jurisdiction": "US-NM"})
-    ui.json("/api/store", {"matter": "custody", "field": "child_name", "value": "A. Rivera"})
+    ui.json("/api/store", {"matter": "custody", "field": "child.name", "value": "A. Rivera", "sub": "c1"})
 
     status, data = ui.json("/api/instances?matter=custody")
     assert status == 200
@@ -839,9 +840,9 @@ def test_a_replacement_never_carries_the_previous_value(ui):
     displaced `Classified` — payload and all. The response says *that* something
     was replaced and never what: reaching `replaced.previous` here would put an
     L4 payload into a JSON body that scored nothing."""
-    ui.json("/api/store", {"matter": "custody", "field": "child_name", "value": "A. Rivera"})
+    ui.json("/api/store", {"matter": "custody", "field": "child.name", "value": "A. Rivera", "sub": "c1"})
     status, data = ui.json(
-        "/api/store", {"matter": "custody", "field": "child_name", "value": "B. Okafor"})
+        "/api/store", {"matter": "custody", "field": "child.name", "value": "B. Okafor", "sub": "c1"})
 
     assert status == 200 and data == {"ok": True, "rung": "L4", "replaced": True}
     assert "A. Rivera" not in json.dumps(data)
@@ -1210,7 +1211,10 @@ def test_api_matters_says_which_fields_take_a_sub_id(ui):
     assert flags["child.dob"] is True
     assert flags["child.school"] is True
     assert flags["courthouse"] is False
-    assert flags["child_name"] is False       # the singular field being retired
+    # `child_name` is retired (L9-child-name, 2026-09-11): it is not a field
+    # this pack declares any more, so it does not appear in the field list
+    # at all — not `False`, simply absent.
+    assert "child_name" not in flags
     assert "id=\"rsub\"" in ui.get("/")[1].decode()
 
 
@@ -1247,6 +1251,176 @@ def test_store_accepts_a_repeatable_field_with_a_sub_id(ui):
     ids = {r["item_id"] for r in data["rows"] if r["item_type"] == "child.name"}
     assert ids == {"primary.c1", "primary.c2"}
     assert "Rivera" not in json.dumps(data)       # L4 lists as its stand-in only
+
+
+# ── L9-child-name: the Intake tab's per-item sub-id box ──────────────────────
+#
+# `renderItems()` paints one card per extracted item; the card's field select
+# offers `child.name`, which `/api/store` refuses without a sub id. The box
+# that lets an operator comply is new with this bite, and these are the
+# checks that it is there, wired, and driven by the pack rather than by a
+# copy of the pack's answer kept on the page (I-23).
+
+#: A quoted dotted field name (`'child.name'`) inside a JS function body.
+#: The shape a second copy of `REPEATABLE` would take if one were ever
+#: written onto the page: the sub box's rule is `/api/matters`' own
+#: `repeatable` flag, and a function that decides it from a literal has
+#: stopped reading the registry.
+_JS_FIELD_LITERAL = re.compile(r"""['"][a-z_]+\.[a-z_]+['"]""")
+
+
+def _hardcoded_field_literals(body: str) -> list[str]:
+    """Every quoted dotted field name in one JS function body."""
+    return _JS_FIELD_LITERAL.findall(body)
+
+
+def _js_body(page: str, name: str) -> str:
+    """One top-level JS function's body, by the page's own `\\n}\\n`
+    convention — the same slice `test_every_option_and_datalist_entry_is_
+    built_by_dom_not_innerhtml` already takes."""
+    body = page[page.index("function " + name + "("):]
+    return body[:body.index("\n}\n")]
+
+
+def test_the_hardcoded_field_literal_scan_fires_on_a_planted_literal():
+    """The scan above, shown to catch something before it is trusted to
+    clear anything (the repo's meta-rule, `tests/test_scans_fire.py`)."""
+    planted = "function f(){var f=_matters[m];if(field==='child.name'){show()}}"
+    assert _hardcoded_field_literals(planted) == ["'child.name'"]
+    # …and the real shape — a flag read off the served matter list — does not
+    # fire, or the guard could never be satisfied.
+    assert _hardcoded_field_literals(
+        "function f(){var f=m.fields.filter(function(x){return x.name===field})[0];"
+        "if(f&&f.repeatable){sub.className=''}}"
+    ) == []
+
+
+def test_the_intake_card_carries_a_sub_id_box_wired_to_the_select(ui):
+    """The box exists, starts hidden, and the select that decides it is
+    bound to `toggleItemSub` — without the binding the operator could type a
+    sub id the card would never send, and without the box `child.name` is an
+    option the door refuses with no way to comply."""
+    body = _js_body(ui.get("/")[1].decode(), "renderItems")
+    assert "onchange=\"toggleItemSub('+i+')\"" in body, "the select is not wired"
+    assert "id=\"s'+i+'\"" in body, "the card carries no sub id box"
+    assert "class=\"hide\"" in body, "the sub id box does not start hidden"
+    assert "<option value=\"child.name\">" in body, "the card offers no child.name"
+    assert "child_name" not in body, "the retired singular is still offered"
+
+
+def test_render_items_syncs_every_cards_sub_box_on_paint(ui):
+    """Which option a select lands on by default is an accident of the order
+    they were written; the box's visibility is not allowed to be. So
+    `renderItems` calls `toggleItemSub` for every card it paints, exactly as
+    the Records tab's own boot calls `showRung()` — a box that waits for a
+    `change` the operator may never fire is hidden (or shown) by that
+    accident rather than by `repeatable`."""
+    page = ui.get("/")[1].decode()
+    body = _js_body(page, "renderItems")
+    assert "toggleItemSub(i)" in body, "no card's sub box is synced on paint"
+    assert body.index("innerHTML=html") < body.index("toggleItemSub(i)"), (
+        "the sync runs before the cards exist in the DOM"
+    )
+    assert "showRung();" in page, "the Records tab's own precedent is gone"
+
+
+def test_the_sub_box_rule_is_read_off_the_served_matter_list_not_hardcoded(ui):
+    """I-23 at the Intake tab: `toggleItemSub` and `storeItem` decide the sub
+    box from `_matters` — `/api/matters`' own `repeatable` flag, live off the
+    pack's `REPEATABLE` — and name no field of their own. A page that tested
+    `field==='child.name'` would be a second copy of the registry's answer,
+    and would go stale the day a pack declares a fourth repeatable field."""
+    page = ui.get("/")[1].decode()
+    toggle = _js_body(page, "toggleItemSub")
+    assert "_matters[currentMatter()]" in toggle
+    assert "f.repeatable" in toggle
+    assert _hardcoded_field_literals(toggle) == [], toggle
+
+    store_item = _js_body(page, "storeItem")
+    assert "body.sub=" in store_item, "storeItem does not forward the sub id"
+    assert _hardcoded_field_literals(store_item) == [], store_item
+
+    # and the flag itself is what the server actually serves.
+    status, data = ui.json("/api/matters")
+    custody = next(m for m in data["matters"] if m["name"] == "custody")
+    flags = {f["name"]: f["repeatable"] for f in custody["fields"]}
+    assert flags["child.name"] is True and flags["opposing_party"] is False
+
+
+def test_store_refuses_the_retired_child_name_at_the_browser_door(ui):
+    """I-15 at the third write door (the CLI's twin is
+    `tests/test_custody_templates.py::test_put_child_name_is_now_refused_by_
+    name_naming_the_successor`): the Intake card's `storeItem` posts to
+    `/api/store`, which refuses a field the pack does not declare by *name*,
+    echoes nothing of the value, raises no `KeyError`, and stores nothing."""
+    planted = "A. Rivera, age 8"
+    status, data = ui.json(
+        "/api/store", {"matter": "custody", "field": "child_name", "value": planted})
+    assert status == 400 and data["ok"] is False
+    assert "child_name" in data["error"]
+    assert planted not in json.dumps(data)
+
+    status, records = ui.json("/api/records?matter=custody")
+    assert records["rows"] == []
+
+
+def test_a_pre_bite_child_name_record_opens_on_the_api_as_it_does_on_the_cli(ui):
+    """L9-child-name's migration guarantee, held at the browser door too: a
+    household's pre-bite `("custody", "child_name", "primary")` row is
+    hydrated from the row itself, never from the pack's current `SCHEMA`, so
+    `/api/record` opens it on S1_DETAIL exactly as `show custody child_name`
+    does — 200, rendered, with the payload — while `/api/records` lists only
+    its stored derived form. The two read doors agree; a 404 here against a
+    CLI that still opened it would be the disagreement worth catching."""
+    from homestead.keep.rungs import Classified
+    from homestead_law.store import Sidecar
+
+    planted = "A. Rivera, age 8"
+    Sidecar().put(
+        "custody", "child_name", "primary",
+        Classified(Rung.L4, planted, "A minor child is named in this matter"),
+        overwrite=True,
+    )
+
+    status, data = ui.json("/api/records?matter=custody&id=primary")
+    assert status == 200
+    row = next(r for r in data["rows"] if r["item_type"] == "child_name")
+    assert row["rung"] == "L4"
+    assert row["text"] == "A minor child is named in this matter"
+    assert planted not in json.dumps(data), "the L4 payload must not reach a list"
+
+    status, data = ui.json("/api/record?matter=custody&item_type=child_name")
+    assert status == 200, "the API must open what `show` opens"
+    assert data["rendered"] is True and data["rung"] == "L4"
+    assert data["value"] == planted
+
+
+def test_a_pre_bite_child_name_record_is_ignored_by_the_pane_and_the_queue(ui):
+    """…and the surfaces written to the new name simply do not see it: the
+    custody pane's `children` group composes `child.*` under a sub id, which
+    a matter-level `child_name` row is not, so the pane renders no card for
+    it and does not crash trying; the queue reads deadlines and never
+    touches it. Neither leaks the payload."""
+    from homestead.keep.rungs import Classified
+    from homestead_law.store import Sidecar
+
+    planted = "A. Rivera, age 8"
+    store = Sidecar()
+    store.put("custody", "child_name", "primary",
+              Classified(Rung.L4, planted, "A minor child is named in this matter"),
+              overwrite=True)
+    ui.json("/api/store", {"matter": "custody", "field": "child.name",
+                           "value": "B. Okafor", "sub": "c1"})
+
+    status, pane = ui.json("/api/pane?matter=custody&id=primary")
+    assert status == 200
+    assert [c["sub"] for c in pane["children"]] == ["c1"]
+    assert planted not in json.dumps(pane)
+    assert "child_name" not in json.dumps(pane)
+
+    status, queue = ui.json("/api/queue")
+    assert status == 200
+    assert planted not in json.dumps(queue)
 
 # ── /api/queue carries the plan-period reference lines (audit, 2026-09-12) ──
 

@@ -318,7 +318,10 @@ SCHEMA: dict[str, dict[str, Any]] = {
         Rung.L4,
         "names a person providing medical care to the claimant — a "
         "treatment relationship is the protected category (step 3 yes), the "
-        "same posture as custody's child_name naming a minor. The "
+        "same posture as custody's child.name naming a minor (that pack's "
+        "singular ~~child_name~~ was retired 2026-09-11 by L9-child-name; "
+        "the posture this sentence borrows is unchanged, only its name). "
+        "The "
         "physician's clinical notes live in homestead-health; this field "
         "holds a short reference to who they are.",
         derived="A treating physician is named",

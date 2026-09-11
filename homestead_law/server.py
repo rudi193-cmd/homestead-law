@@ -608,7 +608,8 @@ function renderItems() {
     if(item.kind==='date'){
       opts='<option value="hearing_date">Hearing date</option><option value="__deadline__">Deadline</option>';
     } else if(item.kind==='party'){
-      opts='<option value="opposing_party">Opposing party</option><option value="child_name">Child name</option>';
+      opts='<option value="opposing_party">Opposing party</option>'
+        +'<option value="child.name">Child name (per child &#8212; needs a sub id)</option>';
     } else if(item.kind==='case_number'){
       opts='<option value="case_number">Case number</option><option value="docket">Docket</option>';
     } else if(item.kind==='court'){
@@ -620,11 +621,35 @@ function renderItems() {
       +'<span class="kb k-'+esc(item.kind)+'">'+esc(item.kind.replace('_',' '))+'</span>'
       +'<span class="mt">'+esc(item.text)+'</span>'
       +'<span class="mv">'+esc(item.value)+'</span>'
-      +'<select class="fs" id="f'+i+'">'+opts+'</select>'
+      +'<select class="fs" id="f'+i+'" onchange="toggleItemSub('+i+')">'+opts+'</select>'
+      // Shown only for a field the pack declares REPEATABLE, the same rule
+      // the Records tab's own #rsub box follows (`showRung()`) — a sub id
+      // is a label the operator chooses (c1, c2, ...), never a name (I-15).
+      +'<input class="hide" id="s'+i+'" placeholder="Sub id (e.g. c1)&#8230;">'
       +'<button class="btn bg bs" onclick="storeItem('+i+')">Store</button>'
       +'</div></div>';
   });
   div.innerHTML=html;
+  // Sync every card's sub box to the pack *now*, not only on the operator's
+  // first `change`: which option a select lands on by default is an accident
+  // of the order they were written above, and a box whose visibility waits
+  // for an event the operator may never fire is hidden (or shown) by that
+  // accident rather than by `repeatable`. The Records tab's own box has
+  // always been synced on paint the same way (`showRung()` at boot).
+  _items.forEach(function(_item,i){toggleItemSub(i)});
+}
+
+// Shows the per-item sub id box only for a field the current matter's pack
+// declares REPEATABLE — read live off `_matters` (I-23), the same source
+// the Records tab's `showRung()` already trusts, never a hardcoded field
+// name here.
+function toggleItemSub(idx) {
+  var field=document.getElementById('f'+idx).value;
+  var sub=document.getElementById('s'+idx);
+  var m=_matters[currentMatter()];
+  var f=m?m.fields.filter(function(x){return x.name===field})[0]:null;
+  if(f&&f.repeatable){sub.className='';}
+  else {sub.className='hide'; sub.value='';}
 }
 
 function storeItem(idx) {
@@ -644,6 +669,8 @@ function storeItem(idx) {
   } else {
     endpoint='/api/store';
     body={matter:matter,field:field,value:item.value};
+    var sub=document.getElementById('s'+idx);
+    if(sub&&sub.className!=='hide'&&sub.value.trim())body.sub=sub.value.trim();
   }
   fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify(body)})
@@ -1508,7 +1535,7 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
             except InvalidKey as exc:
                 return self._json({"ok": False, "error": str(exc)}, 400)
 
-            if field in ("opposing_party", "child_name") and nestor_ok:
+            if field in ("opposing_party", "child.name") and nestor_ok:
                 try:
                     store = get_store()
                     resolver = nestor_seam.resolver_for("party", store)

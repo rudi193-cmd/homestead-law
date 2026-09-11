@@ -249,7 +249,7 @@ def _cmd_put(args: Sequence[str]) -> int:
     sub: a sub-id is the operator's own label, and inventing one here would be
     naming a record on their behalf (I-15).
 
-    If the field involves a party name (opposing_party, child_name), the name
+    If the field involves a party name (opposing_party, child.name), the name
     is also proposed to Nestor's party resolver as a draft alias.
     """
     id_opt = instances.DEFAULT_INSTANCE
@@ -361,13 +361,14 @@ def _cmd_put(args: Sequence[str]) -> int:
 def _maybe_propose_party(field: str, value: str) -> None:
     """If the field is a party name, propose it to the entity resolver.
 
-    The line it prints names the **field**, never the value. `child_name` is L4
+    The line it prints names the **field**, never the value. `child.name` is L4
     and `opposing_party` L3, and the gate is what decides where either may be
     rendered; a confirmation line printed straight from `argv` is a second door
     onto the same datum that scored nothing (I-16), and a terminal transcript is
-    a log (I-15). `show custody child_name` is the gated way to read it back.
+    a log (I-15). `show custody child.name --sub <id>` is the gated way to read
+    it back.
     """
-    party_fields = {"opposing_party", "child_name"}
+    party_fields = {"opposing_party", "child.name"}
     if field not in party_fields or not nestor_seam.available():
         return
 

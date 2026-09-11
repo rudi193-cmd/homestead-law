@@ -44,12 +44,17 @@ from homestead.keep.rungs import Classified, Disposition, Rung, Served
 # renamed. `tests/test_planted_names.py` holds the rule for the whole suite.
 COURTHOUSE = Classified(Rung.L1, "Dept 4, Superior Court of California")
 CASE_NUMBER = Classified(Rung.L3, "FL-2026-00123", derived="A case number is on file")
-CHILD_NAME = Classified(Rung.L4, "A.R.", derived="A minor child is named in this matter")
+# The derived sentence is `child.name`'s own, off the pack (L9-child-name,
+# 2026-09-11): the retired singular's "A minor child is named in this
+# matter" would make this fixture assert one field's name over another
+# field's stand-in text, which is the drift the packs' single `derived`
+# declaration exists to stop.
+CHILD_NAME = Classified(Rung.L4, "A.R.", derived="A child's name is on file")
 PLANTED_L5 = Classified(Rung.L5, "xxx-xx-1234")
 
 COURTHOUSE_REF = ("custody", "courthouse", "main")
 CASE_REF = ("custody", "case_number", "fl-2026-00123")
-CHILD_REF = ("custody", "child_name", "ar")
+CHILD_REF = ("custody", "child.name", "ar")
 PLANTED_L5_REF = ("custody", "ssn", "primary")
 
 MATTER = [
@@ -94,7 +99,7 @@ def test_the_list_renders_low_rungs_and_derives_the_l4():
 
     assert "Dept 4, Superior Court of California" in texts   # L1 payload
     assert "FL-2026-00123" in texts                          # L3 payload
-    assert "A minor child is named in this matter" in texts  # L4 derived form
+    assert "A child's name is on file" in texts  # L4 derived form
     assert L4_PAYLOAD not in texts, "the L4 payload rendered on the ambient list"
     assert L5_PAYLOAD not in texts, "the L5 payload rendered on the ambient list"
 
@@ -117,7 +122,7 @@ def test_a_row_carries_a_reference_not_a_payload():
     rows = {r.ref: r for r in Window().open_list(MATTER)}
     child_row = rows[CHILD_REF]
     assert child_row.rung is Rung.L4
-    assert child_row.text == "A minor child is named in this matter"
+    assert child_row.text == "A child's name is on file"
     assert child_row.text != L4_PAYLOAD
 
 
