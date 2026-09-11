@@ -10,10 +10,11 @@ a trustee may seek to modify the plan on account of them (§ 1329); the plan's
 own terms and local rules commonly impose disclosure duties of their own.
 None of that is a judgement this app may make. `flag()` reads two dates on
 each confirmed-but-undischarged bankruptcy instance and scans every *other*
-registered matter for a record of `SIGNAL_FIELDS` — none of which exist yet
-(Wave 8's `grant`/`venture` packs are the producers) — and yields exactly one
-reference line per such instance when at least one exists, cross-matter,
-never through `.payload`, never carrying a value.
+registered matter for a record of `SIGNAL_FIELDS` — `homestead_law.packs.
+grant` (L8-grant) is the first producer built; the venture side of Wave 8 is
+not yet built — and yields exactly one reference line per such instance when
+at least one exists, cross-matter, never through `.payload`, never carrying
+a value.
 
 **A flag, not a refusal.** Nothing here blocks a `put`, a `deadline`, or
 anything else; `flag()` is read-only over the store and has no write path at
@@ -43,12 +44,37 @@ from homestead_law.store import Sidecar
 __all__ = ["SIGNAL_FIELDS", "flag"]
 
 #: Item types, in any *other* matter, whose mere presence — never their value
-#: — is the signal (Wave 8's producers, none built yet): `award_amount`/
-#: `disbursement` from a grant, `safe`/`equity_grant`/`revenue_start` from a
-#: venture. A frozenset of field names, not matter names, so it carries no
-#: I-23 exposure of its own.
+#: — is the signal: `award_amount`/`disbursement.amount`/`disbursement.
+#: received` from a grant (L8-grant, wired below), `safe`/`equity_grant`/
+#: `revenue_start` from a venture (Wave 8, not yet built). A frozenset of
+#: field names, not matter names, so it carries no I-23 exposure of its own.
+#:
+#: **The two `disbursement.*` members, not a bare `"disbursement"`
+#: (L8-grant).** `homestead_law.packs.grant` declares `disbursement` as a
+#: decision-2 repeatable group — one composed record per tranche, addressed
+#: `disbursement.expected`/`disbursement.amount`/`disbursement.received`/
+#: `disbursement.account_label` — so no record is ever stored under the bare
+#: item type `"disbursement"`; a set naming only that would never match a
+#: real grant record and this consumer would silently never see one. The two
+#: members actually named are the two that carry money or its arrival —
+#: `disbursement.amount` (a tranche's amount) and `disbursement.received`
+#: (the date a tranche actually landed, which alone can mark an asset having
+#: arrived even on a grant record silent about the amount); `disbursement.
+#: expected` and `disbursement.account_label` are scheduling and a ledger
+#: reference, neither one itself new income or an asset.
+#:
+#: **One entry per line, sorted.** Two Wave 8 bites add producers to this one
+#: literal in parallel; a packed line is a merge conflict inside a line,
+#: while a sorted one-per-line set merges as a plain union.
 SIGNAL_FIELDS: frozenset[str] = frozenset(
-    {"award_amount", "disbursement", "safe", "equity_grant", "revenue_start"}
+    {
+        "award_amount",
+        "disbursement.amount",
+        "disbursement.received",
+        "equity_grant",
+        "revenue_start",
+        "safe",
+    }
 )
 
 #: This pack's own name, read once, live — never retyped as a literal in a

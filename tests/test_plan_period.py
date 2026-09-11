@@ -167,8 +167,17 @@ def test_multiple_confirmed_instances_each_get_their_own_line(tmp_path, monkeypa
 
 
 def test_signal_fields_is_the_frozenset_wave_8_names():
+    """Updated by L8-grant: the real `grant` pack declares `disbursement` as
+    a decision-2 repeatable group (`disbursement.expected`/`.amount`/
+    `.received`/`.account_label`), so no record is ever stored under the
+    bare item type `"disbursement"` — the two money-bearing sub-fields are
+    named individually instead (see `plan_period.SIGNAL_FIELDS`'s own
+    docstring note)."""
     assert plan_period.SIGNAL_FIELDS == frozenset(
-        {"award_amount", "disbursement", "safe", "equity_grant", "revenue_start"}
+        {
+            "award_amount", "disbursement.amount", "disbursement.received",
+            "safe", "equity_grant", "revenue_start",
+        }
     )
 
 
