@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.1](https://github.com/homestead-affairs/homestead-law/compare/v0.9.0...v0.9.1) (2026-09-11)
+
+
+### Fixed
+
+* an accepted deadline points at its source from every door, not "above" ([a876447](https://github.com/homestead-affairs/homestead-law/commit/a876447196929749421f67ac58d8b36aa2f0728c))
+
 ## [0.9.0](https://github.com/homestead-affairs/homestead-law/compare/v0.8.0...v0.9.0) (2026-09-11)
 
 
