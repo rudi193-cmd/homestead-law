@@ -42,15 +42,21 @@ instead of rummaging a module's namespace for whatever it happens to expose.
 `jurisdictions` is every jurisdiction it may be filed in (decision 1); the
 guard below holds the first inside the second.
 
-## Only custody is built
+## What is built
 
-Custody is the one pack in v1 — *"one pack proves the seam; three prove nothing
-that one does not."* Bankruptcy and workers' comp are the two other types the
-model discusses (a case number is `L1` in a bankruptcy, `L3` in a family
-matter), and they are **Phase 5, not built**. They are not in this registry,
-and inventing a stub for either would be the hand-kept phantom this invariant
-forbids — a matter name in a list with no pack behind it, which is the missing
-half of BUG-6.
+~~Custody is the one pack in v1 — *"one pack proves the seam; three prove
+nothing that one does not."* Bankruptcy and workers' comp are the two other
+types the model discusses (a case number is `L1` in a bankruptcy, `L3` in a
+family matter), and they are **Phase 5, not built**.~~ (struck 2026-09-12:
+`packs/bankruptcy.py` landed with L3-bankruptcy-ch13 and is registered below.
+`case_number` `L1`-here/`L3`-in-custody is now a check two real packs pass,
+not a contrast the docstring describes: `tests/test_bankruptcy_pack.py::
+test_case_number_is_l1_here_and_l3_in_custody_the_worked_example`. Workers'
+comp is still unbuilt.) The rule the struck sentence was really stating
+stands unchanged: a matter is registered **only** when a pack backs it, and
+inventing a stub for one that has none would be the hand-kept phantom this
+invariant forbids — a matter name in a list with no pack behind it, which is
+the missing half of BUG-6.
 
 ## What it does not hold
 
@@ -142,7 +148,8 @@ def _entry(pack: ModuleType) -> MatterType:
 #: The one enumeration (I-23). Keyed by matter name → its `MatterType`. Authored
 #: here, the way `surfaces.FACTS` is authored — add a pack by importing it and
 #: adding a line, and everything that iterates `all_matters()` picks it up with
-#: no other change. Only `custody` is built (bankruptcy, workers' comp: Phase 5).
+#: no other change. Built today: custody and bankruptcy; workers' comp is
+#: the one matter type the model discusses that still has no pack.
 REGISTRY: dict[str, MatterType] = {
     custody.MATTER: _entry(custody),
     bankruptcy.MATTER: _entry(bankruptcy),
@@ -335,8 +342,8 @@ def _validate(registry: Mapping[str, Any], on_disk: Mapping[str, ModuleType]) ->
         raise RuntimeError(
             f"registry entries with no pack: {phantom}. A matter name in the "
             "enumeration with no pack behind it is the hand-kept phantom I-23 "
-            "forbids — enumerate only what is built (custody; bankruptcy and "
-            "workers' comp are Phase 5)."
+            "forbids — enumerate only what is built (custody and "
+            "bankruptcy; workers' comp has no pack yet)."
         )
 
 

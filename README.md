@@ -174,7 +174,8 @@ nothing, and does not say which chapter fits."* Provisional **I-44**
 any string literal in the tree carries an advice-shaped phrase (a filing
 command, a chapter recommendation).
 
-**`TEMPLATES`** — five deadlines, as data (`name`, `anchor`, `days`,
+**`TEMPLATES`** — five deadlines, as a **tuple** of rows of data (`name`,
+`anchor`, `days`,
 `direction`, `rule`, `mail`, `jurisdiction`, `source`, `status`, `note`); the
 sibling `rules.py` bite (L3-deadline-templates) reads this table and does the
 counting — nothing here imports it or `homestead.keep.dates`. All five
@@ -184,11 +185,25 @@ this environment could try was refused by the egress proxy):
 
 | template | anchor | days | direction / rule | mail | citation |
 |---|---|---|---|---|---|
-| `plan_filed` | `petition_date` | 14 | forward, court days | no | FRBP 3015(b) |
-| `first_plan_payment` | `petition_date` | 30 | forward, calendar days | no | 11 U.S.C. § 1326(a)(1) |
-| `claims_bar` | `petition_date` | 70 | forward, court days | no | FRBP 3002(c) |
-| `governmental_claims_bar` | `petition_date` | 180 | forward, court days | no | FRBP 3002(c)(1) |
-| `objection` | `confirmation_hearing_date` | 7 | backward, court days | yes | FRBP 3015(f) |
+| `plan-filed` | `petition_date` | 14 | forward, court days | no | FRBP 3015(b) |
+| `first-plan-payment` | `petition_date` | 30 | forward, calendar days | no | 11 U.S.C. § 1326(a)(1) |
+| `claims-bar` | `petition_date` | 70 | forward, court days | no | FRBP 3002(c) |
+| `governmental-claims-bar` | `petition_date` | 180 | forward, court days | no | FRBP 3002(c)(1) |
+| `objection` | `confirmation_hearing_date` | 7 | backward, court days | **no** | FRBP 3015(f) |
+
+A template name is stored as the sub half of `(matter, "deadline",
+"<instance>.<template>")`, so it is an **id**: lowercase, digits and hyphens,
+never an underscore.
+
+`objection` takes **no** mail days, and that is the rule rather than an
+omission. FRBP 9006(f) adds its three days to a period that runs *after
+service*, and adds them **forward**; an objection deadline runs backward from
+the confirmation hearing, so there is nothing for them to extend — and adding
+them anyway would name a date *later* than the 7-days-before cutoff the rule
+sets. Some districts lengthen the 7 days by local rule; the template encodes
+the FRBP default and its `note` says to check the district's own rules.
+`first-plan-payment` anchors on `petition_date` alone, so § 1326(a)(1)'s
+"whichever is earlier" clause is the operator's to apply — its `note` says so.
 
 `creditor_meeting_date` (the § 341 meeting) is deliberately **never
 computed** — its 21–50-day window is set administratively by the U.S.
@@ -209,6 +224,18 @@ Never a value, never a number, and it never blocks a `put`, a `deadline`, or
 anything else — a flag, not a refusal. `queue.notices(store)` is the one
 queue hook: a tuple of such lines, alongside — not inside — the dated
 `QueueItem` list, since a reference line has no date to sort or gap-check.
+`homestead-law queue` prints each one after the items (and prints them even
+when nothing is due — a notice has no date, so it neither expires nor waits
+its turn), and `GET /api/queue` carries them in a `notices` array beside
+`items`. Rendering them on the browser pane is L4-surfaces' work.
+
+Only a value that actually **renders** counts as on file: a
+`plan_confirmation_date` hand-stored at the wrong rung derives rather than
+renders, and a derived form is not a date anything read, so it is treated as
+absent (no line) — the same reading the sibling `rules.py` gives an anchor it
+cannot see. The line itself is computed on every read and never logged: it is
+a reference derived from records that were logged when they were written, not
+an event of its own.
 
 ## What is enforced here today
 
