@@ -453,14 +453,16 @@ def validate_value(field: str, value: object) -> None:
     """Refuse an L4 value over MAX_L4_CHARS; silent for every other field and
     every other rung.
 
-    **Not yet called by any door** — `cli.py`'s `_cmd_put` and `server.py`'s
+    ~~**Not yet called by any door** — `cli.py`'s `_cmd_put` and `server.py`'s
     `/api/store` both build a `Classified` straight from the pack's declared
-    rung and store it, with no per-pack validation hook in between. Checked in
-    `registry.py`/`cli.py` for an existing hook (`pack.validate`,
-    `_validate_value`, anything similar) before writing this function: there
-    is none. `L4-surfaces` (wave 4) is the bite named to wire it in; this one
-    ships the function and the refusal shape only, per the bite's own scope
-    (packs/workers_comp.py, a registry line, tests, docs — not the doors).
+    rung and store it, with no per-pack validation hook in between. …
+    `L4-surfaces` (wave 4) is the bite named to wire it in.~~ Struck
+    (L4-surfaces, 2026-09-11): **both writing doors now call this** before
+    building the `Classified` they would store — `cli._cmd_put` and
+    `server._post_store`, each guarded by `hasattr(mt.pack,
+    "validate_value")` so a pack that declares none pays nothing.
+    `tests/test_workers_comp.py::test_the_doors_call_validate_value` was the
+    `xfail(strict=True)` claim that flipped when it landed.
 
     A caller that does reach for this directly — this pack's own tests, or a
     future door — gets I-11's shape: absence of a check is not the same as

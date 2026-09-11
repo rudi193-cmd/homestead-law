@@ -317,6 +317,23 @@ def _cmd_put(args: Sequence[str]) -> int:
 
     rung = mt.fields[field]
 
+    # The pack's own per-field check, when it declares one (L4-surfaces):
+    # workers_comp's `validate_value` refuses an L4 value over its 200-char
+    # cap, naming the field and never echoing what was typed (I-15) — the
+    # same posture every other refusal in this function already holds.
+    # `hasattr`, not `getattr(..., None)`: this module *is* a surface by
+    # `tests/test_chokepoint.py`'s own derivation (it calls the gate), and the
+    # reflection ban there covers `getattr` — `hasattr` asks whether a pack
+    # declares a hook, and reads no field's value, which is the thing the ban
+    # exists to stop. A pack without one (custody, bankruptcy today) is the
+    # ordinary case and pays nothing.
+    if hasattr(mt.pack, "validate_value"):
+        try:
+            mt.pack.validate_value(field, value)
+        except ValueError as exc:
+            print(f"refused: {exc}", file=sys.stderr)
+            return 1
+
     derived = None
     if rung.value in ("L3", "L4"):
         # The pack's own declaration, never a second table (decision 3). Two

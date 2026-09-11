@@ -15,6 +15,7 @@ from __future__ import annotations
 import contextlib
 import http.client
 import json
+import re
 import sys
 import threading
 import time
@@ -91,6 +92,29 @@ def test_the_page_serves_and_carries_the_entry_form(ui):
     page = body.decode()
     assert 'id="rmatter"' in page and 'id="rfield"' in page and 'id="rvalue"' in page
     assert "/api/store" in page and "/api/deadline" in page
+
+
+def test_the_page_carries_the_matter_instance_switcher(ui):
+    """L4-surfaces: an instance is a label the operator types or picks from
+    what `/api/instances` already knows (I-15) — never a name this page
+    invents by itself."""
+    page = ui.get("/")[1].decode()
+    assert 'id="rinstance"' in page and 'id="rinstancelist"' in page
+    assert 'id="ropenjuris"' in page
+    assert "function openInstance()" in page
+    assert "function currentInstance()" in page
+    assert "/api/matter/open" in page and "/api/instances" in page
+
+
+def test_the_page_carries_the_matter_tab_with_pane_and_deadlines(ui):
+    page = ui.get("/")[1].decode()
+    assert 'id="t-matter"' in page
+    assert "show('matter'" in page
+    assert 'id="paneview"' in page
+    assert 'id="tplname"' in page and 'id="tplresult"' in page
+    assert "function renderPane(" in page
+    assert "/api/pane" in page and "/api/deadline/templates" in page
+    assert "/api/deadline/compute" in page and "/api/deadline/accept" in page
 
 
 def test_matters_lists_every_registered_field_with_its_declared_rung(ui):
@@ -756,10 +780,10 @@ def test_a_failure_inside_the_seam_never_echoes_its_exception_text(
     monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
     monkeypatch.setattr(nestor_seam, "bind", lambda root=None: tmp_path / "ledger.jsonl")
 
-    secret = "A. Rivera"
+    planted = "A. Rivera"
 
     def boom(*_a, **_k):
-        raise RuntimeError(f"no alias sealed for {secret}")
+        raise RuntimeError(f"no alias sealed for {planted}")
 
     # Patched before `build_server`, which closes over these names.
     import homestead_law.nestor_store as nestor_store
@@ -769,12 +793,12 @@ def test_a_failure_inside_the_seam_never_echoes_its_exception_text(
     with _serve() as client:
         status, data = client.json("/api/resolve?domain=party&surface=Someone")
         assert status == 500
-        assert secret not in json.dumps(data), "the resolver echoed a stored name"
+        assert planted not in json.dumps(data), "the resolver echoed a stored name"
         assert "party" in data["error"]
 
         status, data = client.json("/api/orders")
         assert data["decisions"] == []
-        assert secret not in json.dumps(data)
+        assert planted not in json.dumps(data)
 
 
 # ── I-19: the server writes only inside the household root ─────────────────
@@ -1049,11 +1073,20 @@ def test_deadline_accept_refuses_a_stale_token_and_stores_nothing(ui, monkeypatc
     ui.json("/api/matter/open", {"matter": "custody", "id": "primary", "jurisdiction": "US-NM"})
     ui.json("/api/store", {"matter": "custody", "field": "hearing_date", "value": "2026-01-01"})
 
+    _, shown = ui.json(
+        "/api/deadline/compute",
+        {"matter": "custody", "id": "primary", "template": "notice"})
+    tampered = "not-the-real-token"
     status, data = ui.json(
         "/api/deadline/accept",
-        {"matter": "custody", "id": "primary", "template": "notice", "token": "not-the-real-token"},
+        {"matter": "custody", "id": "primary", "template": "notice", "token": tampered},
     )
     assert status == 400 and data["ok"] is False
+    # a preview edited in the page — the token changed by hand — is refused by
+    # name, and neither token is echoed back (I-15: a refusal names the
+    # reference, not what was submitted).
+    assert tampered not in data["error"] and shown["token"] not in data["error"]
+    assert "custody/primary/notice" in data["error"]
 
     status, data = ui.json("/api/records?matter=custody")
     assert not any(r["item_type"] == "deadline" for r in data["rows"])
@@ -1251,3 +1284,331 @@ def test_the_queue_endpoint_carries_notices_alongside_items(ui, monkeypatch):
     assert data["items"] == []
     # the line is a reference: no stored value reaches it
     assert "1000" not in json.dumps(data)
+
+
+# ── validate_value wired into /api/store (L4-surfaces) ──────────────────────
+
+def test_store_refuses_an_over_long_l4_value_naming_the_field_never_echoing(ui):
+    """The browser door's half of the wiring `cli._cmd_put`'s twin test
+    proves: `_post_store` calls `mt.pack.validate_value` before building the
+    `Classified` it would store."""
+    from homestead_law.packs import workers_comp
+
+    planted = "SPINAL STENOSIS AT C5-C6"
+    value = planted + "x" * (workers_comp.MAX_L4_CHARS + 1 - len(planted))
+
+    status, data = ui.json(
+        "/api/store",
+        {"matter": "workers_comp", "field": "ime.note", "value": value, "sub": "2026-10"},
+    )
+    assert status == 400 and data["ok"] is False
+    assert "ime.note" in data["error"] and str(workers_comp.MAX_L4_CHARS) in data["error"]
+    assert planted not in data["error"] and "STENOSIS" not in data["error"]
+
+    status, data = ui.json("/api/records?matter=workers_comp")
+    assert data["rows"] == []
+
+
+def test_store_accepts_an_l4_value_at_exactly_the_cap(ui):
+    from homestead_law.packs import workers_comp
+
+    status, data = ui.json(
+        "/api/store",
+        {"matter": "workers_comp", "field": "diagnosis", "value": "x" * workers_comp.MAX_L4_CHARS},
+    )
+    assert status == 200 and data["ok"] is True and data["rung"] == "L4"
+
+
+def test_store_on_a_pack_with_no_validate_value_is_unaffected(ui):
+    status, data = ui.json(
+        "/api/store", {"matter": "custody", "field": "notes", "value": "x" * 5000})
+    assert status == 200 and data["ok"] is True
+
+
+# ── /api/pane and /api/deadline/templates (L4-surfaces) ─────────────────────
+
+def test_pane_composes_the_custody_pane_with_children_absent_and_derived_present(ui):
+    ui.json("/api/store", {"matter": "custody", "field": "child.name",
+                           "value": "Alex Rivera", "sub": "c1"})
+    ui.json("/api/store", {"matter": "custody",
+                           "field": "registration_contest_deadline",
+                           "value": "2026-09-01"})
+
+    status, data = ui.json("/api/pane?matter=custody&id=primary")
+    assert status == 200
+    assert data["matter"] == "custody" and data["instance"] == "primary"
+    child = data["children"][0]
+    assert child["sub"] == "c1"
+    assert child["fields"]["child.name"]["text"] == "A child's name is on file"
+    assert "Alex Rivera" not in json.dumps(data)
+    timeline = {t["item_type"]: t["text"] for t in data["timeline"]}
+    assert timeline["registration_contest_deadline"] == "2026-09-01"
+    assert data["indicator"] in (None, "overdue", "needs_attention", "nothing_due")
+
+
+def test_pane_composes_the_bankruptcy_pane_with_notice_and_bar_dates(ui):
+    ui.json("/api/store", {"matter": "bankruptcy", "field": "claims_bar_date",
+                           "value": "2026-01-01"})
+    status, data = ui.json("/api/pane?matter=bankruptcy&id=primary")
+    assert status == 200
+    assert data["notice"].startswith("This pack keeps dates and references")
+    assert data["bar_dates"][0]["field"] == "claims_bar_date"
+    assert data["bar_dates"][0]["overdue"] is True
+
+
+def test_pane_carries_the_plan_period_line_when_present(ui, monkeypatch):
+    from homestead.keep.rungs import Rung
+    from homestead_law import registry as registry_mod
+    import types as _types
+
+    fake = _types.ModuleType("homestead_law.packs._fake_signal_pane")
+    fake.MATTER = "_fake_signal_pane"
+    fake.JURISDICTION = "US-NM"
+    fake.JURISDICTIONS = ("US-NM",)
+    fake.FIELDS = {"award_amount": Rung.L3}
+    fake.SCHEMA = {"award_amount": {"rung": Rung.L3, "matter": "_fake_signal_pane",
+                                    "derived": "An award amount is on file"}}
+    monkeypatch.setitem(registry_mod.REGISTRY, "_fake_signal_pane", registry_mod._entry(fake))
+
+    ui.json("/api/store", {"matter": "bankruptcy", "field": "plan_confirmation_date",
+                           "value": "2026-01-01"})
+    ui.json("/api/store", {"matter": "_fake_signal_pane", "field": "award_amount",
+                           "value": "1000", "id": "grant-1"})
+
+    status, data = ui.json("/api/pane?matter=bankruptcy&id=primary")
+    assert status == 200
+    assert len(data["plan_period"]) == 1
+    assert data["plan_period"][0].startswith("bankruptcy/primary:")
+    assert "1000" not in json.dumps(data)
+
+
+def test_the_pane_endpoint_refuses_an_unregistered_matter(ui):
+    """`panes.pane_for` itself falls back to the generic composer for any
+    matter it has no composer for (`tests/test_panes.py` covers both halves
+    of that). This *door* is stricter: it validates the name against the
+    registry first, so an unknown matter is a 400 rather than an empty
+    generic pane that looks like a real one with nothing on file."""
+    status, data = ui.json("/api/pane?matter=bogus&id=primary")
+    assert status == 400 and "bogus" in data["error"]
+
+
+def test_pane_refuses_a_malformed_instance_id_never_echoing_it(ui):
+    hostile = "<script>alert(1)</script>"
+    status, data = ui.json(f"/api/pane?matter=custody&id={hostile}")
+    assert status == 400
+    assert hostile not in data["error"]
+
+
+def test_deadline_templates_endpoint_lists_a_packs_declared_templates(ui, monkeypatch):
+    _with_notice_template(monkeypatch)
+    status, data = ui.json("/api/deadline/templates?matter=custody")
+    assert status == 200
+    names = {t["name"]: t for t in data["templates"]}
+    assert names["notice"]["status"] == "VERIFIED"
+    assert "NMSA" in names["notice"]["source"]
+
+
+def test_deadline_templates_endpoint_refuses_an_unknown_matter(ui):
+    status, data = ui.json("/api/deadline/templates?matter=bogus")
+    assert status == 400 and "bogus" in data["error"]
+
+
+# ── XSS: a script-shaped id is refused by shape; a script-shaped value ──────
+# reaches the page only through esc() (L4-surfaces' switcher and pane)
+
+def test_matter_open_refuses_a_script_shaped_instance_id_never_echoing_it(ui):
+    hostile = "<script>alert(1)</script>"
+    status, data = ui.json(
+        "/api/matter/open",
+        {"matter": "custody", "id": hostile, "jurisdiction": "US-NM"})
+    assert status == 400 and data["ok"] is False
+    assert hostile not in data["error"]
+
+    status, data = ui.json("/api/instances?matter=custody")
+    assert data["instances"] == []
+
+
+def test_pane_field_rows_reach_the_page_only_through_esc(ui):
+    """The pane's own row markup (`fieldRow` in the page's JS) escapes the
+    same way `loadRecords()`'s rows already do — a value the pack schema
+    lets through as a real payload (an L1/L3 timeline field) can carry
+    `<script>`, and the JSON API hands it back unmangled (the store and this
+    endpoint are not escapers); what must not happen is that markup landing
+    in the page unescaped."""
+    hostile = "<script>alert(1)</script>"
+    ui.json("/api/store", {"matter": "custody", "field": "custody_order_date", "value": hostile})
+
+    status, data = ui.json("/api/pane?matter=custody&id=primary")
+    assert status == 200
+    timeline = {t["item_type"]: t["text"] for t in data["timeline"]}
+    assert timeline["custody_order_date"] == hostile   # the API does not escape
+
+    page = ui.get("/")[1].decode()
+    assert "esc(f.text)" in page, "fieldRow must escape the served text"
+    assert "esc(card.sub)" in page, "fieldRow must escape a sub id too"
+
+
+# ── the page's Accept posts the preview it was shown (audit, 2026-09-11) ────
+
+def test_accept_of_a_mail_preview_is_not_refused_as_stale(ui):
+    """`mail` is one of the ten fields the preview token hashes, so an Accept
+    that omits it recomputes a *different* deadline and is refused by name.
+    The page's Accept therefore posts `mail` — and matter, instance and
+    template — from `_lastComputed`, the preview actually shown, never from
+    the live controls. Before the fix, "+3 mail days" could be computed and
+    never accepted."""
+    # bankruptcy's own declared templates, not a monkeypatched one: mail days
+    # are UNCERTAIN under US-NM (E1-dates-b) and verified under US-federal,
+    # which is the jurisdiction this pack publishes.
+    ui.json("/api/matter/open", {"matter": "bankruptcy", "id": "primary",
+                                 "jurisdiction": "US-federal"})
+    ui.json("/api/store", {"matter": "bankruptcy", "field": "petition_date",
+                           "value": "2026-01-15"})
+
+    base = {"matter": "bankruptcy", "id": "primary", "template": "claims-bar"}
+    status, plain = ui.json("/api/deadline/compute", dict(base, mail=False))
+    assert status == 200
+    status, mailed = ui.json("/api/deadline/compute", dict(base, mail=True))
+    assert status == 200
+    assert mailed["result_iso"] != plain["result_iso"]
+    assert mailed["token"] != plain["token"]
+
+    # the page's own posting shape: every field from the preview
+    status, data = ui.json("/api/deadline/accept", dict(
+        base, mail=mailed["mail"], token=mailed["token"]))
+    assert status == 200 and data["ok"] is True
+
+    status, records = ui.json("/api/records?matter=bankruptcy&id=primary")
+    stored = [r for r in records["rows"] if r["item_type"] == "deadline"]
+    assert [r["text"] for r in stored] == [mailed["result_iso"]]
+
+
+def test_accept_of_a_mail_preview_without_the_mail_flag_is_refused_by_name(ui):
+    """The regression the fix closes, kept as its own claim: the same token,
+    posted without the `mail` it was computed under, is refused — and the
+    refusal names matter/instance/template and no date."""
+    ui.json("/api/matter/open", {"matter": "bankruptcy", "id": "primary",
+                                 "jurisdiction": "US-federal"})
+    ui.json("/api/store", {"matter": "bankruptcy", "field": "petition_date",
+                           "value": "2026-01-15"})
+
+    base = {"matter": "bankruptcy", "id": "primary", "template": "claims-bar"}
+    _, mailed = ui.json("/api/deadline/compute", dict(base, mail=True))
+    status, data = ui.json("/api/deadline/accept", dict(base, token=mailed["token"]))
+    assert status == 400 and data["ok"] is False
+    assert "bankruptcy/primary/claims-bar" in data["error"]
+    assert mailed["result_iso"] not in data["error"]
+
+
+def test_the_page_accept_reads_only_the_shown_preview(ui):
+    """Structural, over the served page: `acceptTemplate` names no live
+    control — every field it posts comes off `_lastComputed`."""
+    page = ui.get("/")[1].decode()
+    body = page[page.index("function acceptTemplate("):]
+    body = body[:body.index("\n}\n")]
+    assert "currentMatter()" not in body and "currentInstance()" not in body
+    assert "getElementById('tplname')" not in body
+    assert "getElementById('tplmail')" not in body
+    for field in ("matter", "instance", "template", "mail", "token"):
+        assert f"_lastComputed.{field}" in body, f"Accept does not post the shown {field}"
+
+
+# ── a pane row opens into the Matter tab, not the hidden Records one ────────
+
+def test_a_pane_row_opens_its_detail_into_the_matter_tabs_own_target(ui):
+    """The pane is an S1_LIST surface; its rows open one record on
+    S1_DETAIL. That reveal has to land where the operator is looking — the
+    Matter tab's `#mdetail`, not `#rdetail` inside the (hidden) Records
+    section, which is where an open from the pane used to disappear."""
+    page = ui.get("/")[1].decode()
+    assert 'id="mdetail"' in page
+    assert page.index('id="t-matter"') < page.index('id="mdetail"') < page.index('id="t-queue"')
+    assert "bindOpenableRows(div,'mdetail')" in page
+    assert "bindOpenableRows(div,'rdetail')" in page
+
+
+def test_a_pane_row_carries_the_ref_the_detail_door_accepts(ui):
+    """End to end for the rung ruling: an L4 field is derived on the pane and
+    renders its payload on `/api/record` — the door the row's ref opens."""
+    ui.json("/api/store", {"matter": "custody", "field": "child.name",
+                           "value": "Alex Rivera", "sub": "c1"})
+
+    status, pane = ui.json("/api/pane?matter=custody&id=primary")
+    assert status == 200
+    row = pane["children"][0]["fields"]["child.name"]
+    assert row["text"] == "A child's name is on file"
+
+    status, detail = ui.json(
+        f"/api/record?matter={row['matter']}&item_type={row['item_type']}"
+        f"&item_id={row['item_id']}")
+    assert status == 200 and detail["rendered"] is True
+    assert detail["value"] == "Alex Rivera"
+
+
+def test_an_l5_record_leaves_no_row_on_the_pane_endpoint(ui):
+    """The plant the pane's rung story rests on: bankruptcy's `ssn` is L5,
+    and L5 has no override anywhere (I-13). It reaches neither the pane's
+    JSON nor its rows."""
+    ssn = "123-45-6789"
+    status, data = ui.json(
+        "/api/store", {"matter": "bankruptcy", "field": "ssn", "value": ssn})
+    assert status == 200 and data["rung"] == "L5"
+    ui.json("/api/store", {"matter": "bankruptcy", "field": "claims_bar_date",
+                           "value": "2026-09-01"})
+
+    status, pane = ui.json("/api/pane?matter=bankruptcy&id=primary")
+    assert status == 200
+    assert ssn not in json.dumps(pane)
+    assert [b["field"] for b in pane["bar_dates"]] == ["claims_bar_date"]
+
+    status, rows = ui.json("/api/records?matter=bankruptcy&id=primary")
+    assert ssn not in json.dumps(rows)
+
+
+def test_every_option_and_datalist_entry_is_built_by_dom_not_innerhtml(ui):
+    """XSS, structurally (audit, 2026-09-11): the instance datalist, the
+    jurisdiction select and the template picker are all filled from server
+    JSON. Each builds its entries with `createElement` + `.value`/
+    `.textContent` — DOM property assignments, which never parse markup —
+    and none of the three concatenates a fetched value into `innerHTML`.
+    The only `innerHTML` any of them touches is the `''` that empties the
+    list first."""
+    page = ui.get("/")[1].decode()
+    for name in ("loadInstances", "loadTemplates", "fillFields"):
+        body = page[page.index("function " + name + "("):]
+        body = body[:body.index("\n}\n")]
+        assert "createElement('option')" in body, f"{name} does not build options"
+        for bad in ("innerHTML+=", "innerHTML +=", "insertAdjacentHTML"):
+            assert bad not in body, f"{name} appends markup: {bad}"
+        for assignment in re.findall(r"innerHTML\s*=\s*([^;]+);", body):
+            assert assignment.strip() in ("''", '""'), (
+                f"{name} assigns innerHTML from {assignment.strip()!r}; an "
+                "option's text belongs in .textContent, which parses no markup"
+            )
+
+
+def test_the_template_picker_shows_a_templates_status_before_it_is_computed(ui, monkeypatch):
+    """An UNCERTAIN template is marked as such in the picker, and computing
+    one is refused by name with no date — a rule this app could not verify is
+    never presented as a countdown."""
+    from homestead_law.packs import custody
+
+    uncertain = dict(_NOTICE_TEMPLATE, name="unsure", status="UNCERTAIN",
+                     source="ORS 107.159 says reasonable notice")
+    monkeypatch.setattr(custody, "TEMPLATES", (uncertain,), raising=False)
+
+    status, data = ui.json("/api/deadline/templates?matter=custody")
+    assert status == 200
+    assert data["templates"][0]["status"] == "UNCERTAIN"
+
+    page = ui.get("/")[1].decode()
+    assert "t.name+' ['+t.status+']'" in page, "the picker does not show the status"
+
+    ui.json("/api/matter/open", {"matter": "custody", "id": "primary", "jurisdiction": "US-NM"})
+    ui.json("/api/store", {"matter": "custody", "field": "hearing_date", "value": "2026-01-01"})
+    status, data = ui.json(
+        "/api/deadline/compute",
+        {"matter": "custody", "id": "primary", "template": "unsure"})
+    assert status == 400 and data["ok"] is False
+    assert data["error"].startswith("UNCERTAIN: ")
+    assert "2026-" not in data["error"]
