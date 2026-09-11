@@ -14,6 +14,7 @@ re-identification judgement `Classified` requires and a pack does not author.
 from __future__ import annotations
 
 from homestead.keep.rungs import Classified, Disposition, Rung
+from homestead_law import instances
 from homestead_law import queue as queue_mod
 from homestead_law.app.window import Ref, Window
 from homestead_law.packs import custody
@@ -68,9 +69,18 @@ def seed(store: Sidecar) -> None:
 
 def seed_deadlines(store: Sidecar) -> None:
     """Write the synthetic deadlines — the queue's input. Separate from `seed` so
-    the field list in `compose_demo` stays fields-only."""
-    for item_id, (rung, date, instruction) in _DEADLINES.items():
-        store.put(MATTER, "deadline", item_id, Classified(rung, date, instruction), overwrite=True)
+    the field list in `compose_demo` stays fields-only.
+
+    Each is keyed `(custody, "deadline", "primary.<name>")` — the same
+    instance-addressed id the `deadline` door writes (decision 2). A demo that
+    seeded the free-form ids this dict is named with would put four phantom
+    instances into `instances.instances_of`, which is exactly the shape the
+    real doors refuse: a demo store must look like a real one."""
+    for name, (rung, date, instruction) in _DEADLINES.items():
+        store.put(
+            MATTER, "deadline", instances.item_id(instances.DEFAULT_INSTANCE, name),
+            Classified(rung, date, instruction), overwrite=True,
+        )
 
 
 def open_matter(store: Sidecar) -> Window:

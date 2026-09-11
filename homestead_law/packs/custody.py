@@ -57,7 +57,7 @@ from typing import Any
 
 from homestead.keep.rungs import Rung, classify_schema
 
-__all__ = ["MATTER", "JURISDICTION", "JURISDICTIONS", "SCHEMA", "FIELDS"]
+__all__ = ["MATTER", "JURISDICTION", "JURISDICTIONS", "REPEATABLE", "SCHEMA", "FIELDS"]
 
 MATTER = "custody"
 JURISDICTION = "US-NM"
@@ -68,6 +68,13 @@ JURISDICTION = "US-NM"
 #: original forum; OR is where this household's order is being registered after
 #: the relocation.
 JURISDICTIONS: tuple[str, ...] = ("US-NM", "US-OR")
+
+#: Field names that may carry a sub-id (`homestead_law.instances`, decision 2)
+#: — a repeatable sub-record within one instance, e.g. a child of a custody
+#: matter, one dose per subject. Empty for now: this bite's custody pack has
+#: no repeatable field yet. L3-custody-relocation (Wave 3) is what fills this
+#: in, for `child`.
+REPEATABLE: frozenset[str] = frozenset()
 
 
 def _field(rung: Rung, why: str, *, derived: str | None = None) -> dict[str, Any]:

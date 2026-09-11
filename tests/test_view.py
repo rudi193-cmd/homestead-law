@@ -263,3 +263,27 @@ def test_the_queue_pane_opens_a_detail_from_any_matter(tmp_path, monkeypatch):
     )
     served = window.open_detail(match.ref)
     assert served.value == "2026-09-01"
+
+
+def test_the_demo_store_holds_one_instance_like_a_real_one(tmp_path, monkeypatch):
+    """The demo is the store a reader meets first, so it must look like a store
+    the real doors wrote. Seeding the four deadlines under their bare names put
+    four phantom instances into the key scan — ids `instances.item_id` refuses,
+    so `show custody` would have listed instances no other command could open.
+    They are `primary.<name>` now, exactly as `deadline custody <name> …`
+    writes."""
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    from homestead_law import instances as instances_mod
+    from homestead_law.app import demo
+
+    store = Sidecar()
+    demo.seed(store)
+    demo.seed_deadlines(store)
+
+    assert instances_mod.instances_of(store, demo.MATTER) == ("primary",)
+    subs = {
+        instances_mod.split_item_id(ref[2])[1]
+        for ref, _ in store.records(demo.MATTER)
+        if ref[1] == "deadline"
+    }
+    assert subs == set(demo._DEADLINES)

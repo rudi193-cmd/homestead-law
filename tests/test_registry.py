@@ -680,6 +680,59 @@ def test_the_real_packs_declare_a_derived_form_for_every_rung_that_needs_one():
             assert sentence, f"{name}/{field} ({rung.value}) declares no derived form"
 
 
+# ── L2b-instances: REPEATABLE (decision 2) ───────────────────────────────────
+
+def test_repeatable_is_read_live_and_defaults_to_empty():
+    """`MatterType.repeatable` mirrors `jurisdictions` — read straight off the
+    pack, and a pack that names none (custody, today) reads as an empty set
+    rather than erroring, so a pack with nothing repeatable pays nothing for
+    that."""
+    assert matter("custody").repeatable == frozenset()
+    assert matter("custody").repeatable is custody.REPEATABLE
+
+
+def test_a_repeatable_name_the_pack_does_not_have_fails_the_build():
+    """Decision 2's plant: `REPEATABLE` naming a field `FIELDS` does not
+    declare — the same 'enumerated but not real' shape I-23 forbids for
+    matters, one level down, at fields."""
+    broken_pack = _fake_pack("workers_comp")
+    broken_pack.REPEATABLE = frozenset({"not_a_real_field"})
+    entry = registry_mod._entry(broken_pack)
+    with pytest.raises(RuntimeError) as exc:
+        registry_mod._validate(
+            {**REGISTRY, "workers_comp": entry},
+            {"custody": custody, "workers_comp": broken_pack},
+        )
+    assert "not_a_real_field" in str(exc.value)
+    assert "REPEATABLE" in str(exc.value)
+
+
+def test_a_repeatable_naming_a_real_field_passes():
+    good_pack = _fake_pack("workers_comp")
+    good_pack.REPEATABLE = frozenset({"case_number"})
+    entry = registry_mod._entry(good_pack)
+    registry_mod._validate(
+        {**REGISTRY, "workers_comp": entry},
+        {"custody": custody, "workers_comp": good_pack},
+    )
+
+
+def test_a_repeatable_of_the_wrong_shape_fails_the_build():
+    broken_pack = _fake_pack("workers_comp")
+    broken_pack.REPEATABLE = ["case_number"]   # a list, not a frozenset
+    entry = registry_mod._entry(broken_pack)
+    with pytest.raises(RuntimeError) as exc:
+        registry_mod._validate(
+            {**REGISTRY, "workers_comp": entry},
+            {"custody": custody, "workers_comp": broken_pack},
+        )
+    assert "REPEATABLE" in str(exc.value)
+
+
+def test_the_real_registry_passes_the_repeatable_check():
+    registry_mod._validate(REGISTRY, registry_mod._discover_packs())
+
+
 def test_no_derived_form_carries_a_digit():
     """A derived form stands in for a payload; a digit in it is the payload
     leaking through its own stand-in (a case number, a date, a count of
@@ -698,3 +751,43 @@ def test_no_derived_form_carries_a_digit():
                 "false for some records or a restatement of the value it exists "
                 "to withhold"
             )
+
+
+def test_a_misspelled_repeatable_fails_the_build():
+    """The audit's plant on the optional declaration itself. `REPEATABLE` is
+    read with `getattr(pack, "REPEATABLE", frozenset())`, which cannot tell a
+    pack that has none from a pack that spelled it `REPEATABLES` — so a
+    misspelling is silently "nothing is repeatable", and the pack author finds
+    out when `--sub` refuses a field they declared. An optional contract needs
+    a spelling check or it is not a contract."""
+    broken_pack = _fake_pack("workers_comp")
+    broken_pack.REPEATABLES = frozenset({"case_number"})
+    entry = registry_mod._entry(broken_pack)
+    with pytest.raises(RuntimeError) as exc:
+        registry_mod._validate(
+            {**REGISTRY, "workers_comp": entry},
+            {"custody": custody, "workers_comp": broken_pack},
+        )
+    assert "REPEATABLES" in str(exc.value) and "REPEATABLE" in str(exc.value)
+
+
+@pytest.mark.parametrize("name", ["REPEATABLES", "REPEATABLE_FIELDS", "REPEAT"])
+def test_every_near_miss_spelling_of_repeatable_fails_the_build(name):
+    """The scan is a prefix rule, not a list of one typo — so it catches the
+    plural, the decorated name and the truncation alike."""
+    broken_pack = _fake_pack("workers_comp")
+    setattr(broken_pack, name, frozenset({"case_number"}))
+    entry = registry_mod._entry(broken_pack)
+    with pytest.raises(RuntimeError) as exc:
+        registry_mod._validate(
+            {**REGISTRY, "workers_comp": entry},
+            {"custody": custody, "workers_comp": broken_pack},
+        )
+    assert name in str(exc.value)
+
+
+def test_the_real_packs_spell_repeatable_correctly():
+    """The positive side over the registry as shipped — the scan fires on a
+    plant above and stays silent here, which is the only pair that proves it
+    checks anything."""
+    registry_mod._validate(REGISTRY, registry_mod._discover_packs())

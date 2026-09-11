@@ -216,6 +216,11 @@ textarea:focus{outline:2px solid var(--accent);border-color:transparent}
 <main>
 
 <section id="t-records" class="tab on">
+  <!-- L2b-instances: /api/store and /api/deadline accept id/sub (matter
+       instance / repeatable sub-id) below the surface (decision 2); this
+       form still always writes the "primary" instance — an instance picker
+       here, and /api/instances + /api/matter/open wired into it, are
+       L4-surfaces work, deferred to keep this bite's page diff small. -->
   <h2>Enter a record</h2>
   <div class="card">
     <div class="rf">
@@ -610,12 +615,19 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
 
     from homestead.keep import paths
     from homestead.keep.rungs import Disposition, derived_of
-    from homestead.keep.store import InvalidKey
+    from homestead.keep.store import InvalidKey, RecordExists
+    from homestead_law import instances
     from homestead_law import nestor_seam
     from homestead_law import queue as queue_mod
     from homestead_law.app import advisories
     from homestead_law.app.window import Window
     from homestead_law.intake import extract
+    from homestead_law.jurisdiction import (
+        JurisdictionAbsent,
+        UnsupportedJurisdiction,
+        jurisdiction_of,
+        set_jurisdiction,
+    )
     from homestead_law.nestor_store import get_store
     from homestead_law.registry import all_matters, matter
     from homestead_law.store import Sidecar
@@ -697,6 +709,8 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
                 return self._json({"nestor": nestor_ok, "matters": list(all_matters())})
             if p.path == "/api/matters":
                 return self._get_matters()
+            if p.path == "/api/instances":
+                return self._get_instances(qs)
             if p.path == "/api/records":
                 return self._get_records(qs)
             if p.path == "/api/record":
@@ -725,6 +739,30 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
                     ],
                 })
             self._json({"matters": out})
+
+        def _get_instances(self, qs):
+            """`GET /api/instances?matter=` — this matter's instances, each
+            with its jurisdiction code (or `None` if unset) — codes only,
+            never a payload: an instance id is a reference (I-15), and a
+            jurisdiction code is the pack's own L1 public-forum field, read
+            through the same gate every other reader in this module uses."""
+            matter_name = qs.get("matter", "")
+            try:
+                matter(matter_name)
+            except KeyError:
+                return self._json({"error": f"unknown matter {matter_name!r}"}, 400)
+            try:
+                found = instances.instances_of(sidecar, matter_name)
+            except instances.UnreadableStoredId as exc:
+                return self._json({"error": str(exc)}, 400)
+            out = []
+            for inst in found:
+                try:
+                    code = jurisdiction_of(sidecar, matter_name, inst)
+                except JurisdictionAbsent:
+                    code = None
+                out.append({"id": inst, "jurisdiction": code})
+            self._json({"instances": out})
 
         def _get_records(self, qs):
             matter_name = qs.get("matter", "")
@@ -774,8 +812,9 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
             today = dt.date.today().isoformat()
             items = queue_mod.queue(sidecar, today=today)
             self._json({"items": [
-                {"matter": i.matter, "rung": i.rung.value, "shown": i.shown,
-                 "overdue": i.overdue, "days_until": i.days_until, "gap": i.gap}
+                {"matter": i.matter, "instance": i.instance, "rung": i.rung.value,
+                 "shown": i.shown, "overdue": i.overdue, "days_until": i.days_until,
+                 "gap": i.gap}
                 for i in items
             ]})
 
@@ -833,6 +872,8 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
                     return self._post_store(body)
                 if p == "/api/deadline":
                     return self._post_deadline(body)
+                if p == "/api/matter/open":
+                    return self._post_matter_open(body)
             except _BadRequest as exc:
                 # An unread body (a refused Content-Length) leaves bytes on the
                 # socket, so this connection does not get reused — and the
@@ -862,6 +903,11 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
             matter_name = _text(body, "matter").strip()
             field = _text(body, "field").strip()
             value = _text(body, "value").strip()
+            # `id` names the instance (default `primary`, unchanged from before
+            # this bite); `sub` is only for a field the pack declares
+            # REPEATABLE.
+            id_value = _text(body, "id", instances.DEFAULT_INSTANCE).strip() or instances.DEFAULT_INSTANCE
+            sub_value = _text(body, "sub").strip() or None
 
             if not matter_name:
                 return self._json(
@@ -879,13 +925,22 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
             if not value:
                 return self._json({"ok": False, "error": "a value is required"}, 400)
 
+            if sub_value is not None and field not in mt.repeatable:
+                return self._json(
+                    {"ok": False, "error": f"field {field!r} does not accept a sub id"}, 400)
+
+            try:
+                item_id = instances.item_id(id_value, sub_value)
+            except instances.InvalidId as exc:
+                return self._json({"ok": False, "error": str(exc)}, 400)
+
             rung = mt.fields[field]
             # The pack's own declaration (decision 3), not a second table — see
             # cli.py's `_cmd_put`, which reads the same function on the same pack.
             derived = derived_of(mt.schema, field) if rung.value in ("L3", "L4") else None
             item = Classified(rung, value, derived)
             try:
-                replaced = sidecar.put(matter_name, field, "primary", item, overwrite=True)
+                replaced = sidecar.put(matter_name, field, item_id, item, overwrite=True)
             except InvalidKey as exc:
                 return self._json({"ok": False, "error": str(exc)}, 400)
 
@@ -905,7 +960,16 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
 
             # No default matter here either — see `_post_store`.
             matter_name = _text(body, "matter").strip()
-            item_id = _text(body, "id").strip()
+            id_value = _text(body, "id").strip()
+            # Every deadline is addressed to an instance (decision 2): what is
+            # stored is always `instances.item_id(instance, name)`. Unset,
+            # `sub` leaves `id` as the deadline's *name* under the default
+            # instance — `primary.<id>`, so the page's existing form is
+            # unchanged — and given, `id` names the instance and `sub` the
+            # deadline within it. A free-form id is refused, never stored:
+            # `instances_of` is a key scan, and an id it cannot split is a
+            # phantom instance no door can address.
+            sub_value = _text(body, "sub").strip() or None
             date = _text(body, "date").strip()
             instruction = _text(body, "instruction").strip() or None
             rung_value = _text(body, "rung", "L1").strip() or "L1"
@@ -918,8 +982,16 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
             except KeyError:
                 return self._json(
                     {"ok": False, "error": f"unknown matter {matter_name!r}"}, 400)
-            if not item_id:
+            if not id_value:
                 return self._json({"ok": False, "error": "an id is required"}, 400)
+            instance, name = (
+                (id_value, sub_value) if sub_value is not None
+                else (instances.DEFAULT_INSTANCE, id_value)
+            )
+            try:
+                item_id = instances.item_id(instance, name)
+            except instances.InvalidId as exc:
+                return self._json({"ok": False, "error": str(exc)}, 400)
             try:
                 rung = Rung(rung_value)
             except ValueError:
@@ -943,6 +1015,53 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
             except InvalidKey as exc:
                 return self._json({"ok": False, "error": str(exc)}, 400)
             self._json({"ok": True, "rung": rung.value})
+
+        def _post_matter_open(self, body):
+            """`POST /api/matter/open` `{matter, id, jurisdiction, replace?}` —
+            declare an instance's jurisdiction, opening it (decision 1). No
+            default matter or id (I-11); a `jurisdiction` outside the pack's
+            own set is refused by name, never a guess."""
+            matter_name = _text(body, "matter").strip()
+            id_value = _text(body, "id").strip()
+            jurisdiction_value = _text(body, "jurisdiction").strip()
+            replace = body.get("replace", False)
+            if not isinstance(replace, bool):
+                # The same refusal `_text` makes for a coerced string: `replace`
+                # is the operator's consent to overwrite (I-9), and
+                # `bool("false")` is `True`. A surface that coerces has decided
+                # something the operator did not say.
+                raise _BadRequest("replace must be true or false")
+
+            if not matter_name:
+                return self._json(
+                    {"ok": False, "error": "a matter is required"}, 400)
+            try:
+                matter(matter_name)
+            except KeyError:
+                return self._json(
+                    {"ok": False, "error": f"unknown matter {matter_name!r}"}, 400)
+            if not id_value:
+                return self._json({"ok": False, "error": "an id is required"}, 400)
+            if not jurisdiction_value:
+                return self._json(
+                    {"ok": False, "error": "a jurisdiction is required"}, 400)
+
+            try:
+                replaced = set_jurisdiction(
+                    sidecar, matter_name, id_value, jurisdiction_value, replace=replace
+                )
+            except instances.InvalidId as exc:
+                return self._json({"ok": False, "error": str(exc)}, 400)
+            except UnsupportedJurisdiction as exc:
+                return self._json({"ok": False, "error": str(exc)}, 400)
+            except RecordExists:
+                return self._json(
+                    {"ok": False,
+                     "error": f"{matter_name}/{id_value} is already open — pass "
+                              "replace to change its jurisdiction"},
+                    409,
+                )
+            self._json({"ok": True, "replaced": replaced is not None})
 
     return http.server.HTTPServer((host, port), _H)
 

@@ -66,8 +66,33 @@ def _modules() -> list[Path]:
     return sorted(p for p in PKG.rglob("*.py") if "__pycache__" not in p.parts)
 
 
+#: The gate's own doors. A module that calls one is consuming `Served.value`
+#: for somebody else — which is what a surface *is*, whatever directory it
+#: sits in. `jurisdiction.py` is the first such module outside `app/`
+#: (L2b-instances: `jurisdiction_of` serves on `S1_LIST` so nothing downstream
+#: can compute from a forum it was never shown), and `rules.py` will be the
+#: next. Deriving the set from the call rather than listing the files is the
+#: difference between a rule and a list that goes stale the day a bite adds a
+#: module — the failure mode this whole file was written about.
+DOORS = {"serve", "serve_all", "ambient_rows"}
+
+
+def _calls_a_door(tree: ast.AST) -> bool:
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        leaf = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+        if leaf in DOORS:
+            return True
+    return False
+
+
 def _is_surface(mod: Path) -> bool:
-    return "app" in mod.relative_to(PKG).parts
+    """`homestead_law/app/`, plus any module that calls the gate itself."""
+    if "app" in mod.relative_to(PKG).parts:
+        return True
+    return _calls_a_door(ast.parse(mod.read_text("utf-8")))
 
 
 def _payload_reaches(tree: ast.AST) -> list[int]:
@@ -218,3 +243,61 @@ def test_i16_serve_is_the_obvious_path():
     assert "value" in Served.__dataclass_fields__
     assert "payload" not in Served.__dataclass_fields__
     assert set(AmbientRow.__dataclass_fields__) == {"rung", "text"}
+
+
+def test_the_surface_set_is_derived_from_the_gate_not_a_list_of_directories():
+    """The set this file scans must actually contain the module that serves.
+    `jurisdiction.py` lives at the package root and hands `Served.value` to
+    every future counting rule — if the reflection ban stopped at `app/`, the
+    one new gate consumer in L2b would have been outside it, and the next bite
+    to add one would be too."""
+    surfaces = {m.name for m in _modules() if _is_surface(m)}
+    assert "jurisdiction.py" in surfaces, (
+        "jurisdiction.py calls serve() and is not in the surface set — the set "
+        "is a directory list again"
+    )
+    assert "window.py" in surfaces          # the original surface layer, still in
+    assert "store.py" not in surfaces       # the payload boundary is not a surface
+
+
+def test_a_serving_module_outside_app_is_held_to_the_reflection_ban(tmp_path):
+    """The plant for the rule above: a module at the package root that both
+    calls the gate and reflects. Written to a temp package and run through the
+    same two helpers the package tests use, so a pass means the enforcement
+    caught it, not that the tree happens to be clean."""
+    mod = tmp_path / "rules.py"
+    mod.write_text(
+        "from homestead.keep.rungs import serve\n"
+        "def anchor(record, surface):\n"
+        "    served = serve(record, surface)\n"
+        '    return getattr(served, "payload")\n'
+    )
+    tree = ast.parse(mod.read_text("utf-8"))
+    assert _calls_a_door(tree), "the plant serves"
+    # `getattr(served, "payload")` is invisible to the literal `.payload` scan —
+    # the audit's original bypass — and caught by the reflection ban, which is
+    # the whole reason a gate consumer has to be inside the surface set.
+    assert not _payload_reaches(tree)
+    assert _reflection_reaches(tree), "the reflection must be caught"
+
+    spelled = tmp_path / "rules_literal.py"
+    spelled.write_text(
+        "from homestead.keep.rungs import serve\n"
+        "def anchor(record, surface):\n"
+        "    serve(record, surface)\n"
+        "    return record.payload\n"
+    )
+    literal = ast.parse(spelled.read_text("utf-8"))
+    assert _calls_a_door(literal) and _payload_reaches(literal)
+
+
+def test_a_non_serving_module_outside_app_may_still_reflect(tmp_path):
+    """The other side of the rule, so it is a rule and not a blanket ban:
+    `registry.py` reads an optional pack attribute with `getattr` and is not a
+    surface — a module that never calls the gate is not reaching around one."""
+    mod = tmp_path / "registry_like.py"
+    mod.write_text(
+        "def repeatable(pack):\n"
+        '    return getattr(pack, "REPEATABLE", frozenset())\n'
+    )
+    assert not _calls_a_door(ast.parse(mod.read_text("utf-8")))

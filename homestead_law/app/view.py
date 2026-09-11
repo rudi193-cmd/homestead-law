@@ -35,6 +35,7 @@ from datetime import date
 
 from homestead.app import theme
 from homestead.keep.rungs import Disposition
+from homestead_law import instances
 from homestead_law import queue as queue_mod
 from homestead_law.app import advisories, demo
 from homestead_law.app.window import Window
@@ -183,7 +184,16 @@ def run() -> int:
                 mark = f"overdue by {abs(item.days_until)}d"
             else:
                 mark = f"in {item.days_until}d"
-            listbox.insert("end", f"[{item.rung.value}]  {item.shown}  ·  {mark}")
+            # Named by matter and instance, like the CLI's queue line and the
+            # detail heading below. `show_queue` spans every registered matter
+            # (L2c) and a matter now spans instances (decision 2), so a row
+            # that says neither cannot be told from the row beneath it. Both
+            # are references off the item's own ref — never a payload (I-15).
+            listbox.insert(
+                "end",
+                f"[{item.rung.value}]  {item.matter}/{item.instance}  "
+                f"{item.shown}  ·  {mark}",
+            )
             listbox.itemconfig("end", foreground=theme.rung_color(item.rung))
 
         def on_open(_event: object = None) -> None:
@@ -237,10 +247,15 @@ def run() -> int:
         # view fixed the same assumption).
         served = window.open_detail(ref)
         clear()
-        # Named by matter and item type (`ref[0]`, `ref[1]`) rather than just the
-        # item type: the queue can open a detail from any registered matter, so
-        # the heading says which one, not only what.
-        ttk.Label(content, text=f"{ref[0]} · {ref[1]}", style="Heading.TLabel").pack(anchor="w")
+        # Named by matter, instance and item type — the queue can open a
+        # detail from any registered matter (and, within it, any instance —
+        # decision 2), so the heading says which of both, not only what.
+        # `instance` is a reference, read off the ref's own item id, never a
+        # payload (I-15).
+        instance = instances.split_item_id(ref[2])[0]
+        ttk.Label(
+            content, text=f"{ref[0]}/{instance} · {ref[1]}", style="Heading.TLabel"
+        ).pack(anchor="w")
         ttk.Label(content, text=served.rung.value, style="Muted.TLabel").pack(anchor="w", pady=(0, 12))
         body = (
             str(served.value)
