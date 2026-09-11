@@ -187,32 +187,72 @@ def test_signal_fields_is_the_frozenset_wave_8_names():
     )
 
 
-def test_signal_fields_is_written_sorted_one_name_per_line():
-    """Merge-friendliness, held by a test rather than by a comment nobody
-    re-reads: the literal in `plan_period.py` is one string per line and in
-    sorted order, so two bites adding a producer in parallel produce a
-    conflict git resolves as a plain union instead of a conflict *inside* a
-    line. Planted: the packed single-line shape this replaced fails it."""
-    import ast
-    import inspect
+def _signal_fields_layout_offences(source: str) -> list[str]:
+    """What is wrong with the way `SIGNAL_FIELDS` is *written* in `source`,
+    or `[]`.
 
-    source = inspect.getsource(plan_period)
+    Factored out of the test below by the X7-drift audit (2026-09-11): as an
+    inline scan it only ever ran over the real, already-conforming module, so
+    its docstring's claim that the packed single-line shape "fails it" was a
+    claim and not a check — and the meta-scan (`tests/test_scans_fire.py`)
+    cannot see a scan written inside a test body at all."""
+    import ast
+
     tree = ast.parse(source)
-    (node,) = [
+    nodes = [
         n for n in ast.walk(tree)
         if isinstance(n, ast.AnnAssign)
         and isinstance(n.target, ast.Name)
         and n.target.id == "SIGNAL_FIELDS"
     ]
-    (literal,) = node.value.args
+    if len(nodes) != 1:
+        return [f"expected exactly one SIGNAL_FIELDS assignment, found {len(nodes)}"]
+    (literal,) = nodes[0].value.args
     names = [e.value for e in literal.elts]
     linenos = [e.lineno for e in literal.elts]
 
-    assert names == sorted(names), f"SIGNAL_FIELDS is not sorted: {names}"
-    assert len(set(linenos)) == len(linenos), (
-        f"two names share a line ({linenos}) — a packed line makes a "
-        "parallel addition a conflict inside the line"
-    )
+    offences: list[str] = []
+    if names != sorted(names):
+        offences.append(f"SIGNAL_FIELDS is not sorted: {names}")
+    if len(set(linenos)) != len(linenos):
+        offences.append(
+            f"two names share a line ({linenos}) — a packed line makes a "
+            "parallel addition a conflict inside the line"
+        )
+    return offences
+
+
+def test_signal_fields_is_written_sorted_one_name_per_line():
+    """Merge-friendliness, held by a test rather than by a comment nobody
+    re-reads: the literal in `plan_period.py` is one string per line and in
+    sorted order, so two bites adding a producer in parallel produce a
+    conflict git resolves as a plain union instead of a conflict *inside* a
+    line."""
+    import inspect
+
+    assert _signal_fields_layout_offences(inspect.getsource(plan_period)) == []
+
+
+def test_the_layout_guard_fires_on_a_planted_packed_line_and_a_planted_reorder():
+    """The plant the claim above always needed. Both shapes it bans, written
+    into a synthetic module: the packed single line this replaced, and a
+    sorted-order break — each caught on its own, so neither assertion is
+    carrying the other."""
+    header = "SIGNAL_FIELDS: frozenset[str] = frozenset(\n"
+
+    packed = header + '    {"award_amount", "revenue_start"}\n)\n'
+    assert _signal_fields_layout_offences(packed) == [
+        "two names share a line ([2, 2]) — a packed line makes a parallel "
+        "addition a conflict inside the line"
+    ]
+
+    unsorted_ = header + '    {\n        "revenue_start",\n        "award_amount",\n    }\n)\n'
+    assert _signal_fields_layout_offences(unsorted_) == [
+        "SIGNAL_FIELDS is not sorted: ['revenue_start', 'award_amount']"
+    ]
+
+    good = header + '    {\n        "award_amount",\n        "revenue_start",\n    }\n)\n'
+    assert _signal_fields_layout_offences(good) == []
 
 
 # ── audit additions (L3-bankruptcy-ch13 audit, 2026-09-12) ──────────────────

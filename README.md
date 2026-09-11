@@ -20,7 +20,7 @@ a *sync target*, reached through the egress gate — never a runtime dependency 
 the shipped app. Sync is an **S4 egress**: an `L5` record never crosses, and what
 lands in the shared store is only what the household chose to expose.
 
-> **Status: bite 3 — runnable end to end on SQLite.** The store (bite 1), the
+> ~~**Status: bite 3 — runnable end to end on SQLite.** The store (bite 1), the
 > custody pack and registry (bite 2), and now the **app** — the two S1 surfaces
 > (`app/window`, `app/view`), the cover's re-identification check (`app/cover`,
 > I-31), the surfaced advisory matcher (`app/advisories`), and the citation
@@ -36,7 +36,21 @@ lands in the shared store is only what the household chose to expose.
 > (nothing, over a single matter), a "What's due" view lists the queue, and
 > `--demo` prints it headless. Suite: **85 passed**. The "prove one app on
 > SQLite end to end" milestone is met; the adapter seam and the gated Postgres
-> sync generalize from here.
+> sync generalize from here.~~
+>
+> **Status (X7-drift audit, 2026-09-11): bite 3's milestone is long since
+> passed and superseded, not current.** Five matters are registered
+> (`custody`, `bankruptcy`, `workers_comp`, `grant`, `venture` —
+> `homestead_law/registry.py`), each with instances and jurisdiction, several
+> with computed-deadline templates; the browser UI carries a matter+instance
+> switcher, per-pack panes, a Sync tab, and gated read-back; the CLI has a
+> `sync` command. See "Capabilities, and what shipped them" below for which
+> release added which piece, and its own completeness test
+> (`tests/test_readme_capabilities.py`) for the guarantee that nothing here
+> is silently missing a row. Suite: green on `pytest -q`, on both legs (with
+> and without the `entity` extra) — described qualitatively rather than
+> pinned, because a literal count is exactly the sentence this correction is
+> here to unmake (`tests/test_docs_drift.py` guards it from coming back).
 
 ## Entering your own information
 
@@ -489,7 +503,16 @@ result, the source and a preview token. **`--accept` is the only thing that
 writes**, and only once a token proves it matches a fresh computation of the
 same anchor and jurisdiction: it stores `(matter, "deadline",
 "<instance>.<template>")` at `L1` with the instruction *"computed from
-`<anchor>` under `<source>`; confirm against the court's notice"* — the same
+`<anchor>` under `<source>`; confirm against that source"* — never "the
+court's notice", corrected (X7-drift audit, 2026-09-11) once a non-judicial
+template (venture's `election-83b`, an IRS filing window with no court)
+started writing through the same door, and deliberately not "the source
+*above*" either: the same string is read back on its own by `show`, the
+queue and the pane, where nothing is above it. The instruction carries no
+forum word at all — every pack's own authority (FRBP, NMSA, 26 U.S.C.)
+speaks for itself in the `<source>` it names, and
+`tests/test_rules.py::test_the_accepted_instruction_names_its_packs_own_source`
+pins one per pack. It is the same
 two-field shape (a date, an instruction) the plain `deadline` command already
 writes, so the queue and `show` read a computed deadline exactly as they read
 a hand-entered one, by reference. `--replace` is the same consent an occupied
@@ -648,6 +671,39 @@ Sync tab's held previews live in the running process only — at most a
 handful at a time, expiring after ten minutes, each good for one Send — so
 restarting the server (or leaving the tab open too long) means previewing
 again, never sending something older than what was shown.
+
+## Capabilities, and what shipped them
+
+One row per build-out capability, naming the release that added it —
+verifiable against `CHANGELOG.md`, never asserted from memory
+(`tests/test_readme_capabilities.py`, which checks every "shipped by" number
+above against a release `CHANGELOG.md` actually records). This table does
+not re-list Phase 0–3 foundations that
+predate the build-out plan (the store, the registry, the queue, the
+CLI/server doors nearly every bite grows, the Nestor seam, the citation
+extractor, the intake UI) — those have no single "shipped by" release and
+are named with a reason in `tests/test_readme_capabilities.py`'s own
+`FOUNDATION` tuple instead. The property the completeness test holds is
+narrower and checkable: every module under `homestead_law/*.py`,
+`homestead_law/app/*.py` and `homestead_law/packs/*.py` is named here, or
+excluded there, with a reason — never simply forgotten (BUG-6's shape, one
+level up). `app/` is swept too (X7-drift audit, 2026-09-11): the surfaces
+are where two whole releases landed, and leaving the directory out meant the
+table could — and did — go a release stale without anything noticing.
+
+| capability | shipped by | module(s) |
+|---|---|---|
+| Matter instances and per-instance jurisdiction | 0.3.0 | `instances.py`, `jurisdiction.py` |
+| `JURISDICTIONS`/`derived` on the custody pack; NM→OR relocation fields and templates | 0.2.0; 0.4.0 | `packs/custody.py` |
+| Bankruptcy (Chapter 13) pack, `NOTICE`, I-44's AST guard | 0.4.0 | `packs/bankruptcy.py` |
+| The plan-period interaction flag | 0.4.0 | `plan_period.py` |
+| Workers' comp pack, the health-boundary cap (`validate_value`) | 0.4.0 | `packs/workers_comp.py` |
+| Deadline templates — `compute()`/`accept()`, the preview token | 0.4.0 | `rules.py` |
+| Matter+instance switcher, per-pack panes, computed-deadlines UI, I-33 | 0.5.0 | (browser UI; server routes, not a standalone module) |
+| Sync — CLI and Sync tab, the consented-scope envelope | 0.6.0 | `sync.py` |
+| Grant pack | 0.7.0 | `packs/grant.py` |
+| Venture pack, the one computed (83(b)) template | 0.8.0 | `packs/venture.py` |
+| Grant and venture panes; the plan-period line on the bankruptcy pane and the queue | 0.9.0 | `app/panes.py` |
 
 ## What is enforced here today
 

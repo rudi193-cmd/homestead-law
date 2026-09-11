@@ -301,3 +301,37 @@ def test_a_non_serving_module_outside_app_may_still_reflect(tmp_path):
         '    return getattr(pack, "REPEATABLE", frozenset())\n'
     )
     assert not _calls_a_door(ast.parse(mod.read_text("utf-8")))
+
+
+def test_is_surface_fires_on_a_planted_module_in_either_shape(tmp_path, monkeypatch):
+    """`_is_surface` decides which modules the wider reflection ban applies
+    to (`test_the_surface_set_is_derived_from_the_gate_not_a_list_of_
+    directories` reads its output but never plants a violation of its own
+    logic — the X7-drift meta-scan's finding). Planted here: a module under
+    `<pkg>/app/` must count as a surface whatever it does, a module elsewhere
+    that calls a gate door must count too, and a module that does neither
+    must not — the two ways a module could wrongly slip into or out of the
+    set this whole file polices. `PKG` is monkeypatched to a temp root so
+    the plant never touches the real tree."""
+    import sys
+
+    monkeypatch.setattr(sys.modules[__name__], "PKG", tmp_path)
+
+    app_dir = tmp_path / "app"
+    app_dir.mkdir()
+    surface_by_path = app_dir / "anything.py"
+    surface_by_path.write_text("x = 1\n")
+    assert _is_surface(surface_by_path), "a module under app/ is a surface whatever it does"
+
+    door_caller = tmp_path / "elsewhere.py"
+    door_caller.write_text(
+        "from homestead.keep.rungs import serve\n"
+        "def f(r, s):\n    return serve(r, s)\n"
+    )
+    assert _is_surface(door_caller), "a module outside app/ that calls a door is a surface too"
+
+    plain = tmp_path / "plain.py"
+    plain.write_text("def f(x):\n    return x + 1\n")
+    assert not _is_surface(plain), (
+        "a module that neither sits under app/ nor calls a door is not a surface"
+    )

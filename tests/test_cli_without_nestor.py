@@ -654,7 +654,7 @@ def test_deadline_compute_accept_stores_and_a_second_accept_refuses(monkeypatch,
 
     record = Sidecar().get("custody", "deadline", "primary.notice")
     assert record.payload == "2026-01-21"
-    assert "confirm against the court's notice" in record.derived
+    assert "confirm against that source" in record.derived
 
     assert run_cli(["deadline", "compute", "custody", "notice", "--id", "primary", "--accept"]) == 1
     err = capsys.readouterr().err

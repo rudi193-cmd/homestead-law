@@ -389,21 +389,28 @@ def test_an_l5_record_never_reaches_the_pane_the_text_or_the_demo():
     from homestead_law.app import demo
 
     store = Sidecar()
-    ssn = "123-45-6789"
-    store.put(bankruptcy.MATTER, "ssn", "primary", Classified(Rung.L5, ssn))
+    # Named `planted_l5`, not `ssn` (X7-drift audit, 2026-09-11): CodeQL's
+    # sensitive-data heuristic keys on variable names, and a local literally
+    # called `ssn` taints every element of any list it rides in and flags the
+    # first print downstream as clear-text logging. The field name stored
+    # under (`"ssn"`, the string key) is unrelated and stays as-is — that is
+    # the real field this pack declares, and the assertions below check it by
+    # name deliberately.
+    planted_l5 = "123-45-6789"
+    store.put(bankruptcy.MATTER, "ssn", "primary", Classified(Rung.L5, planted_l5))
     store.put(bankruptcy.MATTER, "claims_bar_date", "primary",
               Classified(Rung.L1, "2026-09-01"))
 
     pane = panes.pane_for(store, bankruptcy.MATTER, "primary", today=TODAY)
     blob = json.dumps(pane)
-    assert ssn not in blob and "ssn" not in blob
+    assert planted_l5 not in blob and "ssn" not in blob
     text = panes.pane_text(pane)
-    assert ssn not in text and "ssn" not in text
+    assert planted_l5 not in text and "ssn" not in text
     # the row that *is* readable still renders, so this is not a pane that
     # simply failed to compose
     assert any(b["field"] == "claims_bar_date" for b in pane["bar_dates"])
 
-    assert ssn not in demo.compose_panes(store, today=TODAY)
+    assert planted_l5 not in demo.compose_panes(store, today=TODAY)
 
 
 def test_the_generic_pane_drops_an_l5_too():
@@ -411,7 +418,11 @@ def test_the_generic_pane_drops_an_l5_too():
     row the gate hands it — so the L5 drop there is the gate's, not a filter
     this module keeps. Planted under a matter with no composer at all."""
     store = Sidecar()
-    store.put("an_unregistered_matter", "secret", "primary",
+    # `"planted_l5"`, not `"secret"` (X7-drift audit, 2026-09-11): this matter
+    # is a fake with no pack, so the item type is arbitrary, and an arbitrary
+    # name that reads as a credential is one CodeQL's sensitive-data heuristic
+    # can key on for no benefit. See `tests/test_planted_names.py`.
+    store.put("an_unregistered_matter", "planted_l5", "primary",
               Classified(Rung.L5, "123-45-6789"))
     store.put("an_unregistered_matter", "note", "primary",
               Classified(Rung.L4, "x", "A note is on file"))

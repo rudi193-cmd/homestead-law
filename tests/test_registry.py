@@ -332,6 +332,30 @@ def test_the_guard_would_catch_the_registry_itself_if_it_were_not_exempt():
     assert not _is_pack(PKG / "store.py")
 
 
+def test_the_pack_exemption_fires_on_a_planted_module_in_each_position():
+    """`_is_pack` is the exemption both structural guards in this file lean
+    on — get it wrong in one direction and every pack fails the I-23 scan,
+    get it wrong in the other and any module can opt out of both guards by
+    sitting in a directory whose name merely contains "packs". It had never
+    been run against a violation (the X7-drift meta-scan's finding): the test
+    above only ever asks it about two real files that already exist.
+
+    Planted here on paths that do not exist, so the answer can only come from
+    the rule and not from the tree: a module *inside* `packs/` is exempt
+    however deeply nested, and a module outside it is not — including the
+    near-misses, a top-level file whose own name contains "packs" and a
+    sibling directory named for it."""
+    assert _is_pack(PKG / "packs" / "planted_second.py")
+    assert _is_pack(PKG / "packs" / "sub" / "planted_deep.py")
+
+    assert not _is_pack(PKG / "planted_packs.py"), (
+        "a file whose *name* contains 'packs' is not inside the packs "
+        "directory and must not inherit its exemption"
+    )
+    assert not _is_pack(PKG / "app" / "planted_pane.py")
+    assert not _is_pack(PKG / "queue.py")
+
+
 # ── the Wave-3 exit criterion: registering a second matter breaks no test ────
 
 

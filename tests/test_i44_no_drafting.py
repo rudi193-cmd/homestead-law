@@ -51,7 +51,7 @@ BANNED_PHRASES = (
     "you are advised", "it is recommended", "ought to", "be sure to",
     # telling the operator when to act — a date this app computed is always a
     # reference to confirm, never an instruction ("confirm against the
-    # court's notice" is the sanctioned wording; "file by" is not)
+    # source above" is the sanctioned wording; "file by" is not)
     "file by", "must file", "should file", "deadline to file",
     "make sure you file", "before the deadline you",
     # telling the operator which relief or chapter suits them (decision 8)
