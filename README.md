@@ -433,6 +433,21 @@ bare `ime` would need a bare `ime` field, i.e. one free-text blob per exam
 beside `notes`, which is the drift toward narrative decision 7 exists to
 stop.
 
+## Grant
+
+A fourth registered matter, `grant` (L8-grant, wave 8) — a funder's
+application and award, tracking dates and references only. `TEMPLATES` is
+empty because a grant has no court and no procedural code this pack could
+count a period under, so every date, including the funder's own
+`submission_deadline`, is entered off the funder's notice rather than
+computed; `status` is a closed set spelled without the household's own word
+for "not yet submitted" (`preparing`, not that word), so provisional I-44's
+phrase scan never has reason to look at a stored value twice. `award_amount`
+and the money-bearing halves of the repeatable `disbursement` group feed the
+bankruptcy pack's plan-period flag
+(`homestead_law.plan_period.SIGNAL_FIELDS`), the same reference line the
+Wave 8 venture pack will also produce.
+
 ## Computing a deadline
 
 A pack may declare **templates** — data, not code — on its own `TEMPLATES`
