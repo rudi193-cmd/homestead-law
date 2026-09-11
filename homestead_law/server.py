@@ -142,6 +142,7 @@ nav{background:var(--surface);border-bottom:1px solid var(--border);
 .tb.on{color:var(--accent);border-bottom-color:var(--accent);font-weight:500}
 main{max-width:900px;margin:24px auto;padding:0 24px}
 .tab{display:none}.tab.on{display:block}
+.hide{display:none}
 h2{font-size:16px;font-weight:600;margin:0 0 16px}
 textarea{width:100%;min-height:180px;padding:12px;border:1px solid var(--border);
   border-radius:var(--r);font-family:inherit;font-size:14px;line-height:1.6;
@@ -227,6 +228,10 @@ textarea:focus{outline:2px solid var(--accent);border-color:transparent}
       <select id="rmatter" onchange="fillFields()"></select>
       <select id="rfield" onchange="showRung()"></select>
       <span class="rb" id="rrung"></span>
+      <!-- Shown only for a field the pack declares REPEATABLE, which
+           /api/store requires a sub id for. A sub id is a label the operator
+           chooses (c1, c2, …), never a name (I-15). -->
+      <input id="rsub" class="hide" placeholder="Sub id (e.g. c1)&#8230;">
     </div>
     <div class="rf">
       <input id="rvalue" placeholder="Value&#8230;" onkeydown="if(event.key==='Enter')storeField()">
@@ -350,6 +355,11 @@ function showRung() {
   badge.className='rb r-'+(f?f.rung:'');
   badge.textContent=f?f.rung:'';
   document.getElementById('rwhy').textContent=f?f.why:'';
+  // A repeatable field needs a sub id; every other field refuses one.  The
+  // box is revealed, and cleared, by the pack's own declaration.
+  var sub=document.getElementById('rsub');
+  if(f&&f.repeatable){sub.className='';}
+  else {sub.className='hide'; sub.value='';}
 }
 
 function storeField() {
@@ -359,8 +369,11 @@ function storeField() {
   var msg=document.getElementById('rmsg');
   if(!matter){msg.innerHTML='<span class="sm s-err">No matter is registered</span>';return;}
   if(!value){msg.innerHTML='<span class="sm s-err">Type a value first</span>';return;}
+  var body={matter:matter,field:field,value:value};
+  var sub=document.getElementById('rsub');
+  if(sub&&sub.className!=='hide'&&sub.value.trim())body.sub=sub.value.trim();
   fetch('/api/store',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({matter:matter,field:field,value:value})})
+    body:JSON.stringify(body)})
   .then(function(r){return r.json()}).then(function(data){
     if(data.ok){
       msg.innerHTML='<span class="sm s-ok">Stored '+esc(field)+' ('+data.rung+')'
@@ -734,7 +747,14 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
                     "jurisdiction": mt.jurisdiction,
                     "jurisdictions": list(mt.jurisdictions),
                     "fields": [
-                        {"name": f, "rung": rung.value, "why": mt.schema[f].get("why", "")}
+                        {"name": f, "rung": rung.value,
+                         "why": mt.schema[f].get("why", ""),
+                         # Whether this field takes a sub id — the pack's own
+                         # REPEATABLE, live (I-23), so the form can show the
+                         # sub box for exactly the fields `/api/store` now
+                         # requires one for, instead of offering an option it
+                         # would always refuse.
+                         "repeatable": f in mt.repeatable}
                         for f, rung in mt.fields.items()
                     ],
                 })
@@ -809,6 +829,10 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
             })
 
         def _get_queue(self):
+            # `notices` is a sibling key to `items`, not an entry in it: a
+            # reference line has no date, rung or urgency, so a client that
+            # renders it as a queue item would have to invent all three. Old
+            # clients that read only `items` are unaffected.
             today = dt.date.today().isoformat()
             items = queue_mod.queue(sidecar, today=today)
             self._json({"items": [
@@ -816,7 +840,7 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
                  "shown": i.shown, "overdue": i.overdue, "days_until": i.days_until,
                  "gap": i.gap}
                 for i in items
-            ]})
+            ], "notices": list(queue_mod.notices(sidecar))})
 
         def _get_resolve(self, qs):
             if not nestor_ok:
@@ -932,6 +956,16 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
             if sub_value is not None and field not in mt.repeatable:
                 return self._json(
                     {"ok": False, "error": f"field {field!r} does not accept a sub id"}, 400)
+
+            # ...and the other way round: a REPEATABLE field written without a
+            # sub id lands in the instance's single slot, where the second
+            # child overwrites the first — the failure the sub-id exists to
+            # abolish. Refused by field name, never echoing the value (I-15);
+            # `cli._cmd_put` refuses the same pair of shapes.
+            if sub_value is None and field in mt.repeatable:
+                return self._json(
+                    {"ok": False,
+                     "error": f"field {field!r} is repeatable and needs a sub id"}, 400)
 
             try:
                 item_id = instances.item_id(id_value, sub_value)

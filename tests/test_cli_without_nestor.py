@@ -835,3 +835,67 @@ def test_deadline_doors_refuse_a_broken_template_by_name_rather_than_tracebackin
     assert run_cli(["deadline", "compute", "custody", "broken", "--id", "primary"]) == 1
     err = capsys.readouterr().err
     assert err.startswith("refused:") and "Traceback" not in err
+
+# ── the queue prints the plan-period reference lines (audit, 2026-09-12) ────
+
+def _signal_pack(monkeypatch, name: str = "_fake_signal") -> None:
+    fake = types.ModuleType(f"homestead_law.packs.{name}")
+    fake.MATTER = name
+    fake.JURISDICTION = "US-NM"
+    fake.JURISDICTIONS = ("US-NM",)
+    fake.FIELDS = {"award_amount": Rung.L3}
+    fake.SCHEMA = {
+        "award_amount": {
+            "rung": Rung.L3, "matter": name,
+            "derived": "An award amount is on file",
+        }
+    }
+    monkeypatch.setitem(registry_mod.REGISTRY, name, registry_mod._entry(fake))
+
+
+def _confirmed_with_a_signal(monkeypatch) -> None:
+    _signal_pack(monkeypatch)
+    assert run_cli(["put", "bankruptcy", "plan_confirmation_date", "2026-06-01"]) == 0
+    assert run_cli(["put", "_fake_signal", "award_amount", "1000", "--id", "grant-1"]) == 0
+
+
+def test_queue_prints_the_plan_period_reference_line(capsys, monkeypatch):
+    """The plan's own flag paragraph: a confirmed, undischarged plan alongside
+    new income elsewhere "makes the queue and the bankruptcy pane show one
+    reference line". The CLI queue *is* the queue, so it shows it — after the
+    items, with no rung marker and no urgency, because it is a reference and
+    not a deadline."""
+    _confirmed_with_a_signal(monkeypatch)
+    assert run_cli(["deadline", "bankruptcy", "confirmation", "2099-09-25", "hearing"]) == 0
+    capsys.readouterr()
+
+    assert run_cli(["queue", "--today", "2099-09-01"]) == 0
+    out = capsys.readouterr().out
+    assert "note: bankruptcy/primary: income or assets arising during the plan" in out
+    # the items still print (an L1 deadline shows its date), and the note
+    # comes after them
+    assert out.index("2099-09-25") < out.index("note:")
+
+
+def test_the_reference_line_prints_even_when_nothing_is_due(capsys, monkeypatch):
+    """A notice has no date, so it neither expires nor waits its turn. The
+    early "nothing due" return used to swallow it — which would have hidden
+    the one line this bite exists to show, in exactly the household that has
+    entered nothing else yet."""
+    _confirmed_with_a_signal(monkeypatch)
+    capsys.readouterr()
+
+    assert run_cli(["queue", "--today", "2099-09-01"]) == 0
+    out = capsys.readouterr().out
+    assert "nothing due" in out
+    assert "note: bankruptcy/primary: income or assets arising during the plan" in out
+
+
+def test_the_queue_prints_no_note_when_there_is_nothing_to_confirm(capsys, monkeypatch):
+    """The other half: a confirmed plan with no signal anywhere prints no
+    note at all. A line that is always there is not a flag."""
+    assert run_cli(["put", "bankruptcy", "plan_confirmation_date", "2026-06-01"]) == 0
+    capsys.readouterr()
+
+    assert run_cli(["queue", "--today", "2099-09-01"]) == 0
+    assert "note:" not in capsys.readouterr().out

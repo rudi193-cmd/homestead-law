@@ -239,6 +239,16 @@ def _cmd_put(args: Sequence[str]) -> int:
     pack declares ``REPEATABLE`` — a sub-id, never a name (I-15); a value not
     on file yet is stored under a fresh one, not looked up.
 
+    The rule runs both ways: a field the pack does **not** declare
+    ``REPEATABLE`` refuses a ``--sub``, and a field it **does** declare
+    refuses a write *without* one. Without that second half a repeatable
+    field silently lands in the instance's single slot — the exact
+    overwrite-the-first-child failure the sub-id exists to abolish — under a
+    key ``instances.split_item_id`` then reads as a bare instance, so nothing
+    downstream can tell it from an instance-level record. There is no default
+    sub: a sub-id is the operator's own label, and inventing one here would be
+    naming a record on their behalf (I-15).
+
     If the field involves a party name (opposing_party, child_name), the name
     is also proposed to Nestor's party resolver as a draft alias.
     """
@@ -283,6 +293,16 @@ def _cmd_put(args: Sequence[str]) -> int:
         print(
             f"refused: field {field!r} does not accept --sub for {matter_name!r} "
             "— it is not declared REPEATABLE",
+            file=sys.stderr,
+        )
+        return 1
+
+    if sub_opt is None and field in mt.repeatable:
+        print(
+            f"refused: field {field!r} is declared REPEATABLE for "
+            f"{matter_name!r} and needs a --sub — one record per sub-id, so a "
+            "second one does not overwrite the first. A sub-id is a label you "
+            "choose (--sub c1), never a name.",
             file=sys.stderr,
         )
         return 1
@@ -907,11 +927,16 @@ def _cmd_queue(args: Sequence[str]) -> int:
     from homestead_law import queue as queue_mod
 
     items = queue_mod.queue(sidecar, today=today)
+    # Reference lines (`queue.notices`) print after the items and are printed
+    # even when nothing is due: a cross-matter interaction has no date, so it
+    # neither expires nor waits its turn, and "nothing due" would otherwise
+    # swallow it. One line each, no rung marker and no urgency — it is not a
+    # deadline and must not read like one.
+    notices = queue_mod.notices(sidecar)
     if not items:
         print("  nothing due")
-        return 0
-
-    print(f"  as of {today}:")
+    else:
+        print(f"  as of {today}:")
     for item in items:
         if item.gap:
             mark = "date unreadable"
@@ -922,6 +947,8 @@ def _cmd_queue(args: Sequence[str]) -> int:
         # Named by matter and instance (a reference — I-15), not by the raw
         # item id, which may carry a sub the operator never asked to see here.
         print(f"  [{item.rung.value}]  {item.matter}/{item.instance}  {item.shown}  ·  {mark}")
+    for line in notices:
+        print(f"  note: {line}")
     return 0
 
 
