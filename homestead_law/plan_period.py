@@ -56,17 +56,31 @@ SIGNAL_FIELDS: frozenset[str] = frozenset(
 MATTER = bankruptcy_pack.MATTER
 
 
-def _served_value(store: Sidecar, matter_name: str, item_type: str, instance: str):
-    """`Served.value` for one field of one instance, or `None` if there is
-    nothing to serve — absent outright, or present but denied (I-11's
-    absence-fails-closed extended to "nothing rendered is nothing to read").
-    Never `.payload`; this is the one door (`serve`) every reader in this
-    package already trusts, the same one `jurisdiction.py` uses."""
+def _on_file(store: Sidecar, matter_name: str, item_type: str, instance: str) -> bool:
+    """Whether one field of one instance is on file **and actually renders**
+    on `S1_LIST` — `Disposition.RENDER`, not merely a non-`None` `.value`.
+
+    The distinction is the whole of I-11 here. A `plan_confirmation_date`
+    hand-stored at `L4` (the wrong rung, by hand or by a corrupt row read
+    back under I-11's fail-closed rule) does not render: the gate hands back
+    `DERIVE` and the derived *form* — "A confirmation date is on file" — a
+    perfectly non-`None` string that is not a date and was never read. Taking
+    it as proof of confirmation would be this module inferring a case's
+    posture from a sentence the gate wrote to avoid showing it one. So a
+    field that does not render is treated as **absent**, exactly as if the
+    row were missing, and the two conditions fail closed in the two
+    directions that keep the flag honest: an unrendered confirmation date
+    means "not shown to be confirmed" (no line), an unrendered discharge date
+    means "not shown to be discharged" (the line stands). The sibling
+    `rules.compute` reads an anchor the same way — a derived `L4` is
+    `AnchorUnavailable` there, not a value.
+
+    Never `.payload`; `serve` is the one door every reader in this package
+    already trusts, the same one `jurisdiction.py` uses."""
     if not store.has(matter_name, item_type, instance):
-        return None
-    record = store.get(matter_name, item_type, instance)
-    served = serve(record, Surface.S1_LIST)
-    return served.value
+        return False
+    served = serve(store.get(matter_name, item_type, instance), Surface.S1_LIST)
+    return served.disposition is Disposition.RENDER
 
 
 def _any_signal_elsewhere(store: Sidecar) -> bool:
@@ -75,7 +89,16 @@ def _any_signal_elsewhere(store: Sidecar) -> bool:
     never which matter or field it was: a bool, nothing more. A record at
     `L5` (or otherwise denied) is dropped here exactly as `plan_period`'s own
     spec requires: the gate, not this module, decides what counts as
-    present."""
+    present.
+
+    **`DERIVE` counts here and does not in `_on_file`, and the asymmetry is
+    the point.** The two helpers ask different questions. There: is this
+    date on file and readable as a date? — a derived form is not one. Here:
+    does a record of this kind exist at all? — and "an award amount is on
+    file" answers that in as many words, without this module ever learning
+    the amount. Presence, never value, is the whole signal (§§ 541(a)(7),
+    1306(a)), so the rung a producer chose for it must not decide whether
+    the household is reminded that it exists."""
     for matter_name in all_matters():
         if matter_name == MATTER:
             continue
@@ -94,24 +117,32 @@ def flag(store: Sidecar) -> tuple[str, ...]:
     matter — in `instances_of` order, empty when nothing qualifies.
 
     Reads `plan_confirmation_date` and `discharge_date` through the gate on
-    `S1_LIST` via `Served.value` (never `.payload`), for every instance
-    `instances.instances_of` names; both must actually render for an instance
-    to qualify — an instance with no bankruptcy records at all, one that has
-    not yet been confirmed, or one already discharged, contributes nothing.
+    `S1_LIST` (never `.payload`), for every instance `instances.instances_of`
+    names; the confirmation date must actually render for an instance to
+    qualify — an instance with no bankruptcy records at all, one that has not
+    yet been confirmed, or one already discharged, contributes nothing. Two
+    bankruptcy instances (a dismissed case and a refiling is the ordinary
+    way that happens) are two independent asks, so each confirmed and
+    undischarged one gets its own line.
+
+    The store is scanned for signals **once**, before the loop, not once per
+    instance: whether a signal exists anywhere else is a fact about the
+    household, not about an instance, and the number of signals never
+    changes the number of lines — three signals and one signal both mean
+    "there is something to confirm", said once per instance.
     """
+    if not _any_signal_elsewhere(store):
+        return ()
     lines: list[str] = []
     for instance in instances.instances_of(store, MATTER):
-        confirmed = _served_value(store, MATTER, "plan_confirmation_date", instance)
-        if confirmed is None:
+        if not _on_file(store, MATTER, "plan_confirmation_date", instance):
             continue
-        discharged = _served_value(store, MATTER, "discharge_date", instance)
-        if discharged is not None:
+        if _on_file(store, MATTER, "discharge_date", instance):
             continue
-        if _any_signal_elsewhere(store):
-            lines.append(
-                f"{MATTER}/{instance}: income or assets arising during the "
-                "plan: confirm with your attorney (11 U.S.C. §§ 541(a)(7), "
-                "1306(a), 1329; disclosure duties under the plan and local "
-                "rules)"
-            )
+        lines.append(
+            f"{MATTER}/{instance}: income or assets arising during the "
+            "plan: confirm with your attorney (11 U.S.C. §§ 541(a)(7), "
+            "1306(a), 1329; disclosure duties under the plan and local "
+            "rules)"
+        )
     return tuple(lines)

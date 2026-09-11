@@ -160,50 +160,167 @@ def test_notice_drafts_nothing_files_nothing_names_no_chapter():
 
 # ── TEMPLATES — shape, per the plan paragraph exactly ────────────────────────
 
+#: Keyed by template name for readability; the pack itself declares a
+#: **tuple** of rows (the shape `rules.validate_templates` requires), so
+#: `_by_name` below is what the tests index through.
 EXPECTED_TEMPLATES = {
-    "plan_filed": dict(anchor="petition_date", days=14, direction="forward",
-                        rule="court_days", mail=False),
-    "first_plan_payment": dict(anchor="petition_date", days=30,
-                                direction="forward", rule="calendar_days",
-                                mail=False),
-    "claims_bar": dict(anchor="petition_date", days=70, direction="forward",
-                        rule="court_days", mail=False),
-    "governmental_claims_bar": dict(anchor="petition_date", days=180,
-                                     direction="forward", rule="court_days",
-                                     mail=False),
+    "plan-filed": dict(anchor="petition_date", days=14, direction="forward",
+                       rule="court_days", mail=False),
+    "first-plan-payment": dict(anchor="petition_date", days=30,
+                               direction="forward", rule="calendar_days",
+                               mail=False),
+    "claims-bar": dict(anchor="petition_date", days=70, direction="forward",
+                       rule="court_days", mail=False),
+    "governmental-claims-bar": dict(anchor="petition_date", days=180,
+                                    direction="forward", rule="court_days",
+                                    mail=False),
     "objection": dict(anchor="confirmation_hearing_date", days=7,
-                       direction="backward", rule="court_days_before",
-                       mail=True),
+                      direction="backward", rule="court_days_before",
+                      mail=False),
 }
 
 
+def _by_name() -> dict:
+    return {row["name"]: row for row in bankruptcy.TEMPLATES}
+
+
+def _row(_target: str = "plan-filed", **overrides) -> tuple:
+    """The real table with the row named `_target` replaced by itself plus
+    `overrides` — the shape every planted-failure test below feeds
+    `_check_templates`. `_target` is positional-by-convention and leading-
+    underscored so `name=` stays free as an override (a planted bad *name*
+    is one of the cases)."""
+    return tuple(
+        {**row, **overrides} if row["name"] == _target else row
+        for row in bankruptcy.TEMPLATES
+    )
+
+
+def _check(templates):
+    bankruptcy._check_templates(
+        bankruptcy.SCHEMA, bankruptcy.FIELDS, bankruptcy.JURISDICTIONS, templates
+    )
+
+
+def test_templates_are_a_tuple_not_a_dict():
+    """`rules.templates_of` (L3-deadline-templates) iterates the table and
+    builds one `Template(**row)` per element; handed a dict it iterates the
+    *keys* and calls `Template(**"plan-filed")`. `validate_templates` catches
+    that as a build failure at registry time — in a file this bite does not
+    own — so the shape is pinned here, where it is authored. `custody.py` and
+    `workers_comp.py` declare the same tuple."""
+    assert isinstance(bankruptcy.TEMPLATES, tuple)
+    for row in bankruptcy.TEMPLATES:
+        assert isinstance(row, dict)
+
+
+def test_a_dict_shaped_table_fails_the_build():
+    with pytest.raises(ValueError) as exc:
+        _check({row["name"]: row for row in bankruptcy.TEMPLATES})
+    assert "tuple" in str(exc.value)
+
+
+def test_every_template_name_is_a_usable_sub_id():
+    """A template's name is stored as the sub half of
+    `(matter, "deadline", "<instance>.<template>")`, so it must match the
+    package's own id pattern — no underscore. Held against
+    `instances.ID_PATTERN` itself, not a copy, so the pack's local
+    `_NAME_PATTERN` cannot drift from the one that will actually validate the
+    stored key."""
+    from homestead_law import instances
+
+    assert bankruptcy._NAME_PATTERN == instances.ID_PATTERN.pattern
+    for row in bankruptcy.TEMPLATES:
+        assert instances.ID_PATTERN.match(row["name"]), row["name"]
+
+
+def test_an_underscored_template_name_fails_the_build():
+    with pytest.raises(ValueError) as exc:
+        _check(_row("plan-filed", name="plan_filed"))
+    assert "plan_filed" in str(exc.value)
+
+
 def test_templates_match_the_plan_paragraph_exactly():
-    assert set(bankruptcy.TEMPLATES) == set(EXPECTED_TEMPLATES)
+    rows = _by_name()
+    assert set(rows) == set(EXPECTED_TEMPLATES)
     for name, expected in EXPECTED_TEMPLATES.items():
-        row = bankruptcy.TEMPLATES[name]
-        assert row["name"] == name
+        row = rows[name]
         for key, value in expected.items():
             assert row[key] == value, f"{name}.{key}"
         assert row["jurisdiction"] == "US-federal"
         assert row["status"] in ("VERIFIED", "UNCERTAIN")
 
 
+def test_no_template_asks_for_mail_days_on_a_backward_period():
+    """FRBP 9006(f)'s 3 days extend a period that runs *after service*, and
+    they are added **forward**. On a period counted backward from the
+    confirmation hearing there is nothing to add them to, and adding them
+    anyway would name a date LATER than the 7-days-before cutoff the rule
+    sets — a deadline wrong in the one direction a deadline may not be wrong
+    in. The sibling `rules.compute` raises `MailUnsupported` for exactly this
+    combination, so a `mail: True` here could never have been honoured; the
+    refusal belongs in the data, where the operator's surface reads it."""
+    for row in bankruptcy.TEMPLATES:
+        if row["direction"] == "backward" or row["rule"] == "calendar_days":
+            assert row["mail"] is False, row["name"]
+
+
+def test_the_objection_template_says_why_it_refuses_mail_days():
+    row = _by_name()["objection"]
+    assert "9006(f)" in row["source"]
+    assert "after service" in row["note"]
+    assert "PROVENANCE" in row["source"]
+
+
+def test_check_templates_fires_on_mail_days_asked_for_backward():
+    with pytest.raises(ValueError) as exc:
+        _check(_row("objection", mail=True))
+    assert "9006(f)" in str(exc.value)
+
+
+def test_check_templates_fires_on_a_direction_that_disagrees_with_its_rule():
+    with pytest.raises(ValueError) as exc:
+        _check(_row(direction="backward"))
+    assert "disagree" in str(exc.value)
+
+
+def test_the_first_plan_payment_note_carries_the_whichever_is_earlier_clause():
+    """§ 1326(a)(1) runs from the order for relief *or* the plan filing,
+    whichever is earlier. This template anchors on `petition_date` alone, so
+    the other trigger is the operator's to enter — and the note has to say
+    so, or a converted case computes a date the statute does not set."""
+    note = _by_name()["first-plan-payment"]["note"]
+    assert "EARLIER" in note or "earlier" in note
+    assert "notice" in note
+
+
 def test_every_template_anchor_is_an_l1_field_of_this_pack():
-    for name, row in bankruptcy.TEMPLATES.items():
-        assert row["anchor"] in bankruptcy.FIELDS, name
-        assert bankruptcy.FIELDS[row["anchor"]] is Rung.L1, name
+    for row in bankruptcy.TEMPLATES:
+        assert row["anchor"] in bankruptcy.FIELDS, row["name"]
+        assert bankruptcy.FIELDS[row["anchor"]] is Rung.L1, row["name"]
 
 
 def test_every_template_carries_exactly_the_ten_keys():
     keys = {"name", "anchor", "days", "direction", "rule", "mail",
             "jurisdiction", "source", "status", "note"}
-    for name, row in bankruptcy.TEMPLATES.items():
-        assert set(row) == keys, name
+    for row in bankruptcy.TEMPLATES:
+        assert set(row) == keys, row["name"]
 
 
 def test_every_source_carries_a_dated_provenance_sentence():
-    for name, row in bankruptcy.TEMPLATES.items():
-        assert "PROVENANCE, 2026-09-11" in row["source"], name
+    for row in bankruptcy.TEMPLATES:
+        assert "PROVENANCE, 2026-09-1" in row["source"], row["name"]
+
+
+def test_every_source_names_at_least_two_independent_restatements():
+    """VERIFIED here is claimed on *converging* secondary sources, and one
+    source does not converge with itself — the standard the dates-a audit
+    set. Counted as distinct hostnames in the `source` sentence."""
+    import re
+
+    for row in bankruptcy.TEMPLATES:
+        hosts = set(re.findall(r"\b(?:[a-z0-9-]+\.)+(?:gov|com|org)\b", row["source"]))
+        assert len(hosts) >= 2, (row["name"], hosts)
 
 
 def test_all_five_templates_are_verified():
@@ -211,84 +328,64 @@ def test_all_five_templates_are_verified():
     could not be blocked the way direct WebFetch to the primary hosts was —
     see the module's PROVENANCE note); none is UNCERTAIN. Pinned as its own
     check so a status silently downgraded later is caught."""
-    for name, row in bankruptcy.TEMPLATES.items():
-        assert row["status"] == "VERIFIED", name
+    for row in bankruptcy.TEMPLATES:
+        assert row["status"] == "VERIFIED", row["name"]
 
 
 # ── the local shape check fires on a planted bad template ───────────────────
 
 def test_check_templates_fires_on_a_non_l1_anchor():
-    bad = {
-        "plan_filed": {
-            **bankruptcy.TEMPLATES["plan_filed"],
-            "anchor": "income",  # a real field, but L3, not L1
-        }
-    }
     with pytest.raises(ValueError) as exc:
-        bankruptcy._check_templates(
-            bankruptcy.SCHEMA, bankruptcy.FIELDS, bankruptcy.JURISDICTIONS, bad
-        )
+        _check(_row(anchor="income"))  # a real field, but L3, not L1
     assert "income" in str(exc.value) and "L1" in str(exc.value)
 
 
 def test_check_templates_fires_on_an_unknown_anchor():
-    bad = {
-        "plan_filed": {**bankruptcy.TEMPLATES["plan_filed"], "anchor": "not_a_field"}
-    }
     with pytest.raises(ValueError) as exc:
-        bankruptcy._check_templates(
-            bankruptcy.SCHEMA, bankruptcy.FIELDS, bankruptcy.JURISDICTIONS, bad
-        )
+        _check(_row(anchor="not_a_field"))
     assert "not_a_field" in str(exc.value)
 
 
 def test_check_templates_fires_on_a_missing_key():
-    bad = {"plan_filed": {k: v for k, v in bankruptcy.TEMPLATES["plan_filed"].items() if k != "mail"}}
+    bad = tuple(
+        {k: v for k, v in row.items() if k != "mail"} if row["name"] == "plan-filed"
+        else row
+        for row in bankruptcy.TEMPLATES
+    )
     with pytest.raises(ValueError) as exc:
-        bankruptcy._check_templates(
-            bankruptcy.SCHEMA, bankruptcy.FIELDS, bankruptcy.JURISDICTIONS, bad
-        )
+        _check(bad)
     assert "keys" in str(exc.value)
 
 
 def test_check_templates_fires_on_a_bad_direction():
-    bad = {"plan_filed": {**bankruptcy.TEMPLATES["plan_filed"], "direction": "sideways"}}
     with pytest.raises(ValueError) as exc:
-        bankruptcy._check_templates(
-            bankruptcy.SCHEMA, bankruptcy.FIELDS, bankruptcy.JURISDICTIONS, bad
-        )
+        _check(_row(direction="sideways"))
     assert "sideways" in str(exc.value)
 
 
 def test_check_templates_fires_on_a_bad_rule():
-    bad = {"plan_filed": {**bankruptcy.TEMPLATES["plan_filed"], "rule": "guess_days"}}
     with pytest.raises(ValueError) as exc:
-        bankruptcy._check_templates(
-            bankruptcy.SCHEMA, bankruptcy.FIELDS, bankruptcy.JURISDICTIONS, bad
-        )
+        _check(_row(rule="guess_days"))
     assert "guess_days" in str(exc.value)
 
 
 def test_check_templates_fires_on_a_jurisdiction_outside_the_tuple():
-    bad = {"plan_filed": {**bankruptcy.TEMPLATES["plan_filed"], "jurisdiction": "US-NM"}}
     with pytest.raises(ValueError) as exc:
-        bankruptcy._check_templates(
-            bankruptcy.SCHEMA, bankruptcy.FIELDS, bankruptcy.JURISDICTIONS, bad
-        )
+        _check(_row(jurisdiction="US-NM"))
     assert "US-NM" in str(exc.value)
 
 
 def test_check_templates_fires_on_a_bad_status():
-    bad = {"plan_filed": {**bankruptcy.TEMPLATES["plan_filed"], "status": "MAYBE"}}
     with pytest.raises(ValueError) as exc:
-        bankruptcy._check_templates(
-            bankruptcy.SCHEMA, bankruptcy.FIELDS, bankruptcy.JURISDICTIONS, bad
-        )
+        _check(_row(status="MAYBE"))
     assert "MAYBE" in str(exc.value)
 
 
+def test_check_templates_fires_on_a_duplicate_name():
+    with pytest.raises(ValueError) as exc:
+        _check(bankruptcy.TEMPLATES + (dict(bankruptcy.TEMPLATES[0]),))
+    assert "more than once" in str(exc.value)
+
+
 def test_check_templates_is_silent_on_the_real_table():
-    bankruptcy._check_templates(
-        bankruptcy.SCHEMA, bankruptcy.FIELDS, bankruptcy.JURISDICTIONS,
-        bankruptcy.TEMPLATES,
-    )  # must not raise
+    _check(bankruptcy.TEMPLATES)  # must not raise

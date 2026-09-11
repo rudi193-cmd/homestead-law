@@ -265,3 +265,45 @@ def test_notices_is_the_plan_period_flag_hook(tmp_path, monkeypatch):
 
     assert queue_mod.notices(store) == plan_period.flag(store)
     assert len(queue_mod.notices(store)) == 1
+
+
+def test_notices_do_not_change_the_cover_roster_or_the_counts(tmp_path, monkeypatch):
+    """A notice is not a deadline, and `cover`/`counts` must not learn about
+    it. `cover` is the k≥2 re-identification guard over *open matters*; a
+    reference line has no date, so counting it as "due" or as an open matter
+    would put a matter in the cover on the strength of something that never
+    expires. Held by taking both readings across the exact change that makes
+    `notices` non-empty."""
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    store = Sidecar()
+    _deadline(store, "custody", "hearing", Rung.L1, "2026-08-20", "n/a")
+    before_counts = counts(store, today=TODAY)
+    before_cover = cover(store, today=TODAY)
+
+    store.put("bankruptcy", "plan_confirmation_date", "primary", Classified(Rung.L1, "2026-06-01"))
+    _register_second_matter(monkeypatch, name="_fake_signal")
+    store.put(
+        "_fake_signal", "award_amount", "grant-1",
+        Classified(Rung.L3, "1000", derived="An award amount is on file"),
+    )
+
+    assert queue_mod.notices(store)
+    assert counts(store, today=TODAY) == before_counts
+    assert cover(store, today=TODAY) == before_cover
+
+
+def test_notices_are_not_queue_items(tmp_path, monkeypatch):
+    """The reference line never appears in `queue()`'s own list: it has no
+    date to sort by, no rung to gate on and no gap to surface, so a
+    `QueueItem` carrying it would have to invent all three."""
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    store = Sidecar()
+    store.put("bankruptcy", "plan_confirmation_date", "primary", Classified(Rung.L1, "2026-06-01"))
+    _register_second_matter(monkeypatch, name="_fake_signal")
+    store.put(
+        "_fake_signal", "award_amount", "grant-1",
+        Classified(Rung.L3, "1000", derived="An award amount is on file"),
+    )
+
+    assert queue_mod.notices(store)
+    assert list(queue(store, today=TODAY)) == []

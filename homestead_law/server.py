@@ -809,6 +809,10 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
             })
 
         def _get_queue(self):
+            # `notices` is a sibling key to `items`, not an entry in it: a
+            # reference line has no date, rung or urgency, so a client that
+            # renders it as a queue item would have to invent all three. Old
+            # clients that read only `items` are unaffected.
             today = dt.date.today().isoformat()
             items = queue_mod.queue(sidecar, today=today)
             self._json({"items": [
@@ -816,7 +820,7 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
                  "shown": i.shown, "overdue": i.overdue, "days_until": i.days_until,
                  "gap": i.gap}
                 for i in items
-            ]})
+            ], "notices": list(queue_mod.notices(sidecar))})
 
         def _get_resolve(self, qs):
             if not nestor_ok:

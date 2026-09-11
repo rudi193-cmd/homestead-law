@@ -151,7 +151,7 @@ SCHEMA: dict[str, dict[str, Any]] = {
         Rung.L1,
         "the date the Chapter 13 plan itself was filed — a docketed filing "
         "event, public in this forum (step 1); computable via "
-        "TEMPLATES['plan_filed'] and still L1 whether computed or entered, "
+        "TEMPLATES' `plan-filed` and still L1 whether computed or entered, "
         "for the same reason `petition_date` is.",
     ),
     "first_plan_payment_due": _field(
@@ -159,34 +159,36 @@ SCHEMA: dict[str, dict[str, Any]] = {
         "the date the first plan payment is due under § 1326(a)(1) — a "
         "procedural deadline of the case, public the way every other docket "
         "deadline in this schema is (step 1); computable via "
-        "TEMPLATES['first_plan_payment'].",
+        "TEMPLATES' `first-plan-payment`.",
     ),
     "claims_bar_date": _field(
         Rung.L1,
         "the general proof-of-claim deadline (FRBP 3002(c)) — a procedural "
         "case deadline, public in this forum (step 1); computable via "
-        "TEMPLATES['claims_bar'].",
+        "TEMPLATES' `claims-bar`.",
     ),
     "governmental_claims_bar_date": _field(
         Rung.L1,
         "the governmental-unit proof-of-claim deadline (FRBP 3002(c)(1)) — "
         "same posture as `claims_bar_date` (step 1); computable via "
-        "TEMPLATES['governmental_claims_bar'].",
+        "TEMPLATES' `governmental-claims-bar`.",
     ),
     "confirmation_hearing_date": _field(
         Rung.L1,
         "the confirmation hearing date and department — posted on the court "
         "calendar, public in this forum (step 1), the same reasoning as "
         "`custody.py`'s `hearing_date`. Entered directly (the clerk sets it, "
-        "not this pack); it is the anchor `TEMPLATES['objection']` counts "
+        "not this pack); it is the anchor the `objection` template counts "
         "backward from.",
     ),
     "objection_deadline": _field(
         Rung.L1,
         "the deadline to object to confirmation (FRBP 3015(f)) — a "
         "procedural case deadline, public in this forum (step 1); computable "
-        "via TEMPLATES['objection'], the one backward-counted, mail-eligible "
-        "template in this pack.",
+        "via the `objection` template, the one backward-counted template in "
+        "this pack — and, for that reason, the one that refuses mail days: "
+        "9006(f) extends a period that runs *after service*, not one "
+        "measured backward from a hearing (see the template's own note).",
     ),
     "plan_confirmation_date": _field(
         Rung.L1,
@@ -268,14 +270,26 @@ SCHEMA: dict[str, dict[str, Any]] = {
         "the debtor's household income — resolves to a person's financial "
         "situation (step 2 yes, step 3 no). Filed under seal in some "
         "districts but required for the means test. (engine bankruptcy.py: "
-        "income)",
+        "income) Step 3 is 'no' here on the same step-1 ground "
+        "`plan_payment_amount` states at length, and the ground is worth "
+        "saying once per money field rather than once per pack: the "
+        "procedure's step-3 list does name money as a category "
+        "(`docs/homestead-rungs-procedure.md` § 2, and § 6 is the ledger "
+        "reading it that way for a transaction `amount` at L4), but every "
+        "money figure in *this* pack is a figure the debtor filed in a "
+        "public forum on Schedule I — a schedule, not a transaction. That "
+        "step-1 pull is what holds the whole L3 money family here below L4, "
+        "and it is why law and the ledger disagree without contradiction "
+        "(Open item 4).",
         derived="Household income is on file",
     ),
     "assets": _field(
         Rung.L3,
         "the debtor's asset schedule — resolves to financial position "
-        "(step 2). Public on the docket but aggregated here as structured "
-        "data. (engine bankruptcy.py: assets)",
+        "(step 2). Public on the docket (Schedules A/B) but aggregated here "
+        "as structured data — the same step-1 pull `income` above sets out, "
+        "which is what keeps a money field at L3 in this pack where the "
+        "ledger's transaction `amount` is L4. (engine bankruptcy.py: assets)",
         derived="An asset schedule is on file",
     ),
     "creditor.name": _field(
@@ -399,7 +413,7 @@ REPEATABLE: frozenset[str] = frozenset(
 FIELDS: dict[str, Rung] = classify_schema(SCHEMA)
 
 #: Rendered by every surface that opens this matter (decision 8). Track,
-#: never draft, never file, never diagnose which chapter fits.
+#: never draft, never file, and it never says which chapter fits.
 NOTICE = (
     "This pack keeps dates and references for a Chapter 13 case. It drafts "
     "nothing, files nothing, and does not say which chapter fits."
@@ -422,7 +436,7 @@ NOTICE = (
 #: settled, uncontested federal procedural law. Not a primary quotation read
 #: here; replace with one the first time a primary host is reachable, and do
 #: not delete this sentence without one.
-_PROVENANCE_5015B = (
+_PROVENANCE_3015B = (
     "FRBP 3015(b): the debtor 'shall file a plan' with the petition, or if "
     "the case began by conversion, within 14 days after the petition is "
     "filed or the conversion order is entered, extendable only for cause on "
@@ -477,30 +491,57 @@ _PROVENANCE_3015F = (
     "module-level note above."
 )
 
-#: One row per computable Chapter 13 deadline. Consumed by the sibling
-#: L3-deadline-templates bite's `rules.py`, never imported here — this table
-#: is data, not arithmetic. Shape: name, anchor (must name an L1 field of
+#: PROVENANCE, 2026-09-12 (audit): FRBP 9006(f) adds its 3 mail days only
+#: "when there is a right or requirement to act ... within a prescribed
+#: period after being served"; the added days are counted forward from the
+#: end the counting rule produced. A period measured **backward** from a
+#: scheduled hearing is not a period after service, so the 3 days are not
+#: added to it — cacb.uscourts.gov's Central Guide supplement on 9006(f)
+#: ("3 Additional Days to Act or Respond"), nmb.uscourts.gov's chambers
+#: guidance "Computation of Objection Period", and centraldistrictinsider.com
+#: converge: the addition applies when a deadline counts forward from the
+#: date on the proof of service, and not when it counts backward from a
+#: hearing date or is an exact date set without reference to service. The
+#: primary hosts remain blocked from this environment (see the module-level
+#: note above); this is the same converging-secondary basis.
+_PROVENANCE_9006F_NOT_BACKWARD = (
+    "FRBP 9006(f) adds 3 days only to a period that runs after service, "
+    "counted forward from where 9006(a) left the deadline; an objection "
+    "deadline runs backward from the confirmation hearing, so no mail days "
+    "attach to it. PROVENANCE, 2026-09-12 — see the note above this table."
+)
+
+#: One row per computable Chapter 13 deadline, as a **tuple** of rows — the
+#: shape the sibling L3-deadline-templates bite's `rules.validate_templates`
+#: requires and `custody.py`/`workers_comp.py` already declare; a dict keyed
+#: by name looks tidier and is rejected there, because `templates_of`
+#: iterates the table and builds one `Template(**entry)` per element. Each
+#: row's `name` doubles as the sub-id a stored deadline is filed under
+#: (`(matter, "deadline", "<instance>.<template>")`), so it is held to
+#: `instances.ID_PATTERN` — lowercase, digits and **hyphens**, never an
+#: underscore. Nothing here imports `rules.py` or `homestead.keep.dates`:
+#: this table is data, not arithmetic. Shape: name, anchor (an L1 field of
 #: this pack — `_check_templates` below enforces it), days, direction
 #: ("forward"/"backward"), rule ("court_days"/"court_days_before"/
 #: "business_days"/"calendar_days"), mail (bool), jurisdiction (a member of
 #: JURISDICTIONS or None), source (a cited, dated PROVENANCE sentence),
 #: status ("VERIFIED"/"UNCERTAIN"), note.
-TEMPLATES: dict[str, dict[str, Any]] = {
-    "plan_filed": {
-        "name": "plan_filed",
+TEMPLATES: tuple[dict[str, Any], ...] = (
+    {
+        "name": "plan-filed",
         "anchor": "petition_date",
         "days": 14,
         "direction": "forward",
         "rule": "court_days",
         "mail": False,
         "jurisdiction": "US-federal",
-        "source": _PROVENANCE_5015B,
+        "source": _PROVENANCE_3015B,
         "status": "VERIFIED",
         "note": "Extendable only for cause on notice; this template computes "
                 "the unextended deadline.",
     },
-    "first_plan_payment": {
-        "name": "first_plan_payment",
+    {
+        "name": "first-plan-payment",
         "anchor": "petition_date",
         "days": 30,
         "direction": "forward",
@@ -509,12 +550,22 @@ TEMPLATES: dict[str, dict[str, Any]] = {
         "jurisdiction": "US-federal",
         "source": _PROVENANCE_1326A1,
         "status": "VERIFIED",
-        "note": "Calendar days, not court days — § 1326(a)(1) does not cite "
-                "FRBP 9006(a); 'unless the court orders otherwise' is not "
-                "modelled.",
+        "note": "Calendar days, not court days — the counting is a plain "
+                "30-day span with no roll off a weekend or holiday, which "
+                "can only ever name a date at or before the rolled one, "
+                "never after it. § 1326(a)(1) runs from the order for "
+                "relief or the plan filing, whichever is EARLIER: this "
+                "template anchors on `petition_date` alone (the "
+                "voluntary-petition case, where the order for relief is the "
+                "petition date). If the plan was filed before the order for "
+                "relief — a converted case — the earlier trigger is the one "
+                "the statute picks and this template does not know it; "
+                "enter `first_plan_payment_due` from the court's own notice "
+                "instead of computing it. 'Unless the court orders "
+                "otherwise' is likewise not modelled.",
     },
-    "claims_bar": {
-        "name": "claims_bar",
+    {
+        "name": "claims-bar",
         "anchor": "petition_date",
         "days": 70,
         "direction": "forward",
@@ -526,8 +577,8 @@ TEMPLATES: dict[str, dict[str, Any]] = {
         "note": "Voluntary-case figure; an involuntary Chapter 7 case's "
                 "90-day figure is not modelled (this pack is Chapter 13).",
     },
-    "governmental_claims_bar": {
-        "name": "governmental_claims_bar",
+    {
+        "name": "governmental-claims-bar",
         "anchor": "petition_date",
         "days": 180,
         "direction": "forward",
@@ -538,22 +589,31 @@ TEMPLATES: dict[str, dict[str, Any]] = {
         "status": "VERIFIED",
         "note": "The narrower § 1308 tax-return-claim window is not modelled.",
     },
-    "objection": {
+    {
         "name": "objection",
         "anchor": "confirmation_hearing_date",
         "days": 7,
         "direction": "backward",
         "rule": "court_days_before",
-        "mail": True,
+        "mail": False,
         "jurisdiction": "US-federal",
-        "source": _PROVENANCE_3015F,
+        "source": _PROVENANCE_3015F + " " + _PROVENANCE_9006F_NOT_BACKWARD,
         "status": "VERIFIED",
-        "note": "A local rule may lengthen this (one district's own guidance "
-                "found during this search expands it to 14 days) — confirm "
-                "against the district's local rules before relying on the "
-                "FRBP default this template encodes.",
+        "note": "mail is False and that is the rule, not an omission: 3 mail "
+                "days under FRBP 9006(f) extend a period that runs after "
+                "service, and they are always added FORWARD — adding them "
+                "to a deadline counted backward from the hearing would name "
+                "a date LATER than the 7-days-before cutoff the rule sets, "
+                "which is the one direction a deadline may never be wrong "
+                "in. `rules.compute` refuses `--mail` on a "
+                "`court_days_before` template for the same reason, so a "
+                "True here could never have been honoured anyway. A local "
+                "rule may also lengthen the 7 days (one district's own "
+                "guidance found during this search expands it to 14) — "
+                "confirm against the district's local rules before relying "
+                "on the FRBP default this template encodes.",
     },
-}
+)
 
 _TEMPLATE_KEYS = frozenset(
     {"name", "anchor", "days", "direction", "rule", "mail", "jurisdiction",
@@ -563,29 +623,64 @@ _DIRECTIONS = frozenset({"forward", "backward"})
 _COUNTING_RULES = frozenset(
     {"court_days", "court_days_before", "business_days", "calendar_days"}
 )
+#: The one backward counter, and the only one — checked as an if-and-only-if
+#: below, so `direction` and `rule` can never say different things.
+_BACKWARD_RULE = "court_days_before"
 _STATUSES = frozenset({"VERIFIED", "UNCERTAIN"})
+#: A template `name` is stored as a repeatable sub-id, so it is held to the
+#: package's own id shape. Spelled out here rather than imported from
+#: `homestead_law.instances`: a pack is data and imports nothing from the
+#: package that reads it (`custody.py` and `workers_comp.py` import nothing
+#: either), and `tests/test_bankruptcy_pack.py` pins the two patterns equal
+#: by comparison so they cannot drift.
+_NAME_PATTERN = r"^[a-z0-9][a-z0-9-]{0,39}$"
 
 
 def _check_templates(
     schema: Mapping[str, Any],
     fields: Mapping[str, Rung],
     jurisdictions: tuple[str, ...],
-    templates: Mapping[str, Mapping[str, Any]],
+    templates: "tuple[Mapping[str, Any], ...]",
 ) -> None:
-    """The local shape check decision 4/L3-deadline-templates leans on: every
-    template in `templates` carries exactly the ten declared keys, each of
-    the right shape, and its `anchor` names an **L1** field of this pack —
-    the sibling `rules.py` bite reads the anchor through the gate and only an
-    L1 field renders unconditionally there. Raised at import, naming the
-    template and the failure, the way every other guard in this package
-    fails closed rather than deferring to whichever caller reads the table
-    first."""
-    for template_name, row in templates.items():
+    """The local shape check decision 4/L3-deadline-templates leans on: a
+    **tuple** of rows, each carrying exactly the ten declared keys, each of
+    the right shape, with an `anchor` naming an **L1** field of this pack.
+
+    Every clause here is one the sibling bite's `rules.validate_templates`
+    also enforces, deliberately: this check runs at *import*, so a row that
+    passes here and fails there would be a build failure that only appears
+    once the other bite lands, in a file this one does not own. Raised at
+    import, naming the template and the failure, the way every other guard in
+    this package fails closed rather than deferring to whichever caller reads
+    the table first."""
+    import re
+
+    if not isinstance(templates, tuple):
+        raise ValueError(
+            f"TEMPLATES must be a tuple of rows, not {type(templates).__name__} "
+            "— `rules.templates_of` iterates the table and builds one "
+            "Template(**row) per element, so a dict keyed by name hands it "
+            "strings"
+        )
+    seen: set[str] = set()
+    for row in templates:
         if not isinstance(row, Mapping) or set(row) != _TEMPLATE_KEYS:
             raise ValueError(
-                f"TEMPLATES[{template_name!r}]: keys must be exactly "
-                f"{sorted(_TEMPLATE_KEYS)}, not {sorted(row) if isinstance(row, Mapping) else row!r}"
+                f"TEMPLATES: keys must be exactly {sorted(_TEMPLATE_KEYS)}, "
+                f"not {sorted(row) if isinstance(row, Mapping) else row!r}"
             )
+        template_name = row["name"]
+        if not isinstance(template_name, str) or not re.match(_NAME_PATTERN, template_name):
+            raise ValueError(
+                f"TEMPLATES: name {template_name!r} must match "
+                f"{_NAME_PATTERN} — a template name is stored as a repeatable "
+                "sub-id (an instance id has no underscore)"
+            )
+        if template_name in seen:
+            raise ValueError(
+                f"TEMPLATES: name {template_name!r} is declared more than once"
+            )
+        seen.add(template_name)
         anchor = row["anchor"]
         if anchor not in fields:
             raise ValueError(
@@ -599,9 +694,9 @@ def _check_templates(
                 "reads must render unconditionally, which only L1 does on "
                 "every surface."
             )
-        if not isinstance(row["days"], int) or isinstance(row["days"], bool) or row["days"] < 0:
+        if not isinstance(row["days"], int) or isinstance(row["days"], bool) or row["days"] <= 0:
             raise ValueError(
-                f"TEMPLATES[{template_name!r}]: days must be a non-negative "
+                f"TEMPLATES[{template_name!r}]: days must be a positive "
                 f"int, not {row['days']!r}"
             )
         if row["direction"] not in _DIRECTIONS:
@@ -614,10 +709,26 @@ def _check_templates(
                 f"TEMPLATES[{template_name!r}]: rule {row['rule']!r} not in "
                 f"{sorted(_COUNTING_RULES)}"
             )
+        if (row["direction"] == "backward") != (row["rule"] == _BACKWARD_RULE):
+            raise ValueError(
+                f"TEMPLATES[{template_name!r}]: direction {row['direction']!r} "
+                f"and rule {row['rule']!r} disagree — backward counting is "
+                f"{_BACKWARD_RULE} and nothing else"
+            )
         if not isinstance(row["mail"], bool):
             raise ValueError(
                 f"TEMPLATES[{template_name!r}]: mail must be a bool, not "
                 f"{row['mail']!r}"
+            )
+        if row["mail"] and row["rule"] in (_BACKWARD_RULE, "calendar_days"):
+            raise ValueError(
+                f"TEMPLATES[{template_name!r}]: mail must be false for a "
+                f"{row['rule']!r} template — FRBP 9006(f)'s 3 days extend a "
+                "period that runs after service and are added forward, so "
+                "there is nothing to add them to on a period counted "
+                "backward from a hearing, and no jurisdiction rule to add "
+                "them under on a plain calendar span. `rules.compute` "
+                "refuses --mail on both for the same reason."
             )
         if row["jurisdiction"] is not None and row["jurisdiction"] not in jurisdictions:
             raise ValueError(

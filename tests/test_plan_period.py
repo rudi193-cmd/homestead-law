@@ -170,3 +170,145 @@ def test_signal_fields_is_the_frozenset_wave_8_names():
     assert plan_period.SIGNAL_FIELDS == frozenset(
         {"award_amount", "disbursement", "safe", "equity_grant", "revenue_start"}
     )
+
+
+# ── audit additions (L3-bankruptcy-ch13 audit, 2026-09-12) ──────────────────
+
+def test_three_signals_still_make_exactly_one_line(tmp_path, monkeypatch):
+    """The flag reads *presence*, and presence does not have a count. Three
+    signal records in another matter are one fact — "there is something to
+    confirm" — said once per confirmed instance. A line per signal would be
+    a count, and a count is a number the flag has promised never to carry."""
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    store = Sidecar()
+    _register_signal_matter(monkeypatch)
+    _confirmed_bankruptcy(store)
+    store.put("_fake_second", "award_amount", "grant-1", _signal_record())
+    store.put("_fake_second", "award_amount", "grant-2", _signal_record("55"))
+    store.put("_fake_second", "award_amount", "grant-3", _signal_record("7"))
+
+    assert plan_period.flag(store) == (EXPECTED_LINE,)
+
+
+def test_a_signal_inside_the_bankruptcy_matter_itself_is_not_a_signal(tmp_path, monkeypatch):
+    """The flag is about income or assets arising in *another* matter — that
+    is what "cross-matter" means and what §§ 541(a)(7)/1306(a) are being
+    cited about. A stray `award_amount` filed under `bankruptcy` (a
+    mis-addressed `put`, or a future field of this pack that happens to share
+    a name) must not flag the case against itself: `_any_signal_elsewhere`
+    skips the bankruptcy matter, and this is the check that it does."""
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    store = Sidecar()
+    _register_signal_matter(monkeypatch)
+    _confirmed_bankruptcy(store)
+    store.put(
+        "bankruptcy", "award_amount", "stray",
+        Classified(Rung.L3, "1000", derived="An award amount is on file"),
+    )
+
+    assert plan_period.flag(store) == ()
+
+
+def test_two_instances_one_confirmed_one_not_gets_one_line(tmp_path, monkeypatch):
+    """Two bankruptcy instances is the ordinary shape of a dismissed case and
+    a refiling. Each is asked independently; only the confirmed, undischarged
+    one contributes."""
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    store = Sidecar()
+    _register_signal_matter(monkeypatch)
+    _confirmed_bankruptcy(store, "refiled")
+    store.put("bankruptcy", "petition_date", "dismissed", Classified(Rung.L1, "2024-02-02"))
+    store.put("_fake_second", "award_amount", "grant-1", _signal_record())
+
+    lines = plan_period.flag(store)
+    assert len(lines) == 1
+    assert lines[0].startswith("bankruptcy/refiled:")
+
+
+def test_a_confirmation_date_stored_at_the_wrong_rung_is_read_as_absent(tmp_path, monkeypatch):
+    """`plan_confirmation_date` is L1 in the pack, so the ordinary case
+    renders. Hand-stored at L4 — by a mis-typed `--rung`, or by I-11 reading
+    a corrupt row closed — it *derives* instead: the gate hands back "A
+    confirmation date is on file", a string that is not a date and was never
+    read. Taking that as proof of confirmation would be this module inferring
+    a case's posture from a sentence written to avoid showing it one. Treated
+    as absent: no line. The honest fail-closed answer, and the same one the
+    sibling `rules.compute` gives an anchor it cannot read."""
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    store = Sidecar()
+    _register_signal_matter(monkeypatch)
+    store.put(
+        "bankruptcy", "plan_confirmation_date", "primary",
+        Classified(Rung.L4, "2026-06-01", derived="A confirmation date is on file"),
+    )
+    store.put("_fake_second", "award_amount", "grant-1", _signal_record())
+
+    assert plan_period.flag(store) == ()
+
+
+def test_a_discharge_date_stored_at_the_wrong_rung_does_not_suppress_the_line(tmp_path, monkeypatch):
+    """The same rule — only a rendered value is on file — applied to the
+    other condition, and it lands conservative in the other direction. An
+    unreadable discharge date is not proof of discharge, so the reference
+    line stands rather than being hidden on the strength of a sentence
+    nothing read. A flag that shows when it need not is a reference the
+    operator can ignore; one that hides when it should not is the failure
+    this bite exists to prevent."""
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    store = Sidecar()
+    _register_signal_matter(monkeypatch)
+    _confirmed_bankruptcy(store)
+    store.put(
+        "bankruptcy", "discharge_date", "primary",
+        Classified(Rung.L4, "2027-01-01", derived="A discharge date is on file"),
+    )
+    store.put("_fake_second", "award_amount", "grant-1", _signal_record())
+
+    assert plan_period.flag(store) == (EXPECTED_LINE,)
+
+
+def test_the_line_carries_no_number_and_no_stored_value(tmp_path, monkeypatch):
+    """"Never a number" as a check rather than a promise: the only digits the
+    line may contain are the fixed statutory citation, and no digit in it
+    comes from the store. Held by stripping the citation and asserting what
+    is left has none — a stored amount, date or count that leaked in would
+    survive the strip."""
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    store = Sidecar()
+    _register_signal_matter(monkeypatch)
+    _confirmed_bankruptcy(store)
+    store.put("_fake_second", "award_amount", "grant-1", _signal_record("4242"))
+    store.put("bankruptcy", "petition_date", "primary", Classified(Rung.L1, "2025-03-09"))
+
+    (line,) = plan_period.flag(store)
+    citation = "11 U.S.C. §§ 541(a)(7), 1306(a), 1329"
+    assert citation in line
+    assert not any(ch.isdigit() for ch in line.replace(citation, ""))
+
+
+def test_the_flag_is_computed_not_logged(tmp_path, monkeypatch):
+    """A notice is a computed reference, not an event: it is derived fresh on
+    every read from records that were themselves logged when they were
+    written, and nothing about *reading* it is a fact about the household.
+    Logging it would put a line in the visible log for something nobody did,
+    and put it there again on every refresh. Held structurally — this module
+    has no write path at all — rather than by counting log rows, which would
+    only prove it did not happen to write one today."""
+    import ast
+    from pathlib import Path
+
+    tree = ast.parse(Path(plan_period.__file__).read_text("utf-8"))
+    on_store = sorted(
+        {
+            node.func.attr
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "store"
+        }
+    )
+    assert set(on_store) <= {"has", "get", "records"}, (
+        f"plan_period calls {on_store} on the store — a notice is computed "
+        "from records, never written or logged"
+    )

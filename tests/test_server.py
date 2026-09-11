@@ -940,3 +940,42 @@ def test_the_deadline_door_refuses_a_free_form_id_by_name(bad, ui):
 
     status, data = ui.json("/api/records?matter=custody")
     assert not [r for r in data["rows"] if r["item_type"] == "deadline"]
+
+
+# ── /api/queue carries the plan-period reference lines (audit, 2026-09-12) ──
+
+def test_the_queue_endpoint_carries_notices_alongside_items(ui, monkeypatch):
+    """`notices` is a sibling key to `items`, never an entry in it: a
+    reference line has no date, rung or urgency, so a client that folded it
+    into `items` would have to invent all three. The page's own rendering of
+    it is L4-surfaces' (the bankruptcy pane); this bite ships the data."""
+    from homestead.keep.rungs import Rung
+    from homestead_law import registry as registry_mod
+
+    fake = types.ModuleType("homestead_law.packs._fake_signal")
+    fake.MATTER = "_fake_signal"
+    fake.JURISDICTION = "US-NM"
+    fake.JURISDICTIONS = ("US-NM",)
+    fake.FIELDS = {"award_amount": Rung.L3}
+    fake.SCHEMA = {"award_amount": {"rung": Rung.L3, "matter": "_fake_signal",
+                                    "derived": "An award amount is on file"}}
+    monkeypatch.setitem(registry_mod.REGISTRY, "_fake_signal", registry_mod._entry(fake))
+
+    status, data = ui.json("/api/queue")
+    assert status == 200 and data["notices"] == []
+
+    ui.json("/api/store", {"matter": "bankruptcy", "field": "plan_confirmation_date",
+                           "value": "2026-06-01"})
+    ui.json("/api/store", {"matter": "_fake_signal", "field": "award_amount",
+                           "value": "1000", "id": "grant-1"})
+
+    status, data = ui.json("/api/queue")
+    assert status == 200
+    assert data["notices"] == [
+        "bankruptcy/primary: income or assets arising during the plan: "
+        "confirm with your attorney (11 U.S.C. §§ 541(a)(7), 1306(a), 1329; "
+        "disclosure duties under the plan and local rules)"
+    ]
+    assert data["items"] == []
+    # the line is a reference: no stored value reaches it
+    assert "1000" not in json.dumps(data)
