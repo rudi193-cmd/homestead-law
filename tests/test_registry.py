@@ -684,11 +684,18 @@ def test_the_real_packs_declare_a_derived_form_for_every_rung_that_needs_one():
 
 def test_repeatable_is_read_live_and_defaults_to_empty():
     """`MatterType.repeatable` mirrors `jurisdictions` — read straight off the
-    pack, and a pack that names none (custody, today) reads as an empty set
-    rather than erroring, so a pack with nothing repeatable pays nothing for
-    that."""
-    assert matter("custody").repeatable == frozenset()
+    pack. Custody itself gained a `REPEATABLE` set in L3-custody-relocation
+    (one per-child field per dotted name), so the "defaults to empty" half is
+    demonstrated on a fake pack that declares none — the same fixture shape
+    `_fake_pack` builds — rather than on custody, which is no longer that
+    example; a pack with nothing repeatable still pays nothing for that."""
+    bare = _fake_pack("_fake_no_repeatable")
+    assert registry_mod._entry(bare).repeatable == frozenset()
+
     assert matter("custody").repeatable is custody.REPEATABLE
+    assert matter("custody").repeatable == frozenset(
+        {"child.name", "child.dob", "child.school"}
+    )
 
 
 def test_a_repeatable_name_the_pack_does_not_have_fails_the_build():
