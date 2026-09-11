@@ -433,6 +433,10 @@ bare `ime` would need a bare `ime` field, i.e. one free-text blob per exam
 beside `notes`, which is the drift toward narrative decision 7 exists to
 stop.
 
+## Venture
+
+`homestead_law/packs/venture.py` (`JURISDICTION="US-DE"`, `JURISDICTIONS=("US-DE","US-OR")`) tracks an accelerator application and, alongside it, a Delaware company's own compliance calendar — formation, the registered agent, recurring state filings, founders, SAFEs and equity grants — with every date entered except one computed federal tax deadline (`election-83b`, 26 U.S.C. § 83(b)(2), 30 calendar days from a new top-level `grant_date` field, since the repeatable `founder.vesting_start` cannot anchor a template). This pack keeps dates and references; it forms nothing, files nothing, and computes no tax, and `ein` is sealed at `L5` on every surface. It is one of the two producers `homestead_law.plan_period.flag` watches for during an open Chapter 13 plan — a `safe`, an `equity_grant` or `revenue_start` on file here surfaces one reference line on the bankruptcy pane, never an amount or an investor's name.
+
 ## Computing a deadline
 
 A pack may declare **templates** — data, not code — on its own `TEMPLATES`

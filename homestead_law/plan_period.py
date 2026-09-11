@@ -43,12 +43,24 @@ from homestead_law.store import Sidecar
 __all__ = ["SIGNAL_FIELDS", "flag"]
 
 #: Item types, in any *other* matter, whose mere presence — never their value
-#: — is the signal (Wave 8's producers, none built yet): `award_amount`/
-#: `disbursement` from a grant, `safe`/`equity_grant`/`revenue_start` from a
-#: venture. A frozenset of field names, not matter names, so it carries no
-#: I-23 exposure of its own.
+#: — is the signal: `award_amount`/`disbursement` from a grant (a producer
+#: this bite does not build), `safe.amount`/`equity_grant.amount`/
+#: `revenue_start` from `packs/venture.py` (L8-venture). A frozenset of
+#: field names, not matter names, so it carries no I-23 exposure of its own.
+#: `"safe"`/`"equity_grant"` (the plan paragraph's group names, not field
+#: names) are corrected here to the dotted field names venture actually
+#: stores — both groups are `REPEATABLE` (decision 2), so no field is ever
+#: written under the bare group name, and `_any_signal_elsewhere`'s
+#: `ref[1] not in SIGNAL_FIELDS` check is exact. `revenue_start` needed no
+#: correction: venture's one top-level, non-repeatable signal field.
 SIGNAL_FIELDS: frozenset[str] = frozenset(
-    {"award_amount", "disbursement", "safe", "equity_grant", "revenue_start"}
+    {
+        "award_amount",
+        "disbursement",
+        "safe.amount",
+        "equity_grant.amount",
+        "revenue_start",
+    }
 )
 
 #: This pack's own name, read once, live — never retyped as a literal in a

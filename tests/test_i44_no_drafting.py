@@ -58,6 +58,11 @@ BANNED_PHRASES = (
     "which chapter", "right chapter", "chapter is right",
     "convert to chapter", "switch to chapter", "qualify for chapter",
     "eligible for chapter", "best option", "your best",
+    # telling the operator to take a formation/filing act for the business
+    # (L8-venture, decision 8 extended to the venture pack's own subject
+    # matter): a pack that keeps dates and references may say a filing EXISTS
+    # or is DUE, but never instruct the act itself.
+    "form the company", "incorporate the company", "file with the state",
 )
 
 #: The one sanctioned shape "which chapter" may appear in: the pack-level
@@ -268,6 +273,24 @@ def _banned_phrase_lines(text: str) -> list[tuple[int, str]]:
             if phrase in lowered:
                 hits.append((lineno, phrase))
     return hits
+
+
+def test_the_real_venture_pack_notice_and_why_strings_are_clean():
+    """L8-venture's own positive check, the same shape as the bankruptcy one
+    above — pointed at the pack whose subject matter (an accelerator
+    application, a company's formation calendar) is exactly what the three
+    new form/incorporate/file-with-the-state phrases exist to guard."""
+    from homestead_law.packs import venture
+
+    assert not _banned_phrase_hits(ast.parse(f"NOTICE = {venture.NOTICE!r}"))
+    for field, spec in venture.SCHEMA.items():
+        for key in ("why", "derived"):
+            text = spec.get(key)
+            if text is None:
+                continue
+            assert not _banned_phrase_hits(ast.parse(f"X = {text!r}")), (
+                f"{field}.{key} carries an advice-shaped phrase"
+            )
 
 
 def test_no_advice_shaped_phrase_in_the_readme():

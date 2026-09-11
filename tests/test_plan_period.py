@@ -167,8 +167,18 @@ def test_multiple_confirmed_instances_each_get_their_own_line(tmp_path, monkeypa
 
 
 def test_signal_fields_is_the_frozenset_wave_8_names():
+    """`"safe"`/`"equity_grant"` were the field names pinned here before
+    L8-venture built the actual producer — corrected to
+    `"safe.amount"`/`"equity_grant.amount"`, the dotted field names the real
+    (REPEATABLE) venture pack stores under; see plan_period.py's own note."""
     assert plan_period.SIGNAL_FIELDS == frozenset(
-        {"award_amount", "disbursement", "safe", "equity_grant", "revenue_start"}
+        {
+            "award_amount",
+            "disbursement",
+            "safe.amount",
+            "equity_grant.amount",
+            "revenue_start",
+        }
     )
 
 
@@ -312,3 +322,33 @@ def test_the_flag_is_computed_not_logged(tmp_path, monkeypatch):
         f"plan_period calls {on_store} on the store — a notice is computed "
         "from records, never written or logged"
     )
+
+
+# ── L8-venture: the real producer, not the fake-pack fixture ────────────────
+
+def test_a_safe_on_the_real_venture_pack_flags_a_confirmed_case(tmp_path, monkeypatch):
+    """The fake `_fake_second` fixture above proves the mechanism; this proves
+    the actual producer L8-venture ships. One SAFE record — investor and
+    amount both filled in — makes exactly one reference line, and the line
+    carries neither the investor's name nor the amount (I-15): 'presence,
+    never value' held against real data, not a stand-in."""
+    from homestead_law.packs import venture
+
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    store = Sidecar()
+    _confirmed_bankruptcy(store)
+    store.put(
+        venture.MATTER, "safe.investor", "seed-1",
+        Classified(Rung.L4, "Acme Ventures", derived="A SAFE investor is on file"),
+    )
+    store.put(
+        venture.MATTER, "safe.amount", "seed-1",
+        Classified(Rung.L4, "250000", derived="A SAFE amount is on file"),
+    )
+
+    lines = plan_period.flag(store)
+
+    assert lines == (EXPECTED_LINE,)
+    assert "Acme Ventures" not in lines[0]
+    assert "250000" not in lines[0]
+    assert "250,000" not in lines[0]

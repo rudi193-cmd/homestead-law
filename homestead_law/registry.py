@@ -79,7 +79,12 @@ from typing import Any, Mapping
 
 from homestead_law import packs
 from homestead.keep.rungs import Rung
-from homestead_law.packs import bankruptcy, custody, workers_comp
+from homestead_law.packs import (
+    bankruptcy,
+    custody,
+    venture,
+    workers_comp,
+)
 from homestead_law import rules
 
 __all__ = ["MatterType", "REGISTRY", "all_matters", "matter"]
@@ -152,12 +157,14 @@ def _entry(pack: ModuleType) -> MatterType:
 #: The one enumeration (I-23). Keyed by matter name → its `MatterType`. Authored
 #: here, the way `surfaces.FACTS` is authored — add a pack by importing it and
 #: adding a line, and everything that iterates `all_matters()` picks it up with
-#: no other change. Custody, bankruptcy and workers' comp are all built (wave
-#: 3); every matter type the model discusses has a pack behind it.
+#: no other change. Custody, bankruptcy, workers' comp and venture are all
+#: built (waves 3 and 8); every matter type the model discusses has a pack
+#: behind it.
 REGISTRY: dict[str, MatterType] = {
     custody.MATTER: _entry(custody),
     bankruptcy.MATTER: _entry(bankruptcy),
     workers_comp.MATTER: _entry(workers_comp),
+    venture.MATTER: _entry(venture),
 }
 
 
