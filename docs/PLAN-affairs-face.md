@@ -171,12 +171,19 @@ consumer) and `G2b` (`homestead-ledger`, not this repo).
   [#44](https://github.com/homestead-affairs/homestead-law/pull/44), release
   0.8.0.**
 - **L8-surfaces** `feat:`, depends L4-surfaces — grant pane, venture pane,
-  the Chapter 13 flag line on the bankruptcy pane and the queue. **In
-  progress, not yet merged to `main`** — this branch (`claude/law-drift`) is
-  based on `claude/law-surfaces-8`, which carries it and is itself still
-  under audit. Left unstruck for exactly that reason: this repo's `git log`
-  on `main` shows no such PR yet, and striking a bite ahead of its own merge
-  is the false-positive this document's guard exists to prevent.
+  the Chapter 13 flag line on the bankruptcy pane and the queue; its own
+  audit found and fixed a composer reading a pack's `SCHEMA`/`FIELDS`
+  straight off the pack instead of the `Row` the gate served it. **Merged,
+  not yet released:** PR
+  [#46](https://github.com/homestead-affairs/homestead-law/pull/46) merged
+  to `main` as `32c9804` (head `d1969a9`) — this branch has merged `main` at
+  that commit. Left unstruck on purpose: release-please had not cut the
+  release containing it when this was written, so there is no release
+  number to name, and `tests/test_plan_affairs_face.py` requires a struck
+  bite to name both a PR and a release. It is struck, with `#46` and the
+  release, by whoever next touches this document once that tag exists — the
+  same pattern the engine's own `X7-drift-engine` bite used for
+  `E7b-fleet-structured-values`.
 
 ---
 
