@@ -8,10 +8,16 @@ never stores (every test that calls it and then inspects the store finds
 nothing new there unless `accept` was also called), and `accept` writes only
 once a token proves what was shown.
 
-No sibling pack (custody, bankruptcy, workers' comp) is read here — those land
-in parallel bites and `custody.py` on this branch has no `TEMPLATES` yet. Every
-test below builds its own fake pack, the same way `tests/test_registry.py`
-does for its own guard-fire tests.
+~~No sibling pack (custody, bankruptcy, workers' comp) is read here — those
+land in parallel bites and `custody.py` on this branch has no `TEMPLATES`
+yet.~~ (struck when the wave-3 branches were stacked: all three packs are on
+this branch now.) Every test below still builds its own fake pack, the same
+way `tests/test_registry.py` does for its own guard-fire tests — a guard-fire
+plant must not depend on what a real pack happens to declare this week. The
+one exception is the last section, which reads `packs/bankruptcy.py` on
+purpose: the household's own case is in the District of New Mexico, and the
+claim that its claims bar lands on a different day for that reason is only
+worth anything if it is made against the real table.
 """
 from __future__ import annotations
 
@@ -1169,3 +1175,150 @@ def test_mail_changes_the_token_so_a_preview_cannot_be_accepted_as_the_other():
         assert plain.preview_token != mailed.preview_token
         with pytest.raises(rules.StaleToken):
             rules.accept(store, plain, token=mailed.preview_token)
+
+
+# ── the real bankruptcy pack, in the District of New Mexico ──────────────────
+#
+# Every other test in this file builds a fake pack on purpose. This section
+# does not: the defect it pins was a real one in `packs/bankruptcy.py` — four
+# forward templates counted on the federal calendar alone, with nothing on the
+# pack for `_district_state_for` to find — and a fake pack cannot show that a
+# real one is now wired up. The fix landed on the bankruptcy branch (an `L1`
+# `district_state` field, plus the four notes); this is the half of it that
+# needed `rules.py` and could only be written once the two were stacked.
+
+#: The household's own petition date, and the two answers 70 court days from
+#: it — the pinned pair this whole section exists for.
+_PETITION = "2026-09-18"
+_CLAIMS_BAR_FEDERAL_ONLY = "2026-11-27"
+_CLAIMS_BAR_WITH_NM = "2026-11-30"
+
+
+def _bankruptcy_case(*, district_state: str | None, instance: str = "primary"):
+    """A `bankruptcy` instance in `US-federal` with a petition on file, and
+    the district's state only when asked for. The pack is the registered one
+    — no monkeypatching, nothing faked. `instance` is a parameter because a
+    test that wants both answers needs two instances: re-opening one is I-9's
+    first-write refusal, not a fixture detail."""
+    store = Sidecar()
+    set_jurisdiction(store, "bankruptcy", instance, "US-federal")
+    store.put("bankruptcy", "petition_date", instance,
+              Classified(Rung.L1, _PETITION))
+    if district_state is not None:
+        store.put("bankruptcy", "district_state", instance,
+                  Classified(Rung.L1, district_state))
+    return store
+
+
+def test_2026_11_27_is_open_federally_and_closed_in_new_mexico():
+    """The fact the rest of this section rests on, checked rather than
+    asserted in prose: New Mexico keeps Presidents' Day on the Friday after
+    Thanksgiving, so its district courts are closed on a day the federal
+    calendar has open. If `holidays` ever changed that, everything below
+    would still pass while meaning nothing — so it is pinned first."""
+    import datetime as dt
+
+    import holidays
+
+    day = dt.date(2026, 11, 27)
+    assert day.weekday() == 4                                   # a Friday
+    assert day in holidays.US(subdiv="NM", years=[2026])
+    assert day not in holidays.US(years=[2026])
+
+
+def test_the_bankruptcy_pack_declares_the_district_state_compute_looks_for():
+    """`_district_state_for`'s second source, from the pack's side: the field
+    has to be named exactly this and classified exactly `L1`, or `compute`
+    silently falls back to the federal calendar."""
+    from homestead_law.packs import bankruptcy
+
+    assert bankruptcy.FIELDS["district_state"] is Rung.L1
+
+
+def test_a_new_mexico_chapter_13_claims_bar_counts_the_states_holidays():
+    """The worked case, end to end through the real pack: a 2026-09-18
+    petition, `claims-bar` (FRBP 3002(c), 70 days forward, court days), in a
+    case whose instance carries `district_state = NM`. 2026-11-27 is the
+    federal answer and a New Mexico court closure, so the deadline rolls to
+    the next day that is neither — Monday 2026-11-30."""
+    store = _bankruptcy_case(district_state="NM")
+
+    computed = rules.compute(store, "bankruptcy", "primary", "claims-bar")
+
+    assert computed.result_iso == _CLAIMS_BAR_WITH_NM
+    assert computed.district_state == "NM"
+    assert computed.result_iso == court_days(
+        _PETITION, 70, jurisdiction="US-federal", district_state="NM").iso
+
+
+def test_without_the_district_state_the_same_case_names_the_federal_date():
+    """The other half of the pair, and the reason the field had to exist: the
+    same pack, the same template, the same petition — a different date. The
+    `Computed` says which calendar it used rather than leaving the operator to
+    assume the district's closures were counted."""
+    store = _bankruptcy_case(district_state=None)
+
+    computed = rules.compute(store, "bankruptcy", "primary", "claims-bar")
+
+    assert computed.result_iso == _CLAIMS_BAR_FEDERAL_ONLY
+    assert computed.district_state is None
+    assert computed.result_iso == court_days(
+        _PETITION, 70, jurisdiction="US-federal").iso
+    assert computed.result_iso != _CLAIMS_BAR_WITH_NM
+
+
+def test_the_two_previews_are_not_interchangeable():
+    """A date that depends on the district's calendar makes the calendar part
+    of the answer, so it is part of the token — an operator cannot accept the
+    federal-only preview against the one they were shown, or the reverse."""
+    store = _bankruptcy_case(district_state="NM", instance="nm")
+    _bankruptcy_case(district_state=None, instance="federal")
+
+    with_nm = rules.compute(store, "bankruptcy", "nm", "claims-bar")
+    without = rules.compute(store, "bankruptcy", "federal", "claims-bar")
+
+    assert with_nm.result_iso != without.result_iso
+    assert with_nm.preview_token != without.preview_token
+
+
+def test_the_calendar_days_template_is_unmoved_by_the_district_state():
+    """`first-plan-payment` counts calendar days, which read no calendar at
+    all — so the field that moves `claims-bar` by three days moves this by
+    none. Asserted, because the pack's `note` claims it."""
+    store = _bankruptcy_case(district_state="NM", instance="nm")
+    _bankruptcy_case(district_state=None, instance="federal")
+
+    with_nm = rules.compute(store, "bankruptcy", "nm", "first-plan-payment")
+    without = rules.compute(store, "bankruptcy", "federal", "first-plan-payment")
+
+    assert with_nm.result_iso == without.result_iso == "2026-10-18"
+
+
+def test_the_cli_says_which_calendar_the_real_pack_counted_on(capsys):
+    """The notice an operator actually reads, on the real templates: the
+    district's state when there was one, and "district holidays not applied"
+    when there was not."""
+    from homestead_law.cli import run_cli
+
+    assert run_cli([
+        "matter", "open", "bankruptcy", "--id", "primary",
+        "--jurisdiction", "US-federal",
+    ]) == 0
+    assert run_cli(["put", "bankruptcy", "petition_date", _PETITION]) == 0
+    capsys.readouterr()
+
+    assert run_cli(
+        ["deadline", "compute", "bankruptcy", "claims-bar", "--id", "primary"]) == 0
+    out = capsys.readouterr().out
+    assert _CLAIMS_BAR_FEDERAL_ONLY in out
+    assert "district holidays not applied" in out
+
+    assert run_cli(["put", "bankruptcy", "district_state", "NM"]) == 0
+    capsys.readouterr()
+
+    assert run_cli(
+        ["deadline", "compute", "bankruptcy", "claims-bar", "--id", "primary"]) == 0
+    out = capsys.readouterr().out
+    assert _CLAIMS_BAR_WITH_NM in out
+    assert "district holidays: NM" in out
+    assert "district holidays not applied" not in out
