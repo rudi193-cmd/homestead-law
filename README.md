@@ -225,7 +225,10 @@ in. Nothing maps a district's *name* to a state — "District of New Mexico" →
 it would be a silently wrong calendar rather than a refusal. When neither
 source names one, the count runs on the federal calendar alone and every door
 says so out loud (`district holidays not applied`, `"district_state": null`)
-rather than letting the operator assume the state's closures were counted.
+rather than letting the operator assume the state's closures were counted —
+in a *state* forum the line is absent instead, because a state court reads
+its own state's legal holidays and there is no second sovereign's calendar
+to have left out.
 It matters: the Friday after Thanksgiving is a working day federally and a
 legal holiday in New Mexico, so a 70-day claims bar from a 2026-09-18
 petition is 2026-11-27 without it and 2026-11-30 with it.

@@ -697,7 +697,32 @@ def test_deadline_compute_says_whether_mail_and_district_days_were_applied(
     out = capsys.readouterr().out
     assert "forum:   US-NM" in out
     assert "mail:    no" in out
-    assert "district holidays not applied" in out
+    # US-NM is a state court: FRBP 9006(a)(6)(C) has no application at all
+    # there, so the line is absent rather than saying a calendar that never
+    # existed was "not applied".
+    assert "district holidays" not in out
+
+
+def test_a_federal_forum_says_when_no_district_calendar_was_applied(
+    monkeypatch, capsys,
+):
+    """The case the line is for: a federal count *could* have carried a
+    district's state holidays and did not."""
+    from homestead_law.packs import custody
+
+    monkeypatch.setattr(custody, "TEMPLATES", (
+        dict(_NOTICE_TEMPLATE, jurisdiction="US-federal"),), raising=False)
+    monkeypatch.setattr(
+        custody, "JURISDICTIONS", ("US-NM", "US-OR", "US-federal"))
+    assert run_cli([
+        "matter", "open", "custody", "--id", "primary",
+        "--jurisdiction", "US-federal",
+    ]) == 0
+    assert run_cli(["put", "custody", "hearing_date", "2026-01-01"]) == 0
+    capsys.readouterr()
+
+    assert run_cli(["deadline", "compute", "custody", "notice", "--id", "primary"]) == 0
+    assert "district holidays not applied" in capsys.readouterr().out
 
 
 def test_deadline_compute_counts_a_federal_template_under_its_district_state(

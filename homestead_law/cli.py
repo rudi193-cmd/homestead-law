@@ -384,6 +384,17 @@ def _cmd_deadline_templates(args: Sequence[str]) -> int:
     return 0
 
 
+def _has_a_district_rule(code: str) -> bool:
+    """Whether `code`'s counting rule has a district-state clause at all —
+    read from `homestead.keep.dates.RULES`, which owns the answer. A forum
+    the engine has no row for answers no, which is the honest reading of
+    "this module cannot say."""
+    from homestead.keep.dates import RULES
+
+    rule = RULES.get(code)
+    return rule is not None and rule.district_state_source is not None
+
+
 def _cmd_deadline_compute(args: Sequence[str]) -> int:
     """``deadline compute <matter> <template> --id <instance> [--mail]
     [--accept] [--replace]`` — L3-deadline-templates.
@@ -467,11 +478,16 @@ def _cmd_deadline_compute(args: Sequence[str]) -> int:
     # date they could not reproduce — so the `None` case is printed too, in
     # the words the plan asks for, rather than left blank.
     print(f"  mail:    {'+3 days (FRBP 9006(f)/FRCP 6(d))' if computed.mail else 'no'}")
-    if computed.district_state is None:
-        print("  district holidays not applied")
-    else:
+    if computed.district_state is not None:
         print(f"  district holidays: {computed.district_state} "
               "(FRBP 9006(a)(6)(C))")
+    elif _has_a_district_rule(computed.jurisdiction):
+        # Only where a second calendar could have applied. A state court
+        # reads its own state's legal holidays and nothing else — there is
+        # no second sovereign whose closures were "not applied" — and which
+        # forums have such a rule is the engine's rule table to answer, not
+        # a jurisdiction literal kept here (I-23's habit, if not its letter).
+        print("  district holidays not applied")
     print(f"  source:  {computed.source}")
     print(f"  token:   {computed.preview_token}")
 
