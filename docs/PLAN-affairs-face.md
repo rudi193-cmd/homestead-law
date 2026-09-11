@@ -152,6 +152,15 @@ that actually cut those releases.
   here: a document does not mark its own landing before the PR that lands it
   exists.
 
+## Found by Wave 7, not yet built
+
+- **L9-child-name** `feat:` — retire the superseded singular `child_name`:
+  rewrite `cli.py`'s `party_fields`, `server.py`'s intake `<option>` and
+  Nestor hook and `app/demo.py` onto the repeatable `child.name`, drop the
+  field from `packs/custody.py` with its strike-through kept, and change
+  `tests/test_packs.py`'s both-on-file assertion deliberately. Unstruck: it
+  has no PR and no release, which is the whole point of open item 1 below.
+
 ## Wave 8 — the grant, the accelerator application, and the business
 
 Depends on Wave 3 (`L2b-instances`, `L3-bankruptcy-ch13` for the flag
@@ -186,7 +195,8 @@ consumer) and `G2b` (`homestead-ledger`, not this repo).
 
 ## Open items this document tracks
 
-1. **`child_name` retirement is still open.** `L3-custody-relocation`'s pack
+1. **`child_name` retirement is still open — `L9-child-name`.**
+   `L3-custody-relocation`'s pack
    docstring and `L4-surfaces`'s own landing both said `L4-surfaces` would
    retire the superseded singular `child_name` field once every door naming
    it (`cli.py`'s `party_fields`, `server.py`'s intake form, `app/demo.py`)
@@ -202,16 +212,51 @@ consumer) and `G2b` (`homestead-ledger`, not this repo).
    is more than the docstring/test-only change this drift sweep's own scope
    allows (BRIEF: ≤ 40 lines, docs/tests only), so it is named here for a
    future bite rather than done partially now.
+
+   The bite that will do it is **`L9-child-name`** (named by the X7-drift
+   audit, 2026-09-11, because "a future bite" is not a thing anyone can look
+   up): a small `feat:` that rewrites `cli.py`'s `party_fields`,
+   `server.py`'s intake form and `app/demo.py` onto the repeatable
+   `child.name`, drops `child_name` from `packs/custody.py`'s `SCHEMA` and
+   `FIELDS` with the strike-through kept, and comes here to change
+   `tests/test_packs.py::test_child_name_and_child_dot_name_both_exist_
+   until_l4_surfaces_retires_it` deliberately.
+
+   Until it lands, **both names still work, at every door that addresses
+   either** — checked by the audit rather than assumed, 2026-09-11:
+   `put`/`show` store and read back both (`child_name` at `primary`,
+   `child.name` at `primary.<sub>`), `cli.py`'s `party_fields` and
+   `server.py`'s intake `<option>` and Nestor hook both still name
+   `child_name`, and `app/demo.py` still renders it on the list and opens it
+   on S1_DETAIL. The one surface that names only `child.name` is the custody
+   *pane*, which `L4-surfaces` added after the supersession and which
+   composes the repeatable `child.*` group; that is a door written to the
+   new name from the start, not one that went quiet. The open item is that
+   two names address one thing, not that either has stopped working — which
+   is exactly why retiring it is a rewrite of three doors and a schema
+   change, not a deletion.
 2. **`rules.accept`'s instruction wording was fixed by this bite.** It
    hard-coded `"confirm against the court's notice"` for every accepted
    template, including `L8-venture`'s `election-83b` (an IRS filing window
    under 26 U.S.C. § 83(b), with no court). `X7-drift-law` changed the
-   wording to `"confirm against the source above"` — naming what the
+   wording to `"confirm against that source"` — naming what the
    instruction already states a sentence earlier, true regardless of whether
    the source is a court, a trustee's rule, or the tax code — and updated
    every test and README passage that quoted the old text. This item is not
    struck above (`X7-drift-law` has not landed as of this document's own
    writing) but the fix itself is in this same branch's diff, not deferred.
+
+   Settled by this bite's audit (2026-09-11), after checking all three doors
+   the instruction is read at: the wording is **not** `"the source above"`.
+   The CLI prints `source:` on the line above `accepted:` and the page shows
+   it above the Accept button, but the stored `L1` string is also read back
+   on its own by `show`, the queue and the pane, where nothing is above it —
+   and several `source` texts end in a PROVENANCE sentence of their own
+   saying "see the module-level note above", which put two different
+   "above"s in one stored line. `accept()`'s own wording therefore carries
+   no forum word at all and no deictic: each pack's authority (FRBP, NMSA,
+   26 U.S.C.) speaks for itself in the `<source>` the same sentence names,
+   pinned one per pack in `tests/test_rules.py`'s last section.
 
 ---
 
@@ -235,7 +280,13 @@ document may not make. Each group names the checkout that can answer for it.
 **tracked in `homestead-ledger`** — `W0-LEDGER`; `G2a-account-packs`,
 `G2c-importer-dates`; `G2b-account-instances`, `G3-cadence-paidby`;
 `G4-overlay`, `G4-transfers`, `G4-budget`, `G4-schedules-export`; `G5-sync`;
-`G7b-floor-0.13`; `G8-business-books`; `X7-drift-ledger`.
+`G7b-floor-0.13`; `G8-business-books`; `X7-drift-ledger`; and the three the
+Wave 7 audits turned up — `G9-cover-distribution` (the ledger's `cover()`
+never passes `by_matter=`), `G9b-fleet-ci-leg` (no CI job installs
+`psycopg`, so the fleet dial test skips on every OS), and the two G8 browser
+gaps (the owner/allowable-uses form, the include-business checkbox). Law has
+no UI gap of its own; its Wave 7 follow-ups are `L9-child-name` above and
+the `rules.accept` wording, which this bite fixed.
 
 **tracked in `homestead-health`** — `W0-HEALTH`; `H2-cap`;
 `H6-sealed-reader`; `H7-floor-0.12`; `X7-drift-health`.

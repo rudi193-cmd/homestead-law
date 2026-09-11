@@ -1,5 +1,5 @@
-"""README's capabilities table names every top-level and pack module, or
-excludes it.
+"""README's capabilities table names every top-level, app and pack module,
+or excludes it.
 
 X7-drift-law, Wave 7's README requirement: one row per law capability the
 affairs build-out plan added, naming the release that shipped it — see
@@ -12,10 +12,17 @@ module is a capability row"; it is **every module is accounted for
 somewhere** — named in the capabilities table, or in this file's own
 `FOUNDATION` exclusion tuple, each with a one-line reason. A module in
 neither is BUG-6's shape one level up: a thing that exists and is not
-enumerated anywhere a reader would think to look. Scoped to
-`homestead_law/*.py` and `homestead_law/packs/*.py` only (not `app/`, which
-the older "What is enforced here today" table and `tests/test_chokepoint.py`
-already hold to a different, narrower contract), per this bite's own scope.
+enumerated anywhere a reader would think to look.
+
+Scoped to `homestead_law/*.py`, `homestead_law/app/*.py` and
+`homestead_law/packs/*.py`. `app/` was originally left out, on the reasoning
+that `tests/test_chokepoint.py` already holds it to a narrower contract —
+but a chokepoint contract answers "may this module reflect", not "which
+release added this", and the omission let the table go a whole release stale
+without anything noticing: 0.9.0 (L8-surfaces — the grant and venture panes,
+the plan-period line) had no row at all when the X7-drift audit read it,
+2026-09-11. Swept now, with the surfaces that predate the build-out plan
+named in `FOUNDATION` beside the rest.
 """
 from __future__ import annotations
 
@@ -47,9 +54,20 @@ FOUNDATION: dict[str, str] = {
     "cli.py": "grown by nearly every bite in this file; no single capability owns it",
     "server.py": "grown by nearly every bite in this file; no single capability owns it",
     "packs/__init__.py": "package marker, not a capability",
+    # `app/` — swept in by the X7-drift audit (2026-09-11). Two releases
+    # landed here (0.5.0's panes, 0.9.0's grant/venture panes) and the table
+    # named neither directory nor module, so it went a release stale with
+    # nothing to notice. `panes.py` is a capability row; the rest are
+    # foundations or scaffolding, each with its reason.
+    "app/__init__.py": "package marker, not a capability",
+    "app/advisories.py": "Phase 3 — the surfaced advisory matcher, predates the build-out plan",
+    "app/cover.py": "Phase 3 — the cover's re-identification check (I-31); L5-sync replaced the vendored copy with the engine's, which is that bite's row, not a capability of its own",
+    "app/demo.py": "the headless `--demo` renderer; it composes the panes rather than adding a capability",
+    "app/view.py": "Phase 3 — the tk 'What's due' surface, predates the build-out plan",
+    "app/window.py": "Phase 3 — the tk list/detail surface (I-21/I-31), predates the build-out plan",
 }
 
-_CODE_SPAN_MODULE = re.compile(r"`((?:packs/)?[A-Za-z_]+\.py)`")
+_CODE_SPAN_MODULE = re.compile(r"`((?:app/|packs/)?[A-Za-z_]+\.py)`")
 
 #: The heading the capabilities table lives under. The scan is scoped to this
 #: one section, so a module merely *mentioned* elsewhere in the README (the
@@ -78,16 +96,20 @@ def _capabilities_section(readme_text: str) -> str:
 
 
 def _modules_named_in(text: str) -> set[str]:
-    """Every `x.py` or `packs/x.py` backtick-quoted path in `text`."""
+    """Every `x.py`, `app/x.py` or `packs/x.py` backtick-quoted path in
+    `text`."""
     return set(_CODE_SPAN_MODULE.findall(text))
 
 
 def _real_modules() -> set[str]:
-    """Every module directly under `homestead_law/` and `homestead_law/packs/`
-    (not recursive into `app/`), as the same short form the README and
-    `FOUNDATION` both use."""
+    """Every module directly under `homestead_law/`, `homestead_law/app/` and
+    `homestead_law/packs/`, as the same short form the README and
+    `FOUNDATION` both use. The prefixes are written out rather than derived
+    from a path, so nothing here depends on the separator the OS uses (the CI
+    matrix runs Windows)."""
     modules = {p.name for p in PKG.glob("*.py")}
-    modules |= {f"packs/{p.name}" for p in (PKG / "packs").glob("*.py")}
+    for sub in ("app", "packs"):
+        modules |= {f"{sub}/{p.name}" for p in (PKG / sub).glob("*.py")}
     return modules
 
 

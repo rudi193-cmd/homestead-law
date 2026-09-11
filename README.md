@@ -503,10 +503,16 @@ result, the source and a preview token. **`--accept` is the only thing that
 writes**, and only once a token proves it matches a fresh computation of the
 same anchor and jurisdiction: it stores `(matter, "deadline",
 "<instance>.<template>")` at `L1` with the instruction *"computed from
-`<anchor>` under `<source>`; confirm against the source above"* — never "the
+`<anchor>` under `<source>`; confirm against that source"* — never "the
 court's notice", corrected (X7-drift audit, 2026-09-11) once a non-judicial
 template (venture's `election-83b`, an IRS filing window with no court)
-started writing through the same door — the same
+started writing through the same door, and deliberately not "the source
+*above*" either: the same string is read back on its own by `show`, the
+queue and the pane, where nothing is above it. The instruction carries no
+forum word at all — every pack's own authority (FRBP, NMSA, 26 U.S.C.)
+speaks for itself in the `<source>` it names, and
+`tests/test_rules.py::test_the_accepted_instruction_names_its_packs_own_source`
+pins one per pack. It is the same
 two-field shape (a date, an instruction) the plain `deadline` command already
 writes, so the queue and `show` read a computed deadline exactly as they read
 a hand-entered one, by reference. `--replace` is the same consent an occupied
@@ -678,9 +684,12 @@ CLI/server doors nearly every bite grows, the Nestor seam, the citation
 extractor, the intake UI) — those have no single "shipped by" release and
 are named with a reason in `tests/test_readme_capabilities.py`'s own
 `FOUNDATION` tuple instead. The property the completeness test holds is
-narrower and checkable: every module under `homestead_law/*.py` and
-`homestead_law/packs/*.py` is named here, or excluded there, with a reason
-— never simply forgotten (BUG-6's shape, one level up).
+narrower and checkable: every module under `homestead_law/*.py`,
+`homestead_law/app/*.py` and `homestead_law/packs/*.py` is named here, or
+excluded there, with a reason — never simply forgotten (BUG-6's shape, one
+level up). `app/` is swept too (X7-drift audit, 2026-09-11): the surfaces
+are where two whole releases landed, and leaving the directory out meant the
+table could — and did — go a release stale without anything noticing.
 
 | capability | shipped by | module(s) |
 |---|---|---|
@@ -694,6 +703,7 @@ narrower and checkable: every module under `homestead_law/*.py` and
 | Sync — CLI and Sync tab, the consented-scope envelope | 0.6.0 | `sync.py` |
 | Grant pack | 0.7.0 | `packs/grant.py` |
 | Venture pack, the one computed (83(b)) template | 0.8.0 | `packs/venture.py` |
+| Grant and venture panes; the plan-period line on the bankruptcy pane and the queue | 0.9.0 | `app/panes.py` |
 
 ## What is enforced here today
 

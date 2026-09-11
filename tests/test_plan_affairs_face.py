@@ -207,3 +207,51 @@ def test_l8_surfaces_is_struck_with_its_own_pr_and_release():
             assert "#46" in item and "0.9.0" in item
             return
     raise AssertionError("L8-surfaces is not named in docs/PLAN-affairs-face.md at all")
+
+
+# ── the open items keep their names, and stay unstruck (audit, 2026-09-11) ──
+
+#: The bites this document tracks as *found and not built*. A strike on one of
+#: these would be the same false claim `L4-surfaces`'s own landing made about
+#: `child_name` — "the bite that retires it" written before the bite existed.
+OPEN_BITES = ("L9-child-name",)
+
+
+def _struck_spans(text: str) -> list[str]:
+    return _STRUCK_SPAN.findall(text)
+
+
+def test_every_open_bite_is_named_and_none_of_them_is_struck():
+    """An open item that names no bite is a to-do nobody can look up, and a
+    struck one is a claim that it landed. `L9-child-name` is the retirement
+    `L4-surfaces` was wrongly promised to do; it has no PR and no release, so
+    it must appear by name and appear unstruck."""
+    text = PLAN_FACE.read_text("utf-8")
+    struck = " ".join(_struck_spans(text))
+    for bite in OPEN_BITES:
+        assert bite in text, (
+            f"{bite} is the name this document gives an open item and it is "
+            "not in the document — an open item with no bite name is a "
+            "to-do nobody can look up"
+        )
+        assert bite not in struck, (
+            f"{bite} appears inside a ~~struck~~ span: this document strikes "
+            "a bite only once a PR and a release carried it, and there is "
+            "neither"
+        )
+
+
+def test_the_open_bite_guard_fires_on_a_planted_strike_and_a_planted_omission():
+    """Both halves planted, against the same rule the real check runs. A
+    document that struck the open bite, and one that never named it."""
+    planted_struck = "- ~~**L9-child-name** retires the field.~~ Landed: PR #99, 0.9.9.\n"
+    assert "L9-child-name" in " ".join(_struck_spans(planted_struck))
+
+    planted_absent = "- **L8-surfaces** — nothing about the retirement here.\n"
+    assert "L9-child-name" not in planted_absent
+
+    # and the real document satisfies both, which is what makes the plants
+    # a check rather than a restatement.
+    text = PLAN_FACE.read_text("utf-8")
+    assert "L9-child-name" in text
+    assert "L9-child-name" not in " ".join(_struck_spans(text))
