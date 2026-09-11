@@ -305,21 +305,6 @@ def test_validate_value_accepts_200_chars_on_an_l4_field():
     workers_comp.validate_value("diagnosis", "x" * workers_comp.MAX_L4_CHARS)
 
 
-def test_validate_value_refuses_201_chars_naming_the_field_never_echoing():
-    marker = "UNIQUE-CLINICAL-NARRATIVE-MARKER"
-    value = marker + ("x" * (workers_comp.MAX_L4_CHARS + 1 - len(marker)))
-    assert len(value) == workers_comp.MAX_L4_CHARS + 1
-
-    with pytest.raises(workers_comp.MedicalNarrativeTooLong) as exc:
-        workers_comp.validate_value("diagnosis", value)
-
-    message = str(exc.value)
-    assert "diagnosis" in message
-    assert "homestead-health" in message
-    assert marker not in message  # I-15: never echo the value
-    assert exc.value.field == "diagnosis"
-
-
 def test_validate_value_ignores_non_l4_and_unknown_fields_regardless_of_length():
     long_value = "x" * 5000
     for field in ("wca_case_number", "jurisdiction", "ssn", "not_a_real_field"):
@@ -334,13 +319,14 @@ def test_validate_value_refuses_every_l4_field_over_the_cap():
             workers_comp.validate_value(field, "x" * (workers_comp.MAX_L4_CHARS + 1))
 
 
-def test_the_refusal_names_the_field_and_health_and_nothing_else():
+def test_validate_value_refuses_201_chars_naming_the_field_never_echoing():
     """The whole contract of the message, in one place: it names the field, it
     names where the content belongs, it gives the cap — and it repeats no part
     of what was typed (I-15: a reference, never content)."""
     secret = "L5 SPINAL STENOSIS AT C5-C6 PER DR CHEN"
     value = secret + "x" * (workers_comp.MAX_L4_CHARS + 1 - len(secret))
 
+    assert len(value) == workers_comp.MAX_L4_CHARS + 1
     with pytest.raises(workers_comp.MedicalNarrativeTooLong) as exc:
         workers_comp.validate_value("ime.note", value)
 
