@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.8.0](https://github.com/homestead-affairs/homestead-law/compare/v0.7.0...v0.8.0) (2026-09-11)
+
+
+### Added
+
+* venture pack — the application and the company's calendar, dates entered, one federal 83(b) clock ([4ddb5fa](https://github.com/homestead-affairs/homestead-law/commit/4ddb5fad16fd8c960b4c4d4cafde94fa23f75f7e))
+
+
+### Fixed
+
+* venture's entered dates are household metadata, and its L5 field has a shape ([cc0d698](https://github.com/homestead-affairs/homestead-law/commit/cc0d6987bd6d46c06c44d42b943f4d690a9d8f11))
+
 ## [0.7.0](https://github.com/homestead-affairs/homestead-law/compare/v0.6.0...v0.7.0) (2026-09-11)
 
 
