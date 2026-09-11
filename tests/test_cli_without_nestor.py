@@ -912,14 +912,19 @@ def test_put_refuses_an_over_long_l4_value_naming_the_field_never_echoing(capsys
     from homestead_law.packs import workers_comp
     from homestead_law.store import Sidecar
 
-    secret = "SPINAL STENOSIS AT C5-C6"
-    value = secret + "x" * (workers_comp.MAX_L4_CHARS + 1 - len(secret))
+    # Named `planted`, not `secret`: it is a diagnosis marker the test plants
+    # to prove a refusal never echoes an L4 value. CodeQL treats a variable
+    # named `secret` as sensitive data and, because it taints every element
+    # of the argv list it rides in, reported `run_cli`'s "unknown command"
+    # print as clear-text logging of it (law PR #38).
+    planted = "SPINAL STENOSIS AT C5-C6"
+    value = planted + "x" * (workers_comp.MAX_L4_CHARS + 1 - len(planted))
 
     assert run_cli(["put", "workers_comp", "ime.note", value, "--sub", "2026-10"]) == 1
     err = capsys.readouterr().err
     assert err.startswith("refused:")
     assert "ime.note" in err and str(workers_comp.MAX_L4_CHARS) in err
-    assert secret not in err and "STENOSIS" not in err
+    assert planted not in err and "STENOSIS" not in err
 
     assert not Sidecar().has("workers_comp", "ime.note", "primary.2026-10")
 

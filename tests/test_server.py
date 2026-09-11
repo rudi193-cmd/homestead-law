@@ -780,10 +780,10 @@ def test_a_failure_inside_the_seam_never_echoes_its_exception_text(
     monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
     monkeypatch.setattr(nestor_seam, "bind", lambda root=None: tmp_path / "ledger.jsonl")
 
-    secret = "A. Rivera"
+    planted = "A. Rivera"
 
     def boom(*_a, **_k):
-        raise RuntimeError(f"no alias sealed for {secret}")
+        raise RuntimeError(f"no alias sealed for {planted}")
 
     # Patched before `build_server`, which closes over these names.
     import homestead_law.nestor_store as nestor_store
@@ -793,12 +793,12 @@ def test_a_failure_inside_the_seam_never_echoes_its_exception_text(
     with _serve() as client:
         status, data = client.json("/api/resolve?domain=party&surface=Someone")
         assert status == 500
-        assert secret not in json.dumps(data), "the resolver echoed a stored name"
+        assert planted not in json.dumps(data), "the resolver echoed a stored name"
         assert "party" in data["error"]
 
         status, data = client.json("/api/orders")
         assert data["decisions"] == []
-        assert secret not in json.dumps(data)
+        assert planted not in json.dumps(data)
 
 
 # ── I-19: the server writes only inside the household root ─────────────────
@@ -1294,8 +1294,8 @@ def test_store_refuses_an_over_long_l4_value_naming_the_field_never_echoing(ui):
     `Classified` it would store."""
     from homestead_law.packs import workers_comp
 
-    secret = "SPINAL STENOSIS AT C5-C6"
-    value = secret + "x" * (workers_comp.MAX_L4_CHARS + 1 - len(secret))
+    planted = "SPINAL STENOSIS AT C5-C6"
+    value = planted + "x" * (workers_comp.MAX_L4_CHARS + 1 - len(planted))
 
     status, data = ui.json(
         "/api/store",
@@ -1303,7 +1303,7 @@ def test_store_refuses_an_over_long_l4_value_naming_the_field_never_echoing(ui):
     )
     assert status == 400 and data["ok"] is False
     assert "ime.note" in data["error"] and str(workers_comp.MAX_L4_CHARS) in data["error"]
-    assert secret not in data["error"] and "STENOSIS" not in data["error"]
+    assert planted not in data["error"] and "STENOSIS" not in data["error"]
 
     status, data = ui.json("/api/records?matter=workers_comp")
     assert data["rows"] == []
