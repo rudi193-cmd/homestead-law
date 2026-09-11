@@ -4,9 +4,10 @@
 Phase 2 built the refusal and tested it hard, but against synthetic schemas: the
 exit criterion *"an unclassified field fails the build"* was, in the words of
 `DECISION-unclassified-field-instrument.md`, *"a lock on an empty room."* This is
-the room getting something in it — the first real schema in the package, a US-CA
-custody matter, classified at **import** so an unclassified field stops the build
-rather than surprising someone at runtime.
+the room getting something in it — the first real schema in the package, a
+custody matter (this household's is US-NM, being registered in US-OR — wave 2's
+"L2a-pack-contract" bite), classified at **import** so an unclassified field
+stops the build rather than surprising someone at runtime.
 
 Packs are fixed: the operator-extends-a-pack question (P-3, Option A) is answered
 *no* for v1, so a pack is a closed schema authored by the project, and the only
@@ -55,6 +56,7 @@ def test_the_pack_spans_the_ladder_with_defensible_rungs():
     expected = {
         "courthouse": Rung.L1,       # the court's public identity
         "hearing_date": Rung.L1,     # posted on the court calendar (doc § Custody: L1)
+        "jurisdiction": Rung.L1,     # the forum's identity — public in this matter's forum
         "case_number": Rung.L3,      # family records commonly sealed (the worked example)
         "docket": Rung.L3,           # same posture as a case number in a family matter
         "opposing_party": Rung.L3,   # names a person; no protected category
@@ -108,3 +110,70 @@ def test_a_name_based_default_is_not_what_saved_this_pack():
     for name in custody.SCHEMA:
         with pytest.raises(Exception):
             classify_schema({name: None})
+
+
+# ── L2a-pack-contract: JURISDICTIONS and "derived" (decisions 1 and 3) ───────
+
+def test_the_pack_default_jurisdiction_is_in_its_supported_tuple():
+    """Decision 1: `JURISDICTION` is the default an instance starts under, and
+    it must be a member of `JURISDICTIONS` — the household's order was entered
+    in New Mexico and is being registered in Oregon, so both are supported and
+    the default is the order's own forum."""
+    assert custody.JURISDICTIONS == ("US-NM", "US-OR")
+    assert custody.JURISDICTION == "US-NM"
+    assert custody.JURISDICTION in custody.JURISDICTIONS
+
+
+def test_every_l3_l4_custody_field_declares_its_derived_form_in_the_pack():
+    """Decision 3: every field the gate can ever serve as a stand-in (`L3`,
+    `L4`) carries a non-empty `"derived"` sentence in the pack itself — not in
+    the CLI, not in the browser UI, both of which used to keep their own copy
+    of this exact table (`cli._default_derived`, `server._derived`, both
+    deleted by this bite) and read `derived_of(schema, field)` instead."""
+    checked = 0
+    for field, rung in custody.FIELDS.items():
+        if rung in (Rung.L3, Rung.L4):
+            sentence = custody.SCHEMA[field].get("derived")
+            assert isinstance(sentence, str) and sentence.strip(), (
+                f"{field} is {rung.value} and must carry a non-empty 'derived' "
+                "sentence in the pack"
+            )
+            checked += 1
+    assert checked == 4 + 3, "expected custody's four L3 + three L4 fields"
+
+
+def test_derived_forms_match_the_engine_pack_where_the_field_exists():
+    """The engine's own 0.3.0 custody pack already carries `"derived"` for
+    `case_number`, `docket`, `opposing_party`, `parenting_time`, `child_name`,
+    `diagnosis` and `notes`. Copying the sentence by hand invites the two packs
+    to drift the instant one is edited and the other is not — so this compares
+    them, field by field, rather than merely promising they match."""
+    from homestead.packs import custody as engine_custody
+
+    shared = sorted(set(custody.SCHEMA) & set(engine_custody.SCHEMA))
+    assert len(shared) >= 7, "expected at least the seven shared L3/L4 fields"
+    checked = 0
+    for field in shared:
+        ours = custody.SCHEMA[field].get("derived")
+        theirs = engine_custody.SCHEMA[field].get("derived")
+        if theirs is None:
+            continue  # a field the engine never serves derived (e.g. an L1/L5)
+        assert ours == theirs, (
+            f"{field}'s derived form has drifted from the engine's own custody "
+            f"pack: {ours!r} != {theirs!r}"
+        )
+        checked += 1
+    assert checked >= 7, "expected all seven shared L3/L4 fields to be compared"
+
+
+def test_every_why_names_a_step():
+    """Step 5 of the classification procedure is that every rung is recorded
+    *with* a reason, and the reason names which of steps 1-4 it answers — a
+    `why` that never says 'step N' has not shown its work, and could be hiding
+    a rung chosen by feel rather than by the procedure."""
+    import re
+
+    step = re.compile(r"\bstep \d\b")
+    for field, spec in custody.SCHEMA.items():
+        why = spec.get("why", "")
+        assert step.search(why), f"{field}'s why never names a step: {why!r}"

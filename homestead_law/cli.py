@@ -250,13 +250,17 @@ def _cmd_put(args: Sequence[str]) -> int:
         print(f"unknown field {field!r} for {matter_name} — fields: {', '.join(mt.fields)}", file=sys.stderr)
         return 1
 
-    from homestead.keep.rungs import Classified, Rung
+    from homestead.keep.rungs import Classified, derived_of
 
     rung = mt.fields[field]
 
     derived = None
     if rung.value in ("L3", "L4"):
-        derived = _default_derived(field, value)
+        # The pack's own declaration, never a second table (decision 3). Two
+        # copies of this text — cli.py's and server.py's — used to drift from
+        # each other and from the pack; both doors now read the one sentence
+        # a pack author wrote.
+        derived = derived_of(mt.schema, field)
 
     _boot()
     sidecar = Sidecar()
@@ -272,20 +276,6 @@ def _cmd_put(args: Sequence[str]) -> int:
     _maybe_propose_party(field, value)
 
     return 0
-
-
-def _default_derived(field: str, value: str) -> str:
-    """A safe derived form for L3/L4 fields — what the ambient queue shows."""
-    derivations = {
-        "case_number": "A case number is on file",
-        "docket": "A docket entry is on file",
-        "opposing_party": "The other parent is named",
-        "parenting_time": "A parenting-time obligation is on file",
-        "child_name": "A minor child is named in this matter",
-        "diagnosis": "A medical category is on file for a person",
-        "notes": "An operator note is on file",
-    }
-    return derivations.get(field, f"A {field.replace('_', ' ')} is on file")
 
 
 def _maybe_propose_party(field: str, value: str) -> None:

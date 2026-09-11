@@ -27,7 +27,7 @@ TODAY = "2026-08-10"
 
 #: field → (payload, derived form or None). Invented content; real rungs.
 _DEMO: dict[str, tuple[str, str | None]] = {
-    "courthouse": ("Dept 4, Superior Court of California, County of Marin", None),
+    "courthouse": ("Dept 4, Second Judicial District Court, Bernalillo County", None),
     "hearing_date": ("2026-09-15 08:30 · Dept 4", None),
     "case_number": ("FL-2026-00123", "A case number is on file"),
     "docket": ("Entry 14 — response filed 2026-08-01", "A docket entry is on file"),

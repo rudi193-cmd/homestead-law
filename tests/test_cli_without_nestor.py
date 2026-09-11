@@ -45,6 +45,73 @@ def test_put_stores_without_nestor(capsys):
     assert "stored: custody/courthouse/primary" in out and "L1" in out
 
 
+def test_put_uses_the_packs_derived_form(capsys):
+    """Decision 3: the derived sentence `show` lists for an L3/L4 field is the
+    pack's own `SCHEMA[field]["derived"]`, read through `derived_of` — not a
+    second table the CLI used to keep (`_default_derived`, deleted by this
+    bite). Held by comparison to the pack, not by retyping the sentence, so a
+    future edit to the pack is what this test tracks."""
+    from homestead.keep.rungs import derived_of
+    from homestead_law.packs import custody
+
+    assert run_cli(["put", "custody", "child_name", "X"]) == 0
+    capsys.readouterr()
+
+    assert run_cli(["show", "custody"]) == 0
+    out = capsys.readouterr().out
+    sentence = derived_of(custody.SCHEMA, "child_name")
+    assert sentence in out
+    assert "X" not in out, "the L4 payload must not appear on the list, only its derived form"
+
+
+def test_the_packs_derived_form_is_what_the_gate_substitutes(capsys):
+    """Decision 3, checked at the gate rather than at the print. What `put`
+    stores must be the `Classified` the engine's own ceilings then act on: an
+    `L3` payload still *renders* on the operator's own list (the derived form
+    is not a second, quieter rendering of the record they are entitled to see),
+    the same record derives to the pack's exact sentence on an `S2` prompt, and
+    the payload never crosses there. `L4` is the pair the other way round —
+    derived on the list, rendered in the detail the operator opened on purpose
+    — and `L5` crosses nowhere. Read straight off `serve()` so this is the
+    crossing, not the CLI's formatting of it."""
+    from homestead.keep.rungs import Disposition, Surface, derived_of, serve
+
+    from homestead_law.packs import custody
+    from homestead_law.store import Sidecar
+
+    assert run_cli(["put", "custody", "case_number", "FL-2026-00777"]) == 0
+    assert run_cli(["put", "custody", "notes", "smelled of alcohol on the 3rd"]) == 0
+    assert run_cli(["put", "custody", "ssn", "123-45-6789"]) == 0
+    capsys.readouterr()
+
+    stored = dict(Sidecar().records("custody"))
+    l3 = stored[("custody", "case_number", "primary")]
+    l4 = stored[("custody", "notes", "primary")]
+    l5 = stored[("custody", "ssn", "primary")]
+
+    # the L3 payload renders on the operator's own list; the pack's sentence is
+    # what an S2 prompt gets instead, and the payload does not reach it
+    listed = serve(l3, Surface.S1_LIST)
+    assert listed.disposition is Disposition.RENDER
+    assert listed.value == "FL-2026-00777"
+    prompted = serve(l3, Surface.S2_PROMPT)
+    assert prompted.disposition is Disposition.DERIVE
+    assert prompted.value == derived_of(custody.SCHEMA, "case_number")
+    assert "FL-2026-00777" not in str(prompted.value)
+
+    # L4: the pack's sentence on the list, the payload only in the detail
+    assert serve(l4, Surface.S1_LIST).value == derived_of(custody.SCHEMA, "notes")
+    assert serve(l4, Surface.S1_DETAIL).value == "smelled of alcohol on the 3rd"
+    assert serve(l4, Surface.S2_PROMPT).value == derived_of(custody.SCHEMA, "notes")
+
+    # L5 declares no derived form and crosses nowhere — not even as a stand-in
+    assert derived_of(custody.SCHEMA, "ssn") is None
+    for surface in (Surface.S1_LIST, Surface.S1_DETAIL, Surface.S2_PROMPT):
+        served = serve(l5, surface)
+        assert served.disposition is not Disposition.RENDER
+        assert served.value is None or "123-45-6789" not in str(served.value)
+
+
 def test_put_a_party_name_stores_and_skips_the_resolver_quietly(capsys):
     assert run_cli(["put", "custody", "opposing_party", "Jordan Rivera"]) == 0
     captured = capsys.readouterr()

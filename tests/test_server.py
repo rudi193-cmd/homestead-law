@@ -81,6 +81,20 @@ def test_matters_lists_every_registered_field_with_its_declared_rung(ui):
     assert all(f["why"] for f in custody["fields"])
 
 
+def test_matters_reports_the_supported_jurisdictions(ui):
+    """Decision 1: `/api/matters` names each matter's default jurisdiction and
+    the full set it may be filed in, read live off the registry (I-23) rather
+    than a copy this handler keeps — the household's custody order moved from
+    New Mexico to a registration in Oregon, and the browser UI's matter form
+    needs both to ever offer a jurisdiction switch (Wave 3)."""
+    status, data = ui.json("/api/matters")
+    assert status == 200
+    custody = next(m for m in data["matters"] if m["name"] == "custody")
+    assert custody["jurisdiction"] == "US-NM"
+    assert custody["jurisdictions"] == ["US-NM", "US-OR"]
+    assert custody["jurisdiction"] in custody["jurisdictions"]
+
+
 def test_store_then_records_round_trips_through_the_gate(ui):
     status, data = ui.json("/api/store", {"matter": "custody", "field": "courthouse", "value": "Dept 4"})
     assert status == 200 and data == {"ok": True, "rung": "L1", "replaced": False}

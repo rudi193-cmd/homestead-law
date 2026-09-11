@@ -31,7 +31,8 @@ def _register_second_matter(monkeypatch, name: str = "bankruptcy") -> None:
     module, keyed by its own MATTER, injected for the test."""
     fake = types.ModuleType(f"homestead_law.packs._fake_{name}")
     fake.MATTER = name
-    fake.JURISDICTION = "US-CA"
+    fake.JURISDICTION = "US-NM"
+    fake.JURISDICTIONS = ("US-NM",)
     fake.FIELDS = {"deadline": Rung.L1}
     fake.SCHEMA = {"deadline": {"rung": Rung.L1, "matter": name}}
     monkeypatch.setitem(registry_mod.REGISTRY, name, registry_mod._entry(fake))

@@ -34,7 +34,7 @@ from homestead_law.registry import (
     all_matters,
     matter,
 )
-from homestead.keep.rungs import Rung
+from homestead.keep.rungs import Rung, derived_of
 from homestead_law.packs import custody
 
 PKG = Path(__file__).resolve().parent.parent / "homestead_law"
@@ -80,7 +80,7 @@ def test_an_entry_ties_a_matter_to_its_pack():
     entry = matter("custody")
     assert isinstance(entry, MatterType)
     assert entry.name == custody.MATTER == "custody"
-    assert entry.jurisdiction == custody.JURISDICTION == "US-CA"
+    assert entry.jurisdiction == custody.JURISDICTION == "US-NM"
     assert entry.pack is custody
 
 
@@ -108,15 +108,34 @@ def test_matter_is_strict_about_an_unknown_name():
 
 # ── the import-time guard fires — BUG-6's shape, from each side ───────────────
 
-def _fake_pack(name: str, *, jurisdiction: str = "US-CA") -> types.ModuleType:
+def _fake_pack(
+    name: str,
+    *,
+    jurisdiction: str = "US-NM",
+    jurisdictions: tuple[str, ...] | None = None,
+) -> types.ModuleType:
     """A stand-in pack with the attributes `_entry`/`_validate` read. Built for
     the guard tests the way `test_invariants_surfaces` builds fake modules for
-    the schema scan — a real module object, not a mock."""
+    the schema scan — a real module object, not a mock. `jurisdictions`
+    defaults to a tuple holding just `jurisdiction`, so a caller that only
+    cares about `MATTER`/`JURISDICTION` gets a pack that still passes
+    `_validate`'s jurisdiction checks; a caller planting a jurisdiction
+    violation passes its own tuple."""
     mod = types.ModuleType(f"homestead_law.packs._fake_{name}")
     mod.MATTER = name
     mod.JURISDICTION = jurisdiction
+    mod.JURISDICTIONS = jurisdictions if jurisdictions is not None else (jurisdiction,)
     mod.FIELDS = {"case_number": Rung.L3}
-    mod.SCHEMA = {"case_number": {"rung": Rung.L3, "matter": name}}
+    mod.SCHEMA = {
+        "case_number": {
+            "rung": Rung.L3,
+            "matter": name,
+            # L3 is served as a stand-in somewhere, so `_validate` requires a
+            # derived sentence (decision 3); a fixture without one would trip
+            # that guard instead of the one each test below is aiming at.
+            "derived": "A case number is on file",
+        }
+    }
     return mod
 
 
@@ -295,3 +314,335 @@ def test_the_guard_would_catch_the_registry_itself_if_it_were_not_exempt():
     assert PKG / "registry.py" in MATTER_ENUM_ALLOWED
     assert _is_pack(PKG / "packs" / "custody.py")
     assert not _is_pack(PKG / "store.py")
+
+
+# ── L2a-pack-contract: JURISDICTIONS (decision 1) ────────────────────────────
+
+def test_jurisdictions_is_read_live_from_the_pack():
+    """`MatterType.jurisdictions` is a property over `pack.JURISDICTIONS`, the
+    same shape as `fields`/`schema` — identity with the pack's own tuple, not a
+    copy, so the registry cannot carry a stale second copy of it (BUG-6's
+    mechanism, applied to this third pack attribute)."""
+    entry = matter("custody")
+    assert entry.jurisdictions is custody.JURISDICTIONS
+    assert entry.jurisdiction in entry.jurisdictions
+
+
+def test_a_default_jurisdiction_outside_the_supported_tuple_fails_the_build():
+    """Decision 1's planted violation: a pack whose default `JURISDICTION` is
+    not itself a member of its own `JURISDICTIONS`. Fired against `_validate`
+    directly, on a fake pack, so the guard is shown to catch it rather than
+    merely asserted to."""
+    broken_pack = _fake_pack(
+        "workers_comp", jurisdiction="US-OR", jurisdictions=("US-NM",)
+    )
+    entry = registry_mod._entry(broken_pack)
+    broken_registry = {**REGISTRY, "workers_comp": entry}
+    on_disk = {"custody": custody, "workers_comp": broken_pack}
+    with pytest.raises(RuntimeError) as exc:
+        registry_mod._validate(broken_registry, on_disk)
+    assert "workers_comp" in str(exc.value)
+    # the membership message specifically — "JURISDICTION" alone also matches
+    # the shape message above it, so the plant could pass on the wrong refusal
+    assert "is not in" in str(exc.value)
+    assert "'US-OR'" in str(exc.value) and "('US-NM',)" in str(exc.value)
+
+
+def test_an_empty_jurisdictions_tuple_fails_the_build():
+    """The other half of decision 1's validation: `JURISDICTIONS` itself must be
+    a non-empty tuple of non-empty strings — an empty tuple, a blank member, or
+    a non-tuple all read as absence and fail closed the way an unclassified
+    field does (I-11's shape, applied here)."""
+    for bad in ((), ("",), ("US-NM", "  "), ["US-NM"]):
+        broken_pack = _fake_pack("workers_comp", jurisdiction="US-NM", jurisdictions=bad)
+        entry = registry_mod._entry(broken_pack)
+        broken_registry = {**REGISTRY, "workers_comp": entry}
+        on_disk = {"custody": custody, "workers_comp": broken_pack}
+        with pytest.raises(RuntimeError) as exc:
+            registry_mod._validate(broken_registry, on_disk)
+        assert "JURISDICTIONS" in str(exc.value), f"failed for {bad!r}"
+
+
+def test_a_pack_with_no_jurisdictions_attribute_at_all_fails_the_build():
+    """A pack that never declares `JURISDICTIONS` — not even an empty one — is
+    the same absence as any other, read by `getattr(..., None)` rather than a
+    bare attribute access that would raise the wrong exception type."""
+    broken_pack = types.ModuleType("homestead_law.packs._fake_workers_comp")
+    broken_pack.MATTER = "workers_comp"
+    broken_pack.JURISDICTION = "US-NM"
+    broken_pack.FIELDS = {"case_number": Rung.L3}
+    broken_pack.SCHEMA = {
+        "case_number": {
+            "rung": Rung.L3,
+            "matter": "workers_comp",
+            "derived": "A case number is on file",
+        }
+    }
+    entry = registry_mod._entry(broken_pack)
+    broken_registry = {**REGISTRY, "workers_comp": entry}
+    on_disk = {"custody": custody, "workers_comp": broken_pack}
+    with pytest.raises(RuntimeError) as exc:
+        registry_mod._validate(broken_registry, on_disk)
+    assert "JURISDICTIONS" in str(exc.value)
+
+
+def test_an_entrys_copied_jurisdiction_cannot_drift_from_its_pack():
+    """`fields`, `schema` and `jurisdictions` are properties over the pack and
+    cannot disagree with it. `jurisdiction` is a *copy*, taken by `_entry` at
+    construction — the one field on an entry with BUG-6's mechanism still in
+    it. Planted: an entry built by hand with a jurisdiction its pack does not
+    declare."""
+    drifted = registry_mod.MatterType(name="custody", jurisdiction="US-OR", pack=custody)
+    broken_registry = {**REGISTRY, "custody": drifted}
+    with pytest.raises(RuntimeError) as exc:
+        registry_mod._validate(broken_registry, {"custody": custody})
+    assert "disagrees with its pack" in str(exc.value)
+
+
+def test_the_real_registry_passes_the_jurisdiction_checks():
+    """The positive side, run against what actually ships — `_validate` already
+    runs at import (registry.py's module body), so this re-runs it explicitly to
+    keep the guard exercised by the suite on every invocation, not only once at
+    collection."""
+    registry_mod._validate(REGISTRY, registry_mod._discover_packs())
+
+
+# ── L2a-pack-contract: no second derived-form table outside the packs ───────
+
+def _derived_form_table_dicts(tree: ast.AST, field_names: set[str]) -> list[int]:
+    """Every dict literal that is shaped like a derived-form table: at least
+    three string keys drawn from a registered pack's field names, every value a
+    plain string literal. That is the exact shape `cli._default_derived` and
+    `server._derived` used to hand-keep (`{"case_number": "A case number is on
+    file", ...}`) — a second copy of what a pack's `SCHEMA` already declares,
+    free to drift from it the moment one copy is edited and the others are not.
+    Restricted to string-valued dicts so a field-keyed table of a different
+    shape (e.g. `homestead_law/app/demo.py`'s field → (payload, derived-or-None)
+    tuples, which is real seed data, not a second derived-form table) is not a
+    false positive."""
+    hits: list[int] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Dict) or not node.values:
+            continue
+        if any(k is None for k in node.keys):  # a **spread entry
+            continue
+        if not all(isinstance(v, ast.Constant) and isinstance(v.value, str) for v in node.values):
+            continue
+        matched = sum(
+            1 for k in node.keys
+            if isinstance(k, ast.Constant) and isinstance(k.value, str) and k.value in field_names
+        )
+        if matched >= 3:
+            hits.append(node.lineno)
+    return hits
+
+
+def test_no_module_outside_the_packs_keeps_a_derived_form_table():
+    """I-23's shape, one attribute over. Decision 3 puts the derived form on the
+    pack; a second `{field: sentence}` table anywhere else is the exact drift
+    this bite deleted two live copies of (`cli._default_derived`,
+    `server._derived`) — so neither, nor anything new, may come back.
+
+    Only the packs are exempt. `registry.py` is exempt from the *matter-name*
+    scan above because the registry is where an enumeration of matter names
+    legitimately lives; no such argument exists for a derived-form table, and
+    the registry — which already holds every pack and every schema — is the
+    most plausible place for someone to add a convenience default. So it is
+    scanned like anything else, and
+    `test_the_derived_form_table_guard_is_not_exempt_for_the_registry` plants
+    one there to show it would be caught."""
+    names: set[str] = set()
+    for name in all_matters():
+        names.update(matter(name).schema)
+    assert names, "the scan needs the packs' field names to look for"
+
+    offenders: list[str] = []
+    for mod in sorted(PKG.rglob("*.py")):
+        if "__pycache__" in mod.parts:
+            continue
+        if _is_pack(mod):
+            continue
+        for lineno in _derived_form_table_dicts(ast.parse(mod.read_text("utf-8")), names):
+            offenders.append(f"{mod.relative_to(PKG.parent)}:{lineno}")
+    assert not offenders, (
+        f"a derived-form table is hand-kept outside the packs at {offenders}. "
+        "Decision 3 puts a field's derived sentence on the pack "
+        "(SCHEMA[field]['derived']) and every reader calls "
+        "homestead.keep.rungs.derived_of(schema, field) — a second "
+        "{field: sentence} table is free to drift from it the moment either "
+        "is edited alone, which is exactly what cli.py's and server.py's own "
+        "copies had already done before this bite deleted them."
+    )
+
+
+def test_the_derived_form_table_guard_fires_on_a_planted_table(tmp_path):
+    """A scan that has never fired has not been shown to check anything.
+    Planted in a tmp *copy of a real surface file* — `app/view.py` — appended
+    with a hand-kept derived-form table, the shape this guard exists to catch;
+    the unmodified surface must not trip it."""
+    import shutil
+
+    names = set(matter("custody").schema)
+    surface = tmp_path / "view.py"
+    shutil.copy(PKG / "app" / "view.py", surface)
+    with surface.open("a", encoding="utf-8") as fh:
+        fh.write(
+            "\n\n_LEAKED_DERIVED = {\n"
+            "    'case_number': 'A case number is on file',\n"
+            "    'docket': 'A docket entry is on file',\n"
+            "    'opposing_party': 'The other parent is named',\n"
+            "}\n"
+        )
+
+    assert _derived_form_table_dicts(ast.parse(surface.read_text()), names)
+    assert not _derived_form_table_dicts(
+        ast.parse((PKG / "app" / "view.py").read_text()), names
+    ), "the guard must not fire on the unmodified surface it was copied from"
+
+    clean = tmp_path / "demo_shape.py"
+    clean.write_text(
+        "_DEMO = {'case_number': ('FL-2026-1', 'A case number is on file'),\n"
+        "         'docket': ('Entry 1', 'A docket entry is on file'),\n"
+        "         'opposing_party': ('J. Rivera', 'The other parent is named')}\n",
+        "utf-8",
+    )
+    assert not _derived_form_table_dicts(ast.parse(clean.read_text()), names), (
+        "a field -> (payload, derived) tuple table is seed data, not a second "
+        "derived-form table, and must not be flagged"
+    )
+
+
+def test_the_derived_form_table_guard_is_not_exempt_for_the_registry(tmp_path):
+    """The scan above skips only the packs. Planted in a tmp copy of the real
+    `registry.py` — the module with every pack and every schema already in
+    hand, and so the likeliest home for a "just a default" table — to show the
+    guard reaches it; the unmodified registry must not trip it."""
+    import shutil
+
+    names = set(matter("custody").schema)
+    planted = tmp_path / "registry.py"
+    shutil.copy(PKG / "registry.py", planted)
+    with planted.open("a", encoding="utf-8") as fh:
+        fh.write(
+            "\n\n_FALLBACK_DERIVED = {\n"
+            "    'case_number': 'A case number is on file',\n"
+            "    'docket': 'A docket entry is on file',\n"
+            "    'notes': 'An operator note is on file',\n"
+            "}\n"
+        )
+
+    assert _derived_form_table_dicts(ast.parse(planted.read_text()), names)
+    assert not _derived_form_table_dicts(
+        ast.parse((PKG / "registry.py").read_text()), names
+    ), "the guard must not fire on the unmodified registry it was copied from"
+
+
+# ── L2a-pack-contract: the "derived" key is required, not merely tested ──────
+
+def test_an_l3_field_with_no_derived_form_fails_the_build():
+    """Decision 3's planted violation. `classify_schema` ignores the `"derived"`
+    key on purpose, so a pack that omits it on an `L3`/`L4` field imports
+    clean — and the omission surfaces only at the first `put`, as an
+    `UnclassifiedField` out of `Classified`, raised outside either door's
+    `try`. `_validate` refuses it at import, naming the field, the way every
+    other absence in this module is refused (I-11)."""
+    broken_pack = _fake_pack("workers_comp")
+    broken_pack.SCHEMA = {
+        "claim_number": {"rung": Rung.L3, "matter": "workers_comp", "why": "step 2"}
+    }
+    broken_pack.FIELDS = {"claim_number": Rung.L3}
+    entry = registry_mod._entry(broken_pack)
+    broken_registry = {**REGISTRY, "workers_comp": entry}
+    on_disk = {"custody": custody, "workers_comp": broken_pack}
+    with pytest.raises(RuntimeError) as exc:
+        registry_mod._validate(broken_registry, on_disk)
+    assert "claim_number" in str(exc.value) and "derived" in str(exc.value)
+
+
+def test_a_blank_derived_form_is_absence_too():
+    """A whitespace-only sentence reads as present to `in` and as nothing to a
+    reader — `derived_of` already returns `None` for it, so the build must
+    refuse it exactly as it refuses the missing key."""
+    for blank in ("", "   ", None, 7):
+        broken_pack = _fake_pack("workers_comp")
+        broken_pack.SCHEMA = {
+            "claim_number": {"rung": Rung.L3, "matter": "workers_comp", "derived": blank}
+        }
+        broken_pack.FIELDS = {"claim_number": Rung.L3}
+        entry = registry_mod._entry(broken_pack)
+        with pytest.raises(RuntimeError) as exc:
+            registry_mod._validate(
+                {**REGISTRY, "workers_comp": entry},
+                {"custody": custody, "workers_comp": broken_pack},
+            )
+        assert "claim_number" in str(exc.value), f"failed for {blank!r}"
+
+
+def test_a_missing_default_jurisdiction_fails_the_build_by_name():
+    """A pack that never declares `JURISDICTION`. Read through `getattr` so the
+    refusal is this module's, naming the key — not an `AttributeError` from
+    whichever consumer happened to touch it first."""
+    broken_pack = _fake_pack("workers_comp")
+    del broken_pack.JURISDICTION
+    entry = registry_mod.MatterType(
+        name="workers_comp", jurisdiction="US-NM", pack=broken_pack
+    )
+    with pytest.raises(RuntimeError) as exc:
+        registry_mod._validate(
+            {**REGISTRY, "workers_comp": entry},
+            {"custody": custody, "workers_comp": broken_pack},
+        )
+    assert "JURISDICTION" in str(exc.value) and "workers_comp" in str(exc.value)
+
+
+def test_the_derived_requirement_matches_the_engines():
+    """`_validate` states which rungs must carry a derived form as a tuple of
+    its own, because the engine's copy (`rungs._NEEDS_DERIVED`) is private. Two
+    copies of a rule is the drift this whole file is about, so the two are
+    pinned together *behaviourally*: for every rung, building a `Classified`
+    with no derived form must refuse exactly when the registry would."""
+    from homestead.keep.rungs import Classified, UnclassifiedField
+
+    refused = set()
+    for rung in Rung:
+        try:
+            Classified(rung, "a value", None)
+        except UnclassifiedField:
+            refused.add(rung)
+    assert refused == {Rung.L3, Rung.L4}, (
+        "the engine's set of rungs that must carry a derived form has moved; "
+        "update `needs_derived` in registry.py::_validate to match"
+    )
+
+
+def test_the_real_packs_declare_a_derived_form_for_every_rung_that_needs_one():
+    """The positive side, registry-relative rather than custody-only: every
+    registered pack, every `L3`/`L4` field. A pack added in a later wave is
+    covered the day it is registered, with no edit here."""
+    for name in all_matters():
+        mt = matter(name)
+        for field, rung in mt.fields.items():
+            if rung not in (Rung.L3, Rung.L4):
+                continue
+            sentence = derived_of(mt.schema, field)
+            assert sentence, f"{name}/{field} ({rung.value}) declares no derived form"
+
+
+def test_no_derived_form_carries_a_digit():
+    """A derived form stands in for a payload; a digit in it is the payload
+    leaking through its own stand-in (a case number, a date, a count of
+    children). Registry-relative, so it holds for every pack, not just the one
+    that exists today."""
+    for name in all_matters():
+        mt = matter(name)
+        for field in mt.schema:
+            sentence = derived_of(mt.schema, field)
+            if sentence is None:
+                continue
+            assert not any(ch.isdigit() for ch in sentence), (
+                f"{name}/{field}'s derived form carries a digit: {sentence!r} — "
+                "a schema-level stand-in is one sentence for every instance of "
+                "the field, so anything that varies with the value is either "
+                "false for some records or a restatement of the value it exists "
+                "to withhold"
+            )

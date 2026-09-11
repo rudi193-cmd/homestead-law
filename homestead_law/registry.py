@@ -36,8 +36,11 @@ member, cross-checked at import against the set of members that actually exist,
 so one added and forgotten stops the build instead of failing open on the day
 something iterates it. The value shape is a frozen dataclass rather than the
 raw module for the same reason `SurfaceFacts` is one — a consumer reads a small
-closed contract (`name`, `jurisdiction`, `fields`, `schema`) instead of
-rummaging a module's namespace for whatever it happens to expose.
+closed contract (`name`, `jurisdiction`, `jurisdictions`, `fields`, `schema`)
+instead of rummaging a module's namespace for whatever it happens to expose.
+`jurisdiction` is the default a new instance of the matter starts under and
+`jurisdictions` is every jurisdiction it may be filed in (decision 1); the
+guard below holds the first inside the second.
 
 ## Only custody is built
 
@@ -104,6 +107,16 @@ class MatterType:
         from, carrying each field's rung, matter and jurisdiction."""
         return self.pack.SCHEMA
 
+    @property
+    def jurisdictions(self) -> tuple[str, ...]:
+        """Every jurisdiction an instance of this matter may be filed under —
+        `pack.JURISDICTIONS`, read live like `fields`/`schema` so there is one
+        tuple and the registry cannot carry a stale copy of it. `jurisdiction`
+        above is the *default* a new instance starts with (decision 1); this is
+        the full set `set_jurisdiction` (Wave 3) may move an instance within,
+        and `_validate` requires the default itself be one of its members."""
+        return self.pack.JURISDICTIONS
+
 
 def _entry(pack: ModuleType) -> MatterType:
     """A `MatterType` from a pack, reading the name and jurisdiction it declares.
@@ -149,16 +162,41 @@ def _validate(registry: Mapping[str, Any], on_disk: Mapping[str, ModuleType]) ->
 
     Pure in its two arguments — like `rungs._check_crossing`'s spirit — so the
     guard can be fired against a deliberately broken registry in a test rather
-    than only asserted about. Three ways it can be wrong, each BUG-6's shape from
-    a different side:
+    than only asserted about. Several ways it can be wrong, each BUG-6's shape
+    from a different side:
 
     * a key that disagrees with its own entry's name, or its pack's `MATTER` —
       a transcription drifting from the thing transcribed;
     * a pack on disk with no registry entry — a matter type nothing enumerates,
       which is the workers'-comp-out-of-the-queue failure precisely;
     * a registry entry for a pack that is not on disk — a phantom matter, a name
-      in the list with nothing behind it.
+      in the list with nothing behind it;
+    * a pack whose `JURISDICTIONS` is missing, empty, holds a blank member, or
+      does not contain its own `JURISDICTION` — decision 1's default-outside-the-
+      supported-tuple failure: a pack whose default jurisdiction is not itself
+      one it lists could never satisfy `set_jurisdiction`'s own refusal on the
+      instance it starts every matter in;
+    * an entry whose `jurisdiction` disagrees with its pack's `JURISDICTION` —
+      the key check one field over. `jurisdiction` is the only part of an entry
+      that is copied out of the pack instead of read live, so it is the only
+      part that can drift, and the drift is invisible without this check now
+      that `jurisdictions` next to it *is* live;
+    * a pack with an `L3`/`L4` field that declares no `"derived"` sentence —
+      decision 3's contract, held here rather than left to the write path.
+      `classify_schema` deliberately ignores the key, so such a pack imports
+      clean and fails at the first `put` instead: `derived_of` returns `None`,
+      `Classified(rung, value, None)` raises `UnclassifiedField`, and neither
+      door builds that `Classified` inside its `try`, so the CLI tracebacks and
+      the browser's POST dies on the socket. A build failure naming the field
+      is the refusal this module gives every other kind of absence (I-11).
     """
+    # The rungs a stored record may be *served as a stand-in for*, which is
+    # therefore the set that must carry one. Stated here rather than imported:
+    # the engine's own copy (`rungs._NEEDS_DERIVED`) is private, and
+    # `tests/test_registry.py::test_the_derived_requirement_matches_the_engines`
+    # pins the two together behaviourally — by constructing a `Classified` and
+    # watching which rungs refuse — so this cannot drift from it in silence.
+    needs_derived = (Rung.L3, Rung.L4)
     for key, entry in registry.items():
         if not isinstance(entry, MatterType):
             raise RuntimeError(
@@ -171,6 +209,64 @@ def _validate(registry: Mapping[str, Any], on_disk: Mapping[str, ModuleType]) ->
                 "pack declares, read once, so the two cannot drift. A key kept "
                 "by hand next to a name set elsewhere is BUG-6's shape."
             )
+        default = getattr(entry.pack, "JURISDICTION", None)
+        if not isinstance(default, str) or not default.strip():
+            raise RuntimeError(
+                f"{key!r}: JURISDICTION must be a non-empty string, not "
+                f"{default!r}. A pack that declares no default jurisdiction "
+                "has nothing for a new instance to start under (decision 1), "
+                "and absence refuses by name here rather than surfacing as an "
+                "AttributeError from whatever reads it first (I-11)."
+            )
+        jurisdictions = getattr(entry.pack, "JURISDICTIONS", None)
+        if (
+            not isinstance(jurisdictions, tuple)
+            or not jurisdictions
+            or not all(isinstance(j, str) and j.strip() for j in jurisdictions)
+        ):
+            raise RuntimeError(
+                f"{key!r}: JURISDICTIONS must be a non-empty tuple of non-empty "
+                f"strings, not {jurisdictions!r}. A pack with none, or with a "
+                "blank member, has an unreadable jurisdiction set — the exact "
+                "shape absence takes elsewhere in this module (I-11's building "
+                "failing closed) applied to decision 1's per-matter jurisdiction."
+            )
+        if entry.jurisdiction != entry.pack.JURISDICTION:
+            raise RuntimeError(
+                f"{key!r}: the entry's jurisdiction {entry.jurisdiction!r} "
+                f"disagrees with its pack's JURISDICTION "
+                f"{entry.pack.JURISDICTION!r}. `jurisdiction` is the one field "
+                "on an entry that is a *copy* rather than a property over the "
+                "pack (`fields`, `schema` and `jurisdictions` all read through "
+                "live), so it is the one that can drift — and a copy that has "
+                "drifted from the thing it copies is BUG-6, the same shape as "
+                "the key check above."
+            )
+        if entry.jurisdiction not in jurisdictions:
+            raise RuntimeError(
+                f"{key!r}: JURISDICTION {entry.jurisdiction!r} is not in "
+                f"its own JURISDICTIONS {jurisdictions!r}. A pack's default "
+                "jurisdiction must be one of the jurisdictions it supports — "
+                "every new instance starts at the default, and a default "
+                "outside the supported tuple is a matter that cannot open."
+            )
+        for field, rung in entry.fields.items():
+            if rung not in needs_derived:
+                continue
+            declaration = entry.schema.get(field)
+            sentence = (
+                declaration.get("derived") if isinstance(declaration, Mapping) else None
+            )
+            if not isinstance(sentence, str) or not sentence.strip():
+                raise RuntimeError(
+                    f"{key!r}: field {field!r} is {rung.value} and declares no "
+                    "'derived' sentence. Decision 3 puts the stand-in a surface "
+                    "shows in place of the payload on the pack itself, and an "
+                    f"{rung.value} record is served as that stand-in on at "
+                    "least one surface — so a pack that omits it has a field "
+                    "that cannot be written at all, and would say so only at "
+                    "the first `put`. Add SCHEMA[field]['derived']."
+                )
 
     unregistered = sorted(set(on_disk) - set(registry))
     if unregistered:
