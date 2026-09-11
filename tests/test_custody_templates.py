@@ -452,6 +452,26 @@ def test_custody_type_and_move_date_stand_ins_reveal_neither_type_nor_timing():
     assert not (_words(when) & (_MONTHS | _SEASONS))
 
 
+def test_words_catches_a_planted_month_and_state_leak_in_a_fake_derived_form():
+    """`_words` backs every leak check in this file (the digit/month/season/
+    state scan above, and the two pinned fields just above it), and none of
+    those tests plants a violation of `_words` itself (the X7-drift
+    meta-scan's finding) — they only ever run it over real, already-clean
+    derived forms. Planted here: a fake stand-in sentence that leaks a month
+    and a fake one that leaks an arrangement word, run through the same
+    helper and set intersections the real checks use."""
+    leaky_month = "the move happened in September, before the hearing"
+    assert _words(leaky_month) & _MONTHS == {"september"}
+
+    leaky_arrangement = "the parents share sole custody of the child"
+    assert _words(leaky_arrangement) & {"sole", "joint", "legal", "physical", "shared"} == {"sole"}
+
+    clean = custody.SCHEMA["move_date"]["derived"]
+    assert not (_words(clean) & (_MONTHS | _SEASONS)), (
+        "the real derived form must stay clean under the same helper"
+    )
+
+
 # ── the registry still validates, and the I-23 scan is still clean ───────────
 
 def test_the_registry_still_validates_with_the_grown_schema():

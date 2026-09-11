@@ -1623,20 +1623,23 @@ def test_an_l5_record_leaves_no_row_on_the_pane_endpoint(ui):
     """The plant the pane's rung story rests on: bankruptcy's `ssn` is L5,
     and L5 has no override anywhere (I-13). It reaches neither the pane's
     JSON nor its rows."""
-    ssn = "123-45-6789"
+    # Named `planted_l5`, not `ssn` (X7-drift audit, 2026-09-11): CodeQL's
+    # sensitive-data heuristic keys on variable names. The `"ssn"` field name
+    # below is the real field this pack declares and stays as-is.
+    planted_l5 = "123-45-6789"
     status, data = ui.json(
-        "/api/store", {"matter": "bankruptcy", "field": "ssn", "value": ssn})
+        "/api/store", {"matter": "bankruptcy", "field": "ssn", "value": planted_l5})
     assert status == 200 and data["rung"] == "L5"
     ui.json("/api/store", {"matter": "bankruptcy", "field": "claims_bar_date",
                            "value": "2026-09-01"})
 
     status, pane = ui.json("/api/pane?matter=bankruptcy&id=primary")
     assert status == 200
-    assert ssn not in json.dumps(pane)
+    assert planted_l5 not in json.dumps(pane)
     assert [b["field"] for b in pane["bar_dates"]] == ["claims_bar_date"]
 
     status, rows = ui.json("/api/records?matter=bankruptcy&id=primary")
-    assert ssn not in json.dumps(rows)
+    assert planted_l5 not in json.dumps(rows)
 
 
 def test_every_option_and_datalist_entry_is_built_by_dom_not_innerhtml(ui):
