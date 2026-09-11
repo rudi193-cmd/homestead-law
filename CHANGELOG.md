@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.3.0](https://github.com/homestead-affairs/homestead-law/compare/v0.2.0...v0.3.0) (2026-09-11)
+
+
+### Added
+
+* matter instances and per-instance jurisdiction (L2b-instances) ([f81da7b](https://github.com/homestead-affairs/homestead-law/commit/f81da7b3aaf592ca7b733c882d827e8f022da4b0))
+* matter instances with a per-instance jurisdiction that arithmetic must read first ([63e563b](https://github.com/homestead-affairs/homestead-law/commit/63e563ba48868ca44977642f302cbccfde1161b1))
+
+
+### Fixed
+
+* address every deadline to an instance, and re-check a jurisdiction on read ([ff2df4e](https://github.com/homestead-affairs/homestead-law/commit/ff2df4ebd94901a9e45a33a3ddcb0ec7f870004d))
+* refuse an option `deadline` does not take instead of storing it ([231bfb7](https://github.com/homestead-affairs/homestead-law/commit/231bfb73c70f7a19e5d9a7f1b74f6f927ab3f6e6))
+
 ## [0.2.0](https://github.com/homestead-affairs/homestead-law/compare/v0.1.1...v0.2.0) (2026-09-11)
 
 
