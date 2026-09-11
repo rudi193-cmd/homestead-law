@@ -356,15 +356,24 @@ def _cmd_deadline(args: Sequence[str]) -> int:
     defaults to L1 (public date); pass ``--rung L3`` or ``--rung L4`` to
     classify higher.
 
-    ``<id>`` keeps its pre-instances meaning when ``--sub`` is not given: the
-    deadline's own item id, exactly as any household that has never typed
-    ``--sub`` already knows it (this is what every deadline stored before this
-    bite looked like, and it goes on looking like that). Pass ``--sub`` to
-    address a specific *instance* of the matter instead: ``<id>`` then names
-    the instance and ``--sub`` the deadline within it — the two together are
-    ``homestead_law.instances.item_id(<id>, sub)``, ``"<id>.<sub>"`` — so a
-    second registered order in this matter can carry its own ``hearing``
-    without colliding with the first one's.
+    **Every deadline is addressed to an instance** (decision 2, and the audit's
+    ruling on this bite): what is stored is always
+    ``homestead_law.instances.item_id(instance, name)`` — ``"<instance>.<name>"``
+    — never a free-form label. Without ``--sub``, ``<id>`` is the deadline's
+    *name* within the default instance, so ``deadline custody hearing …`` files
+    ``primary.hearing``: the command line an operator already knows is
+    unchanged, and the key it writes is now addressable. With ``--sub``,
+    ``<id>`` names the instance and ``--sub`` the deadline within it, so a
+    second registered order in this matter carries its own ``hearing`` without
+    colliding with the first one's.
+
+    A free-form id is refused by name, not stored. That is not decoration: a
+    deadline whose id is not instance-shaped cannot be attributed to an
+    instance at all, so `instances.instances_of` (a key scan) would read the
+    label itself as a phantom instance — and `show <matter>` and
+    `/api/instances` would then ask `jurisdiction_of` about an id no door can
+    address. L3-deadline-templates' ``(matter, "deadline", "<inst>.<template>")``
+    and the queue's matter+instance naming both rest on this shape.
     """
     rung_str = "L1"
     sub_opt: str | None = None
@@ -384,9 +393,11 @@ def _cmd_deadline(args: Sequence[str]) -> int:
 
     if len(args) < 3:
         print("usage: homestead-law deadline <matter> <id> <date> [instruction] [--sub sub]", file=sys.stderr)
-        print('  e.g.: homestead-law deadline custody hearing 2026-09-15 "Custody hearing"', file=sys.stderr)
+        print('  e.g.: homestead-law deadline custody hearing 2026-09-15 "Custody hearing"   (files primary.hearing)', file=sys.stderr)
         print('  e.g.: homestead-law deadline custody evaluation 2026-08-12 --rung L4 "A submission is due"', file=sys.stderr)
-        print('  e.g.: homestead-law deadline custody primary 2026-09-15 --sub hearing   (a specific instance)', file=sys.stderr)
+        print('  e.g.: homestead-law deadline custody or-order 2026-09-15 --sub hearing   (another instance)', file=sys.stderr)
+        print("  an id is a label, never a name (I-15), and matches "
+              f"{instances.ID_PATTERN.pattern}", file=sys.stderr)
         return 1
 
     matter_name = args[0]
@@ -425,14 +436,19 @@ def _cmd_deadline(args: Sequence[str]) -> int:
     if rung.value in ("L3", "L4") and not derived:
         derived = "A deadline is on file"
 
-    if sub_opt is not None:
-        try:
-            item_id = instances.item_id(id_arg, sub_opt)
-        except instances.InvalidId as exc:
-            print(f"refused: {exc}", file=sys.stderr)
-            return 1
-    else:
-        item_id = id_arg
+    # Without --sub the positional is the deadline's *name* under the default
+    # instance (`primary.<id>`); with it, the positional is the instance and
+    # --sub the name. Either way `item_id` validates both halves, so no
+    # free-form deadline id is ever written.
+    instance, name = (
+        (id_arg, sub_opt) if sub_opt is not None
+        else (instances.DEFAULT_INSTANCE, id_arg)
+    )
+    try:
+        item_id = instances.item_id(instance, name)
+    except instances.InvalidId as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return 1
 
     _boot()
     sidecar = Sidecar()
@@ -512,7 +528,11 @@ def _cmd_show(args: Sequence[str]) -> int:
     if len(args) == 1 and id_opt is None:
         # No item type and no --id: list instances, not records — the id
         # printed here is a label to pass to --id, never content (I-15).
-        ids = instances.instances_of(sidecar, matter_name)
+        try:
+            ids = instances.instances_of(sidecar, matter_name)
+        except instances.UnreadableStoredId as exc:
+            print(f"refused: {exc}", file=sys.stderr)
+            return 1
         if not ids:
             print(f"  {matter_name}: nothing on file — `homestead-law put {matter_name} <field> <value>`")
             return 0
@@ -543,6 +563,10 @@ def _cmd_show(args: Sequence[str]) -> int:
             print(f"  [{row.rung.value}]  {where}: {row.text}")
         return 0
 
+    # Load-bearing despite the discarded result: `Window.open_list` is what
+    # populates the window's record map, and `open_detail` below reads the
+    # record out of it rather than out of a row (so nothing a `Row` carries is
+    # ever a payload). Dropping this line makes every detail open a `KeyError`.
     window.open_list(sidecar.records(matter_name))
 
     from homestead.keep.store import InvalidKey

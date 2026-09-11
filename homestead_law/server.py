@@ -751,8 +751,12 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
                 matter(matter_name)
             except KeyError:
                 return self._json({"error": f"unknown matter {matter_name!r}"}, 400)
+            try:
+                found = instances.instances_of(sidecar, matter_name)
+            except instances.UnreadableStoredId as exc:
+                return self._json({"error": str(exc)}, 400)
             out = []
-            for inst in instances.instances_of(sidecar, matter_name):
+            for inst in found:
                 try:
                     code = jurisdiction_of(sidecar, matter_name, inst)
                 except JurisdictionAbsent:
@@ -957,10 +961,14 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
             # No default matter here either — see `_post_store`.
             matter_name = _text(body, "matter").strip()
             id_value = _text(body, "id").strip()
-            # `sub` is new and optional: unset, `id` keeps its pre-instances
-            # meaning (the deadline's own item id, used exactly as typed —
-            # unchanged from before this bite). Given, `id` names the instance
-            # and `sub` the deadline within it: `instances.item_id(id, sub)`.
+            # Every deadline is addressed to an instance (decision 2): what is
+            # stored is always `instances.item_id(instance, name)`. Unset,
+            # `sub` leaves `id` as the deadline's *name* under the default
+            # instance — `primary.<id>`, so the page's existing form is
+            # unchanged — and given, `id` names the instance and `sub` the
+            # deadline within it. A free-form id is refused, never stored:
+            # `instances_of` is a key scan, and an id it cannot split is a
+            # phantom instance no door can address.
             sub_value = _text(body, "sub").strip() or None
             date = _text(body, "date").strip()
             instruction = _text(body, "instruction").strip() or None
@@ -976,13 +984,14 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
                     {"ok": False, "error": f"unknown matter {matter_name!r}"}, 400)
             if not id_value:
                 return self._json({"ok": False, "error": "an id is required"}, 400)
-            if sub_value is not None:
-                try:
-                    item_id = instances.item_id(id_value, sub_value)
-                except instances.InvalidId as exc:
-                    return self._json({"ok": False, "error": str(exc)}, 400)
-            else:
-                item_id = id_value
+            instance, name = (
+                (id_value, sub_value) if sub_value is not None
+                else (instances.DEFAULT_INSTANCE, id_value)
+            )
+            try:
+                item_id = instances.item_id(instance, name)
+            except instances.InvalidId as exc:
+                return self._json({"ok": False, "error": str(exc)}, 400)
             try:
                 rung = Rung(rung_value)
             except ValueError:
@@ -1015,7 +1024,13 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
             matter_name = _text(body, "matter").strip()
             id_value = _text(body, "id").strip()
             jurisdiction_value = _text(body, "jurisdiction").strip()
-            replace = bool(body.get("replace", False))
+            replace = body.get("replace", False)
+            if not isinstance(replace, bool):
+                # The same refusal `_text` makes for a coerced string: `replace`
+                # is the operator's consent to overwrite (I-9), and
+                # `bool("false")` is `True`. A surface that coerces has decided
+                # something the operator did not say.
+                raise _BadRequest("replace must be true or false")
 
             if not matter_name:
                 return self._json(

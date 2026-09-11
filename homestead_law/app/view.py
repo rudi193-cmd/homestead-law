@@ -184,7 +184,16 @@ def run() -> int:
                 mark = f"overdue by {abs(item.days_until)}d"
             else:
                 mark = f"in {item.days_until}d"
-            listbox.insert("end", f"[{item.rung.value}]  {item.shown}  ·  {mark}")
+            # Named by matter and instance, like the CLI's queue line and the
+            # detail heading below. `show_queue` spans every registered matter
+            # (L2c) and a matter now spans instances (decision 2), so a row
+            # that says neither cannot be told from the row beneath it. Both
+            # are references off the item's own ref — never a payload (I-15).
+            listbox.insert(
+                "end",
+                f"[{item.rung.value}]  {item.matter}/{item.instance}  "
+                f"{item.shown}  ·  {mark}",
+            )
             listbox.itemconfig("end", foreground=theme.rung_color(item.rung))
 
         def on_open(_event: object = None) -> None:

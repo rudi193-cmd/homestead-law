@@ -192,7 +192,9 @@ def _validate(registry: Mapping[str, Any], on_disk: Mapping[str, ModuleType]) ->
       part that can drift, and the drift is invisible without this check now
       that `jurisdictions` next to it *is* live;
     * a pack whose `REPEATABLE` (decision 2, optional) names a field `FIELDS`
-      does not have — a sub-id offered on a field that does not exist;
+      does not have — a sub-id offered on a field that does not exist — or
+      that misspells the name itself (`REPEATABLES`), which an optional
+      `getattr` default would otherwise read as "nothing is repeatable";
     * a pack with an `L3`/`L4` field that declares no `"derived"` sentence —
       decision 3's contract, held here rather than left to the write path.
       `classify_schema` deliberately ignores the key, so such a pack imports
@@ -261,6 +263,25 @@ def _validate(registry: Mapping[str, Any], on_disk: Mapping[str, ModuleType]) ->
                 "jurisdiction must be one of the jurisdictions it supports — "
                 "every new instance starts at the default, and a default "
                 "outside the supported tuple is a matter that cannot open."
+            )
+        # `REPEATABLE` is optional, which means a *misspelling* of it is
+        # silently no repeatable fields at all — `getattr(..., frozenset())`
+        # cannot tell `REPEATABLES` from a pack that simply has none, and the
+        # pack author would find out when `--sub` refuses a field they declared.
+        # An optional contract needs a spelling check or it is not a contract:
+        # any pack attribute that starts with `REPEAT` must be exactly the one
+        # name this module reads.
+        misspelled = sorted(
+            name for name in dir(entry.pack)
+            if name.startswith("REPEAT") and name != "REPEATABLE"
+        )
+        if misspelled:
+            raise RuntimeError(
+                f"{key!r}: {misspelled} — the only attribute this registry "
+                "reads is REPEATABLE (decision 2). A near-miss spelling is "
+                "read as 'nothing is repeatable', which is exactly what a pack "
+                "that declared one would not notice; an optional declaration "
+                "has to be spelled right or it is not declared."
             )
         repeatable = getattr(entry.pack, "REPEATABLE", frozenset())
         if not isinstance(repeatable, frozenset) or not all(

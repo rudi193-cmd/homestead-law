@@ -47,7 +47,7 @@ from homestead.keep.rungs import Classified
 from homestead_law.store import Ref, Sidecar
 
 __all__ = [
-    "DEFAULT_INSTANCE", "ID_PATTERN", "InvalidId",
+    "DEFAULT_INSTANCE", "ID_PATTERN", "InvalidId", "UnreadableStoredId",
     "item_id", "split_item_id", "instances_of", "records_of",
 ]
 
@@ -83,6 +83,29 @@ class InvalidId(ValueError):
             "name (I-15) — this refusal does not repeat what was typed."
         )
         self.component = component
+
+
+class UnreadableStoredId(ValueError):
+    """A record already on disk whose item id does not name an instance.
+
+    Not an operator mistake — this is what a key written before this
+    convention existed, by another tool, or by a test reaching past the CLI,
+    looks like to `instances_of`. Names the matter and which *item types* hold
+    one (references, both), never the id, on the same reasoning as
+    `InvalidId`: a stored id this module cannot read is still a string
+    somebody typed."""
+
+    def __init__(self, matter: str, item_types: list[str]) -> None:
+        super().__init__(
+            f"{matter}: {len(item_types)} item type(s) hold a record whose "
+            f"item id does not name an instance — {item_types}. An instance "
+            f"id matches {ID_PATTERN.pattern}; a record filed under anything "
+            "else cannot be attributed to an instance, so this list refuses "
+            "rather than invent one or hide the record. This refusal does not "
+            "repeat the id."
+        )
+        self.matter = matter
+        self.item_types = tuple(item_types)
 
 
 def _checked(component: str, value: object) -> str:
@@ -132,8 +155,33 @@ def instances_of(store: Sidecar, matter: str) -> tuple[str, ...]:
     nothing that needs one. A matter with no records at all yields `()`, not
     `(DEFAULT_INSTANCE,)` — an instance exists once something is filed under
     it, never by assumption.
+
+    **A stored id `item_id` could not have built refuses the whole scan**
+    (`UnreadableStoredId`), rather than being skipped or listed. Both halves
+    are held to `ID_PATTERN`, so `a.B` is as unreadable as `Upper`: the
+    engine's `key()` is far wider than this module's alphabet — `Upper`,
+    `has_underscore` and `it's-due` are all keys it will happily hold — and
+    neither of the other two answers is honest about one. *Listing* it invents
+    an instance no door can address (`item_id` refuses it, so `--id <that>`,
+    `matter open` and `jurisdiction_of` all refuse the very id this function
+    just offered); *skipping* it hides records from a list whose whole purpose
+    is to say what is on file. I-11: refuse by name — and the name here is the
+    matter and the item types involved, never the id itself, which this module
+    does not echo (see `InvalidId`).
     """
-    seen = {split_item_id(ref[2])[0] for ref, _record in store.records(matter)}
+    seen: set[str] = set()
+    unreadable: set[str] = set()
+    for ref, _record in store.records(matter):
+        instance, sub = split_item_id(ref[2])
+        # Both halves, not only the instance: `a.B` names instance `a`
+        # perfectly well and still is not an id `item_id` could have built, so
+        # its sub-record is unaddressable even though the instance is not.
+        if ID_PATTERN.match(instance) and (sub is None or ID_PATTERN.match(sub)):
+            seen.add(instance)
+        else:
+            unreadable.add(ref[1])
+    if unreadable:
+        raise UnreadableStoredId(matter, sorted(unreadable))
     return tuple(sorted(seen))
 
 

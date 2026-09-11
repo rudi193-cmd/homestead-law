@@ -38,6 +38,8 @@ usage: python -m homestead_law [--help] [--smoke | --demo]
 commands (real data, in the household root — $HOMESTEAD_HOME or ~/.homestead):
   put          put <matter> <field> <value> [--id inst] [--sub sub] — store a record
   deadline     deadline <matter> <id> <date> [--rung L1|L3|L4] [--sub sub] [instruction]
+               (<id> names the deadline inside the `primary` instance; with --sub,
+                <id> is the instance and --sub the deadline — always "<inst>.<name>")
   show         show [matter] [item [id]] [--id inst] [--sub sub] — read records back, through the gate
   matter       matter open <matter> --id inst --jurisdiction code [--replace] — open an instance
   queue        queue [--today YYYY-MM-DD] — what's due

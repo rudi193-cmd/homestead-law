@@ -75,15 +75,19 @@ class JurisdictionAbsent(LookupError):
     record content, because there is none to carry — the whole point of this
     exception is that nothing was rendered."""
 
-    def __init__(self, matter_name: str, instance_id: str) -> None:
+    def __init__(
+        self, matter_name: str, instance_id: str, *, because: str | None = None
+    ) -> None:
+        detail = because or "no jurisdiction is on file"
         super().__init__(
-            f"{matter_name}/{instance_id}: no jurisdiction is on file. Run "
+            f"{matter_name}/{instance_id}: {detail}. Run "
             f"`homestead-law matter open {matter_name} --id {instance_id} "
             "--jurisdiction <code>` before computing anything from a date in "
             "this instance."
         )
         self.matter = matter_name
         self.instance = instance_id
+        self.because = detail
 
 
 def set_jurisdiction(
@@ -134,12 +138,40 @@ def jurisdiction_of(store: Sidecar, matter_name: str, instance: str) -> str:
     under an assumed jurisdiction is a guess about *which rules to count
     under*, and I-2's refusal-over-guessing already governs the date itself —
     this is that same rule one step earlier, applied to the forum.
+
+    Rendering is necessary but not sufficient: the code is checked against the
+    matter's own `JURISDICTIONS` here too, not only on the write path, so a
+    hand-planted `L1` row or a pack whose tuple has since shrunk refuses rather
+    than handing back a forum this matter does not claim.
     """
     instance = instances.item_id(instance)
+    mt = matter(matter_name)
     if not store.has(matter_name, ITEM_TYPE, instance):
         raise JurisdictionAbsent(matter_name, instance)
     record = store.get(matter_name, ITEM_TYPE, instance)
     served = serve(record, Surface.S1_LIST)
     if served.disposition is not Disposition.RENDER:
         raise JurisdictionAbsent(matter_name, instance)
-    return str(served.value)
+    code = str(served.value)
+    # The same closed set `set_jurisdiction` writes through, checked again on
+    # the way out. A record is not proof it was written by this module: a
+    # hand-planted `L1` row renders perfectly, and a pack whose `JURISDICTIONS`
+    # tuple *shrank* since the instance was opened leaves a code no counting
+    # rule in this matter supports still sitting on disk. Either way the honest
+    # answer to "which forum's rules do I count under" is nothing, so this
+    # refuses exactly as an absent one does (provisional I-42) rather than
+    # handing arithmetic a forum the pack does not claim.
+    #
+    # The refusal names the matter, the instance and the pack's own published
+    # tuple — never the code that was on file, which is a *record value* here
+    # and not, as it is on the write path, something the operator just typed.
+    if code not in mt.jurisdictions:
+        raise JurisdictionAbsent(
+            matter_name,
+            instance,
+            because=(
+                "the jurisdiction on file is not one this matter supports "
+                f"{mt.jurisdictions}"
+            ),
+        )
+    return code
