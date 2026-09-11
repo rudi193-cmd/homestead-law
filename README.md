@@ -264,8 +264,11 @@ Every other date on this pack — `mediation_date`, `hearing_date`,
 dates once they are actually known — is likewise entered, through the same
 `put`/`deadline` doors every other field uses. Nothing here files or drafts
 anything (decision 8's package-wide guard is a sibling bite's job; this pack's
-own `why` text and derived forms are held against "you should"/"file by"/
-"which chapter" language by `tests/test_workers_comp.py`).
+own `why` text and derived forms are held against the advice-shaped phrases
+the I-44 scan bans — an imperative aimed at the operator, a date given as an
+instruction, a claim about which relief suits them — by
+`tests/test_workers_comp.py`, which keeps the phrase list itself, where a test
+file is out of the scan's reach and this file is not).
 
 **PROVENANCE attempted, nothing reachable.** `https://law.justia.com/codes/new-mexico/2021/chapter-52/article-1/section-52-1-49/`
 returned `EGRESS_BLOCKED`; `https://www.wca.state.nm.us/` failed DNS

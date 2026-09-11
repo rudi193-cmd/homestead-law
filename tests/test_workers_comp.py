@@ -627,6 +627,49 @@ def test_the_advice_scan_fires_on_a_planted_sentence():
     assert any(phrase in lowered for phrase in _ADVICE)
 
 
+README = Path(__file__).resolve().parent.parent / "README.md"
+
+
+def test_the_readme_does_not_spell_the_phrases_it_says_are_banned():
+    """Prose *about* the ban is still prose the ban reads.
+
+    The paragraph describing this pack's advice guard used to quote its own
+    phrase list — "you should"/"file by"/"which chapter" in the README's
+    running text. That is indistinguishable, to a substring scan, from the
+    advice it was disclaiming: the sibling bite's I-44 guard reads `README.md`
+    as well as the package (a phrase ban binds what the operator reads, not
+    only what the interpreter parses), and it fired here. The fix is to
+    *describe* the guard rather than spell it — the phrase list lives in this
+    file, which is out of the scan's reach, and the README points at it.
+
+    So this test holds the README to the same list the schema text is held to
+    above. It is the check that would have caught the quoting, kept next to
+    the paragraph's own claim rather than only in the scan that found it.
+    """
+    lowered = README.read_text("utf-8").lower()
+    offenders = [phrase for phrase in _ADVICE if phrase in lowered]
+    assert not offenders, (
+        f"README.md contains advice-shaped phrases {offenders}. Decision 8: "
+        "this face models a case and never instructs — including where it is "
+        "explaining that it never instructs. Describe the phrase shape "
+        "instead of quoting it."
+    )
+
+
+def test_the_readme_scan_fires_on_a_planted_paragraph(tmp_path):
+    """A scan that has never fired has not been shown to check anything —
+    so plant the exact defect that was here, in a copy, and watch it fire."""
+    planted = tmp_path / "README.md"
+    planted.write_text(
+        README.read_text("utf-8")
+        + '\n\nheld against "you should"/"file by"/"which chapter" language.\n',
+        "utf-8",
+    )
+    lowered = planted.read_text("utf-8").lower()
+    offenders = [phrase for phrase in _ADVICE if phrase in lowered]
+    assert offenders, "the README phrase scan did not fire on a planted quote"
+
+
 # ── I-23: the registry scan stays green with this pack on disk ──────────────
 
 def test_registering_this_pack_did_not_break_the_i23_scan():
