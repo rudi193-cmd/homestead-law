@@ -214,6 +214,7 @@ textarea:focus{outline:2px solid var(--accent);border-color:transparent}
   <button class="tb" onclick="show('queue',this)">Queue</button>
   <button class="tb" onclick="show('entities',this)">Entities</button>
   <button class="tb" onclick="show('orders',this)">Orders</button>
+  <button class="tb" onclick="show('sync',this)">Sync</button>
 </nav>
 <main>
 
@@ -340,6 +341,29 @@ textarea:focus{outline:2px solid var(--accent);border-color:transparent}
   <div id="olist"></div>
 </section>
 
+<section id="t-sync" class="tab">
+  <!-- Decision 5: an operator act. Preview holds an Envelope server-side by
+       its own envelope_id; Send delivers exactly that one, once — the
+       click is the confirm (the preview shown *is* the Wire). No row value
+       ever appears here (I-15). -->
+  <h2>Sync to the fleet</h2>
+  <div class="card">
+    <div id="syncmatters"></div>
+    <div id="synctypes"></div>
+    <div class="rf">
+      <select id="syncceiling">
+        <option value="L1">L1 &#8212; public</option>
+        <option value="L2">L2 &#8212; anonymous aggregate</option>
+        <option value="L3" selected>L3 &#8212; resolves to the parties</option>
+        <option value="L4">L4 &#8212; protected; derived form only</option>
+      </select>
+      <button class="btn bp bs" onclick="syncPreview()">Preview</button>
+    </div>
+    <div id="syncpreview"></div>
+    <div id="syncmsg"></div>
+  </div>
+</section>
+
 </main>
 <script>
 function show(name, btn) {
@@ -351,6 +375,7 @@ function show(name, btn) {
   if(name==='matter') loadMatterTab();
   if(name==='queue') loadQueue();
   if(name==='orders') loadOrders();
+  if(name==='sync') loadSyncOptions();
 }
 
 var _matters={};
@@ -867,6 +892,85 @@ function loadOrders() {
     div.innerHTML=html;
   }).catch(function(){div.innerHTML='<p class="sm s-err">Failed to load orders</p>';});
 }
+
+// ── the Sync tab (Decision 5) ────────────────────────────────────────────
+
+// Checkboxes built from the registry's own names, via textContent — never
+// innerHTML, so a name is never parsed as markup (I-23: no literal list).
+function checkboxRow(container,name,value) {
+  var label=document.createElement('label');
+  label.style.marginRight='12px';
+  var box=document.createElement('input');
+  box.type='checkbox'; box.value=value; box.className='sync-'+name;
+  label.appendChild(box);
+  var span=document.createElement('span');
+  span.textContent=' '+value.replace(/_/g,' ');
+  label.appendChild(span);
+  container.appendChild(label);
+}
+
+function loadSyncOptions() {
+  var mdiv=document.getElementById('syncmatters');
+  var tdiv=document.getElementById('synctypes');
+  fetch('/api/sync/options').then(function(r){return r.json()}).then(function(data){
+    mdiv.innerHTML=''; tdiv.innerHTML='';
+    var mh=document.createElement('div'); mh.textContent='Matters:'; mdiv.appendChild(mh);
+    data.matters.forEach(function(m){ checkboxRow(mdiv,'matter',m); });
+    var th=document.createElement('div'); th.textContent='Types (none checked = every type):';
+    tdiv.appendChild(th);
+    data.item_types.forEach(function(t){ checkboxRow(tdiv,'type',t); });
+  });
+}
+
+function checkedValues(cls) {
+  var out=[];
+  Array.prototype.forEach.call(document.getElementsByClassName(cls), function(box){
+    if(box.checked) out.push(box.value);
+  });
+  return out;
+}
+
+var _syncEnvelopeId=null;
+
+function syncPreview() {
+  var msg=document.getElementById('syncmsg');
+  var pre=document.getElementById('syncpreview');
+  _syncEnvelopeId=null; pre.innerHTML=''; msg.innerHTML='';
+  var matters=checkedValues('sync-matter');
+  var types=checkedValues('sync-type');
+  var ceiling=document.getElementById('syncceiling').value;
+  if(!matters.length){msg.innerHTML='<span class="sm s-err">Pick at least one matter</span>';return;}
+  fetch('/api/sync/preview',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({matters:matters,item_types:types.length?types:null,ceiling:ceiling})})
+  .then(function(r){return r.json()}).then(function(data){
+    if(!data.ok){msg.innerHTML='<span class="sm s-err">'+esc(data.error||'Failed')+'</span>';return;}
+    _syncEnvelopeId=data.envelope_id;
+    var html='<div class="dt">';
+    html+='<div>matters: '+esc(data.matters.join(', '))+'</div>';
+    html+='<div>ceiling: '+esc(data.ceiling)+'</div>';
+    html+='<div>rows: '+data.count+'</div>';
+    html+='<div>head: '+esc(data.head)+'</div>';
+    html+='<div class="adv">destination: '+esc(data.destination_preview)+'</div>';
+    html+='</div><button class="btn bg bs" onclick="syncSend()">Send</button>';
+    pre.innerHTML=html;
+  }).catch(function(){msg.innerHTML='<span class="sm s-err">Error</span>';});
+}
+
+// The Send click is the confirm deliver() requires — the preview above
+// already showed exactly what this sends, so nothing further is asked.
+function syncSend() {
+  var msg=document.getElementById('syncmsg');
+  if(!_syncEnvelopeId){msg.innerHTML='<span class="sm s-err">Preview first</span>';return;}
+  fetch('/api/sync/send',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({envelope_id:_syncEnvelopeId})})
+  .then(function(r){return r.json()}).then(function(data){
+    if(data.ok){
+      msg.innerHTML='<span class="sm s-ok">Synced &#8212; head '+esc(data.head)+'</span>';
+      _syncEnvelopeId=null;
+      document.getElementById('syncpreview').innerHTML='';
+    } else {msg.innerHTML='<span class="sm s-err">'+esc(data.error||'Failed')+'</span>';}
+  }).catch(function(){msg.innerHTML='<span class="sm s-err">Error</span>';});
+}
 </script>
 </body>
 </html>
@@ -886,14 +990,18 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
     import datetime as dt
     import http.server
     import json
+    import time
     import urllib.parse
 
     from homestead.keep import paths
+    from homestead.keep.egress import EgressRefused
     from homestead.keep.rungs import Disposition, derived_of
     from homestead.keep.store import InvalidKey, RecordExists
+    from homestead.keep.sync import AlreadyDelivered, UnnamedScope
     from homestead_law import instances
     from homestead_law import nestor_seam
     from homestead_law import queue as queue_mod
+    from homestead_law import sync as law_sync
     from homestead_law.app import advisories
     from homestead_law.app.window import Window
     from homestead_law.intake import extract
@@ -914,6 +1022,12 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
     nestor_ok = nestor_seam.bind(root) is not None
 
     sidecar = Sidecar()
+
+    # Decision 5: Preview holds the composed Envelope in memory, keyed by
+    # its own envelope_id, so Send delivers exactly the object shown —
+    # time.monotonic() so a test can patch the clock directly.
+    _SYNC_TTL_SECONDS = 600
+    _sync_previews: dict[str, tuple[object, float]] = {}
 
     class _H(http.server.BaseHTTPRequestHandler):
 
@@ -1000,6 +1114,8 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
                 return self._get_resolve(qs)
             if p.path == "/api/orders":
                 return self._get_orders()
+            if p.path == "/api/sync/options":
+                return self._get_sync_options()
             self.send_error(404)
 
         def _get_matters(self):
@@ -1209,6 +1325,17 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
                 self._json(
                     {"decisions": [], "error": "the decision store could not be read"})
 
+        def _get_sync_options(self):
+            """`GET /api/sync/options` — the registry's own matters, and every
+            item type a sync scope could name (each pack's field names, plus
+            `"deadline"`, which every matter may hold) — for the Sync tab's
+            checkboxes. Live off the registry (I-23), never a literal list
+            kept on this page."""
+            types: set[str] = {"deadline"}
+            for name in all_matters():
+                types.update(matter(name).fields)
+            self._json({"matters": list(all_matters()), "item_types": sorted(types)})
+
         # ── POST ──────────────────────────────────────────────────────
 
         def do_POST(self):
@@ -1227,6 +1354,10 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
                     return self._post_deadline_accept(body)
                 if p == "/api/matter/open":
                     return self._post_matter_open(body)
+                if p == "/api/sync/preview":
+                    return self._post_sync_preview(body)
+                if p == "/api/sync/send":
+                    return self._post_sync_send(body)
             except _BadRequest as exc:
                 # An unread body (a refused Content-Length) leaves bytes on the
                 # socket, so this connection does not get reused — and the
@@ -1573,6 +1704,96 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
                     409,
                 )
             self._json({"ok": True, "replaced": replaced is not None})
+
+        def _post_sync_preview(self, body):
+            """`POST /api/sync/preview` `{matters, item_types?, ceiling}` —
+            compose one `Envelope` and hold it, keyed by `envelope_id`, for
+            exactly one later `/api/sync/send`. References and counts
+            only — never a row (I-15); nothing here delivers or ledgers."""
+            matters = body.get("matters")
+            if not isinstance(matters, list) or not all(
+                isinstance(m, str) for m in matters
+            ):
+                raise _BadRequest("matters must be a list of strings")
+            item_types = body.get("item_types")
+            if item_types is not None and (
+                not isinstance(item_types, list)
+                or not all(isinstance(t, str) for t in item_types)
+            ):
+                raise _BadRequest("item_types must be a list of strings or null")
+            ceiling = _text(body, "ceiling")
+
+            try:
+                scope = law_sync.scope_from(
+                    tuple(matters),
+                    tuple(item_types) if item_types else None,
+                    ceiling,
+                )
+            except (UnnamedScope, law_sync.UnknownMatter, ValueError) as exc:
+                return self._json({"ok": False, "error": str(exc)}, 400)
+
+            envelope = law_sync.preview(sidecar, scope)
+            expires_at = time.monotonic() + _SYNC_TTL_SECONDS
+            _sync_previews[envelope.envelope_id] = (envelope, expires_at)
+
+            self._json({
+                "ok": True,
+                "envelope_id": envelope.envelope_id,
+                "count": envelope.count,
+                "ceiling": scope.ceiling.value,
+                "matters": list(scope.matters),
+                "head": envelope.head,
+                "destination_preview": law_sync.preview_destination(
+                    envelope.envelope_id
+                ),
+            })
+
+        def _post_sync_send(self, body):
+            """`POST /api/sync/send` `{envelope_id}` — deliver exactly the
+            `Envelope` composed under this id, exactly once. The click is the
+            confirm `deliver()` requires: the preview already shown *is* the
+            Wire, so there is nothing further to ask. Unknown, expired or
+            already-spent ids are all refused by name."""
+            envelope_id = _text(body, "envelope_id")
+            if not envelope_id:
+                return self._json(
+                    {"ok": False, "error": "envelope_id is required"}, 400)
+
+            entry = _sync_previews.get(envelope_id)
+            if entry is None:
+                return self._json(
+                    {"ok": False, "error": "no preview on file for this envelope_id"},
+                    404,
+                )
+            envelope, expires_at = entry
+            # Single-use the moment Send is called, success or not: a second
+            # Send of this id — racing or repeated — finds nothing here and is
+            # refused above, rather than either re-delivering or silently
+            # recomposing a fresh envelope under the operator's old preview.
+            del _sync_previews[envelope_id]
+            if time.monotonic() >= expires_at:
+                return self._json(
+                    {"ok": False, "error": "this preview has expired — preview again"},
+                    410,
+                )
+
+            def confirm(wire):
+                return True
+
+            try:
+                receipt = law_sync.send(envelope, confirm=confirm)
+            except AlreadyDelivered as exc:
+                return self._json({"ok": False, "error": str(exc)}, 409)
+            except EgressRefused as exc:
+                return self._json({"ok": False, "error": str(exc)}, 502)
+
+            self._json({
+                "ok": True,
+                "envelope_id": receipt.envelope_id,
+                "rows": receipt.rows,
+                "head": receipt.head,
+                "destination": receipt.destination,
+            })
 
     return http.server.HTTPServer((host, port), _H)
 

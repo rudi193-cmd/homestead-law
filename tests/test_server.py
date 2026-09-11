@@ -1612,3 +1612,103 @@ def test_the_template_picker_shows_a_templates_status_before_it_is_computed(ui, 
     assert status == 400 and data["ok"] is False
     assert data["error"].startswith("UNCERTAIN: ")
     assert "2026-" not in data["error"]
+
+
+# ── the Sync tab (Decision 5, L5-sync) ───────────────────────────────────────
+
+def test_sync_options_lists_matters_and_item_types_from_the_registry(ui):
+    """I-23: the checkboxes' data comes from the registry, live — never a
+    literal list on this page."""
+    status, data = ui.json("/api/sync/options")
+    assert status == 200
+    assert set(data["matters"]) == set(registry_mod.all_matters())
+    assert "deadline" in data["item_types"]
+    assert "opposing_party" in data["item_types"]
+
+
+def test_sync_checkboxes_are_built_with_textcontent_not_innerhtml(ui):
+    """The audit's XSS finding, held against the Sync tab too: a matter or
+    item-type name is set with `.textContent`, which parses no markup —
+    never spliced into `innerHTML`."""
+    page = ui.get("/")[1].decode()
+    body = page[page.index("function checkboxRow("):]
+    body = body[:body.index("\n}\n")]
+    assert "textContent" in body
+    assert "innerHTML" not in body
+
+
+def test_sync_preview_refuses_all_and_an_unregistered_matter(ui):
+    status, data = ui.json("/api/sync/preview", {"matters": ["all"], "ceiling": "L3"})
+    assert status == 400 and "all" in data["error"]
+
+    status, data = ui.json(
+        "/api/sync/preview", {"matters": ["not-real"], "ceiling": "L3"})
+    assert status == 400 and "unregistered" in data["error"]
+
+
+def test_sync_preview_json_carries_no_row_value(ui):
+    """Plant an L3 value and grep: the preview response carries references
+    and counts only (I-15) — no `rows` key, and the planted value nowhere in
+    the JSON at all."""
+    planted = "Q7-opposing-party-planted-value"
+    ui.json("/api/store", {"matter": "custody", "field": "opposing_party",
+                           "value": planted})
+
+    status, data = ui.json(
+        "/api/sync/preview", {"matters": ["custody"], "ceiling": "L3"})
+
+    assert status == 200 and data["ok"] is True
+    assert "rows" not in data
+    assert set(data) == {
+        "ok", "envelope_id", "count", "ceiling", "matters",
+        "head", "destination_preview",
+    }
+    assert planted not in json.dumps(data)
+
+
+def test_sync_send_delivers_exactly_the_previewed_envelope_once(ui):
+    status, data = ui.json("/api/sync/send", {"envelope_id": "does-not-exist"})
+    assert status == 404 and data["ok"] is False
+
+    ui.json("/api/store", {"matter": "custody", "field": "courthouse",
+                           "value": "Dept 4"})
+    status, preview = ui.json(
+        "/api/sync/preview", {"matters": ["custody"], "ceiling": "L3"})
+    assert status == 200
+    envelope_id = preview["envelope_id"]
+
+    status, sent = ui.json("/api/sync/send", {"envelope_id": envelope_id})
+    assert status == 200 and sent["ok"] is True
+    assert sent["envelope_id"] == envelope_id
+    assert sent["destination"].endswith(f"{envelope_id}.json")
+
+    # spent the moment Send is called — a repeat finds no preview on file.
+    status, again = ui.json("/api/sync/send", {"envelope_id": envelope_id})
+    assert status == 404 and again["ok"] is False
+
+
+def test_sync_preview_holds_for_ten_minutes_then_expires(ui, monkeypatch):
+    """Expiry is checked against a monotonic clock, patched here rather than
+    waited for — the same `time.monotonic()` `_post_sync_preview`/
+    `_post_sync_send` both call."""
+    import time as time_mod
+
+    now = [1_000.0]
+    monkeypatch.setattr(time_mod, "monotonic", lambda: now[0])
+
+    status, preview = ui.json(
+        "/api/sync/preview", {"matters": ["custody"], "ceiling": "L3"})
+    assert status == 200
+    envelope_id = preview["envelope_id"]
+
+    now[0] += 601  # past the 10-minute TTL
+    status, data = ui.json("/api/sync/send", {"envelope_id": envelope_id})
+    assert status == 410 and data["ok"] is False
+
+    # still within the window: a fresh preview delivers.
+    now[0] = 1_000.0
+    status, preview2 = ui.json(
+        "/api/sync/preview", {"matters": ["custody"], "ceiling": "L3"})
+    status, sent = ui.json(
+        "/api/sync/send", {"envelope_id": preview2["envelope_id"]})
+    assert status == 200 and sent["ok"] is True

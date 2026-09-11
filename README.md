@@ -589,6 +589,19 @@ it finds the badge by the `ind-` class the page emits, not by a helper's
 name, so a branch that writes the badge inline without calling the helper is
 caught too, and both plants are run through the real scan.
 
+## Sync
+
+Sync is an operator act — the CLI's `sync --matters a,b --ceiling L1|L2|L3|L4`
+and the page's own Sync tab both compose a consented scope into one envelope
+and ask, once, before anything leaves. What leaves is exactly the rows that
+scope names, served through the same gate every other surface reads through
+and dropped — never derived — above the chosen ceiling. Every delivery, a
+fleet URL or a file drop, writes one reference-only line to this household's
+integrity log and one to its visible log, naming the envelope and never a
+value (I-15/I-37/I-38). A `--url` flag, `HOMESTEAD_FLEET_URL`, or a
+`fleet.url` file names a destination and never a permission — the confirm
+the operator is shown decides that, and a declined one ledgers nothing.
+
 ## What is enforced here today
 
 *The record invariants, carried from `homestead.keep.record` and held more
