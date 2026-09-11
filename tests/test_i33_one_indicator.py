@@ -29,7 +29,7 @@ import pytest
 from homestead.keep.rungs import Classified, Rung
 from homestead_law import instances
 from homestead_law.app import panes
-from homestead_law.packs import bankruptcy, custody, workers_comp
+from homestead_law.packs import bankruptcy, custody, grant, venture, workers_comp
 from homestead_law.store import Sidecar
 
 TODAY = "2026-08-10"
@@ -37,7 +37,15 @@ TODAY = "2026-08-10"
 
 # ── level 1: the composer's own shape ───────────────────────────────────────
 
-@pytest.mark.parametrize("mt", [custody.MATTER, bankruptcy.MATTER, workers_comp.MATTER, "unregistered"])
+#: Every pane shape there is, read off the registry `app.panes` keeps rather
+#: than named here (I-23, one level down — the same reason `PANES` itself is
+#: keyed by each pack's `MATTER`): a sixth pack's composer is held to I-33 by
+#: the day its entry lands, with no edit to this file. `"unregistered"` is
+#: appended for the generic fallback, which has no key of its own.
+PANE_SHAPES = sorted(panes.PANES) + ["unregistered"]
+
+
+@pytest.mark.parametrize("mt", PANE_SHAPES)
 def test_every_pane_shape_carries_a_single_scalar_indicator(mt, tmp_path, monkeypatch):
     monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
     pane = panes.pane_for(Sidecar(), mt, "primary", today=TODAY)
@@ -266,8 +274,7 @@ def _indicator_shaped_keys(pane: dict) -> list[str]:
     return suspects
 
 
-@pytest.mark.parametrize(
-    "mt", [custody.MATTER, bankruptcy.MATTER, workers_comp.MATTER, "unregistered"])
+@pytest.mark.parametrize("mt", PANE_SHAPES)
 def test_no_composer_returns_a_second_indicator_shaped_key(mt, tmp_path, monkeypatch):
     """The data half of the same claim: a pane dict carries exactly one key a
     renderer could turn into a badge. Run against a store seeded so every
@@ -285,6 +292,19 @@ def test_no_composer_returns_a_second_indicator_shaped_key(mt, tmp_path, monkeyp
               Classified(Rung.L4, "2020-01-01",
                          workers_comp.SCHEMA["hcp_selection_date"]["derived"]))
     store.put("unregistered", "note", "primary", Classified(Rung.L4, "x", "A note is on file"))
+    # The two Wave 8 packs both carry a closed-set field whose *name* the key
+    # scan would call indicator-shaped (`grant.status`,
+    # `venture.application_status`); their composers rename the key rather
+    # than spend the pane's one allowed indicator-shaped key on it
+    # (`tests/test_panes.py::test_a_renamed_pane_key_still_carries_the_packs_
+    # own_field` proves the rename is cosmetic). Seeded here so this scan runs
+    # against a pane that actually holds one.
+    store.put(grant.MATTER, "status", "primary", Classified(Rung.L2, "awarded"))
+    store.put(grant.MATTER, "milestone.due", instances.item_id("primary", "m1"),
+              Classified(Rung.L2, "2020-01-01"))
+    store.put(venture.MATTER, "application_status", "primary", Classified(Rung.L2, "submitted"))
+    store.put(venture.MATTER, "registration.due", instances.item_id("primary", "r1"),
+              Classified(Rung.L2, "2020-01-01"))
 
     pane = panes.pane_for(store, mt, "primary", today=TODAY)
     assert _indicator_shaped_keys(pane) == ["indicator"], (

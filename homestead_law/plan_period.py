@@ -68,6 +68,13 @@ __all__ = ["SIGNAL_FIELDS", "flag"]
 #: scheduling and a ledger reference. `venture.safe`/`venture.equity_grant`
 #: contribute their `.amount` each.
 #:
+#: **`safe.amount`/`equity_grant.amount`, not the bare `"safe"`/
+#: `"equity_grant"` (L8-venture).** Both groups are `REPEATABLE` (decision
+#: 2), so no field is ever written under the bare group name, and
+#: `_any_signal_elsewhere`'s `ref[1] not in SIGNAL_FIELDS` check needs the
+#: dotted name to be exact. `revenue_start` needs no correction: venture's
+#: one top-level, non-repeatable signal field.
+#:
 #: **One entry per line, sorted.** Two Wave 8 bites add producers to this one
 #: literal in parallel; a packed line is a merge conflict inside a line,
 #: while a sorted one-per-line set merges as a plain union.

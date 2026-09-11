@@ -453,11 +453,12 @@ phrase scan never has reason to look at a stored value twice. `award_amount`
 and the money-bearing halves of the repeatable `disbursement` group feed the
 bankruptcy pack's plan-period flag
 (`homestead_law.plan_period.SIGNAL_FIELDS`), the same reference line the
-venture pack below also produces.
+venture pack below also produces. The grant pane (`app/panes.py`) shows
+milestones, reports and disbursements by reference only — see "The page".
 
 ## Venture
 
-`homestead_law/packs/venture.py` (`JURISDICTION="US-DE"`, `JURISDICTIONS=("US-DE","US-OR")`) tracks an accelerator application and, alongside it, a Delaware public benefit corporation's own compliance calendar — formation, the registered agent, recurring state filings, founders, SAFEs and equity grants. **Every entered date is `L2`, with one exception.** `L1` means public in this matter's forum, and this matter has no forum: there is no court and no docket, and a Secretary of State's corporate register is not one either — it is a register the company files into. A date that reveals an application, a formation or a filing deadline exists is household metadata, which is `L2` (the same rung custody gives `move_date` and the ledger gives a posting date). The exception is `grant_date`, which stays `L1` because `rules.validate_templates` refuses any anchor that is not, and `grant_date` anchors the pack's one computed deadline: `election-83b`, 26 U.S.C. § 83(b)(2), 30 **calendar** days forward, no roll off a weekend or a federal holiday, `mail` refused. **One venture instance per grant** — `grant_date` is a single top-level field, so a second founder whose stock was transferred on a different day gets a second instance (`--id founders-2026-09`), not a second anchor; `rules.compute` is not extended. Every other date, including each founder's own confirmed `founder.election_83b_deadline`, is entered. This pack keeps dates and references; it forms nothing, files nothing, and computes no tax. `ein` is sealed at `L5` — it renders on no surface and has no derived form, and `validate_value` checks its `NN-NNNNNNN` shape at the door without ever echoing it, because entry is the only moment a value typed into the wrong box could be noticed at all. It is one of the two producers `homestead_law.plan_period.flag` watches for during an open Chapter 13 plan — a `safe.amount`, an `equity_grant.amount` or a `revenue_start` on file here surfaces one reference line on the bankruptcy pane, never an amount or an investor's name.
+`homestead_law/packs/venture.py` (`JURISDICTION="US-DE"`, `JURISDICTIONS=("US-DE","US-OR")`) tracks an accelerator application and, alongside it, a Delaware public benefit corporation's own compliance calendar — formation, the registered agent, recurring state filings, founders, SAFEs and equity grants. **Every entered date is `L2`, with one exception.** `L1` means public in this matter's forum, and this matter has no forum: there is no court and no docket, and a Secretary of State's corporate register is not one either — it is a register the company files into. A date that reveals an application, a formation or a filing deadline exists is household metadata, which is `L2` (the same rung custody gives `move_date` and the ledger gives a posting date). The exception is `grant_date`, which stays `L1` because `rules.validate_templates` refuses any anchor that is not, and `grant_date` anchors the pack's one computed deadline: `election-83b`, 26 U.S.C. § 83(b)(2), 30 **calendar** days forward, no roll off a weekend or a federal holiday, `mail` refused. **One venture instance per grant** — `grant_date` is a single top-level field, so a second founder whose stock was transferred on a different day gets a second instance (`--id founders-2026-09`), not a second anchor; `rules.compute` is not extended. Every other date, including each founder's own confirmed `founder.election_83b_deadline`, is entered. This pack keeps dates and references; it forms nothing, files nothing, and computes no tax. `ein` is sealed at `L5` — it renders on no surface and has no derived form, and `validate_value` checks its `NN-NNNNNNN` shape at the door without ever echoing it, because entry is the only moment a value typed into the wrong box could be noticed at all. It is one of the two producers `homestead_law.plan_period.flag` watches for during an open Chapter 13 plan — a `safe.amount`, an `equity_grant.amount` or a `revenue_start` on file here surfaces one reference line on the bankruptcy pane, never an amount or an investor's name. The venture pane (`app/panes.py`) shows the application timeline and a registrations calendar; founders and SAFEs are rows by reference, opened only on `S1_DETAIL` — see "The page".
 
 ## Computing a deadline
 
@@ -579,11 +580,19 @@ The *Matter* tab composes two things for `currentMatter()`/
   headless underneath it): custody's children and relocation timeline;
   bankruptcy's creditors, the two bar-date countdowns, the `NOTICE` sentence
   verbatim, and the plan-period reference line when one is on file; workers'
-  comp's treatment/IME timeline. The pane's own shape — `children`,
-  `creditors`, `exams`, or the generic `rows` — picks the rendering; nothing
-  in the page names a matter to choose between them (I-23's habit, held
-  here too), so a fourth pack lands with a working, if generic, pane the day
-  its registry entry does, with no change to this file.
+  comp's treatment/IME timeline; the grant's milestones, reports and
+  disbursements by reference, its award timeline and the `NOTICE`; the
+  venture's application timeline, its company card (entity type, formation,
+  the certificate's stated public benefit — `L3`, and so rendered like every
+  other `L3` the pane draws rather than derived by the composer — and the
+  four statutory compliance dates the pane's own badge is computed from) and
+  registrations calendar, its founders and SAFEs as reference rows only
+  (opened, like every pane row, one record at a time on the detail below). The pane's own shape — `children`,
+  `creditors`, `exams`, `milestones`, `application_timeline`, or the
+  generic `rows` — picks the rendering; nothing in the page names a matter
+  to choose between them (I-23's habit, held here too), so a sixth pack
+  lands with a working, if generic, pane the day its registry entry does,
+  with no change to this file.
 
   **The pane is a list surface, not a detail one** (`S1_LIST`, ceiling `L3`).
   A child's name, a date of birth, a diagnosis are `L4`: the pane shows the

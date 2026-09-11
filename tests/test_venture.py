@@ -571,13 +571,14 @@ def test_two_instances_each_compute_their_own_83b_date(tmp_path, monkeypatch):
         assert computed.instance == inst
 
 
-def test_the_generic_pane_shows_no_l4_payload_and_no_l5_row(tmp_path, monkeypatch):
-    """Until `L8-surfaces` gives this pack its own pane, `pane_for` falls
-    back to `generic_pane` — and the fallback is a surface like any other.
+def test_the_dedicated_pane_shows_no_l4_payload_no_notes_and_no_l5_row(tmp_path, monkeypatch):
+    """`app.panes.venture_pane` (L8-surfaces) gives this pack its own pane.
     Planted: a founder's name, a SAFE investor and amount, an operator note
-    and an `ein`. The L4 fields must appear as their derived sentence and
-    nothing else, and the `ein` must leave no row at all — not a placeholder,
-    not a count (`serve_all` drops denials without a trace)."""
+    and an `ein`. `founder`/`safe` render as reference rows only —
+    synthesized labels ("founder f1", "SAFE s1"), never the group's own
+    derived sentence or payload; `notes` is not a field this pane's company
+    card reads at all; and the `ein` leaves no row anywhere — not a
+    placeholder, not a count (`serve_all` drops denials without a trace)."""
     import json
 
     from homestead_law.app import panes
@@ -602,11 +603,13 @@ def test_the_generic_pane_shows_no_l4_payload_and_no_l5_row(tmp_path, monkeypatc
     blob = json.dumps(pane) + panes.pane_text(pane)
 
     for marker in ("99-7654321", "PLANTEDNOTE", "PLANTEDFOUNDER",
-                   "PLANTEDINVESTOR", "250000", "7654321"):
+                   "PLANTEDINVESTOR", "250000", "7654321",
+                   "An operator note is on file", "A SAFE investor is on file",
+                   "A founder is named"):
         assert marker not in blob, marker
-    assert "ein" not in {row["item_type"] for row in pane["rows"]}
-    assert "L5" not in {row["rung"] for row in pane["rows"]}
-    assert "A SAFE investor is on file" in blob
+    assert "ein" not in json.dumps(pane["company"])
+    assert "founder f1" in blob
+    assert "SAFE s1" in blob
 
 
 # ── I-44's three new phrases, fired and not fired (L8-venture audit) ─────────
