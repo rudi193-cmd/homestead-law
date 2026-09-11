@@ -36,6 +36,36 @@ __all__ = ["build_server", "serve"]
 #: claims is the one place a local page can spend the household's RAM.
 MAX_BODY_BYTES = 1 << 20
 
+#: How long a refused request's leftover bytes get to arrive before the
+#: connection is closed anyway.  Short: the client sent them already or never
+#: will; this waits for a segment in flight, not for a slow sender.
+DRAIN_TIMEOUT_SECONDS = 0.2
+
+
+def _drain(sock, *, limit=MAX_BODY_BYTES, timeout=DRAIN_TIMEOUT_SECONDS):
+    """Read and discard whatever the client already sent of a body the
+    handler refused to read, so the socket closes with an empty receive
+    buffer.
+
+    Closing a socket that still holds unread bytes makes the kernel answer
+    with a reset instead of an orderly close, and on Windows a reset discards
+    data the peer has received but not yet read — the 400 the client was
+    about to parse (``WinError 10053``).  The bytes are bounded by ``limit``
+    and the wait by ``timeout``; a slow or silent client is not waited for,
+    and nothing read here is looked at (I-15).  Returns the count discarded.
+    """
+    discarded = 0
+    try:
+        sock.settimeout(timeout)
+        while discarded < limit:
+            chunk = sock.recv(min(65536, limit - discarded))
+            if not chunk:
+                break
+            discarded += len(chunk)
+    except OSError:
+        pass
+    return discarded
+
 
 class _BadRequest(Exception):
     """A request this handler refuses to read — a malformed or oversized body, a
@@ -579,7 +609,7 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
     import urllib.parse
 
     from homestead.keep import paths
-    from homestead.keep.rungs import Disposition
+    from homestead.keep.rungs import Disposition, derived_of
     from homestead.keep.store import InvalidKey
     from homestead_law import nestor_seam
     from homestead_law import queue as queue_mod
@@ -597,18 +627,6 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
     nestor_ok = nestor_seam.bind(root) is not None
 
     sidecar = Sidecar()
-
-    def _derived(field: str, value: str) -> str:
-        table = {
-            "case_number": "A case number is on file",
-            "docket": "A docket entry is on file",
-            "opposing_party": "The other parent is named",
-            "parenting_time": "A parenting-time obligation is on file",
-            "child_name": "A minor child is named in this matter",
-            "diagnosis": "A medical category is on file for a person",
-            "notes": "An operator note is on file",
-        }
-        return table.get(field, f"A {field.replace('_', ' ')} is on file")
 
     class _H(http.server.BaseHTTPRequestHandler):
 
@@ -699,6 +717,8 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
                 mt = matter(name)
                 out.append({
                     "name": name,
+                    "jurisdiction": mt.jurisdiction,
+                    "jurisdictions": list(mt.jurisdictions),
                     "fields": [
                         {"name": f, "rung": rung.value, "why": mt.schema[f].get("why", "")}
                         for f, rung in mt.fields.items()
@@ -815,9 +835,12 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
                     return self._post_deadline(body)
             except _BadRequest as exc:
                 # An unread body (a refused Content-Length) leaves bytes on the
-                # socket, so this connection does not get reused.
+                # socket, so this connection does not get reused — and the
+                # bytes are drained first, or the close becomes a reset.
                 self.close_connection = True
-                return self._json({"ok": False, "error": str(exc)}, exc.status)
+                self._json({"ok": False, "error": str(exc)}, exc.status)
+                _drain(self.connection)
+                return
             self.send_error(404)
 
         def _post_extract(self, body):
@@ -857,7 +880,9 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
                 return self._json({"ok": False, "error": "a value is required"}, 400)
 
             rung = mt.fields[field]
-            derived = _derived(field, value) if rung.value in ("L3", "L4") else None
+            # The pack's own declaration (decision 3), not a second table — see
+            # cli.py's `_cmd_put`, which reads the same function on the same pack.
+            derived = derived_of(mt.schema, field) if rung.value in ("L3", "L4") else None
             item = Classified(rung, value, derived)
             try:
                 replaced = sidecar.put(matter_name, field, "primary", item, overwrite=True)

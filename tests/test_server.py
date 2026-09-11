@@ -120,6 +120,20 @@ def test_matters_lists_every_registered_matter(with_second_matter, ui, monkeypat
         assert "_fake_second" in names
 
 
+def test_matters_reports_the_supported_jurisdictions(ui):
+    """Decision 1: `/api/matters` names each matter's default jurisdiction and
+    the full set it may be filed in, read live off the registry (I-23) rather
+    than a copy this handler keeps — the household's custody order moved from
+    New Mexico to a registration in Oregon, and the browser UI's matter form
+    needs both to ever offer a jurisdiction switch (Wave 3)."""
+    status, data = ui.json("/api/matters")
+    assert status == 200
+    custody = next(m for m in data["matters"] if m["name"] == "custody")
+    assert custody["jurisdiction"] == "US-NM"
+    assert custody["jurisdictions"] == ["US-NM", "US-OR"]
+    assert custody["jurisdiction"] in custody["jurisdictions"]
+
+
 def test_store_then_records_round_trips_through_the_gate(ui):
     status, data = ui.json("/api/store", {"matter": "custody", "field": "courthouse", "value": "Dept 4"})
     assert status == 200 and data == {"ok": True, "rung": "L1", "replaced": False}
@@ -344,6 +358,76 @@ def test_a_body_the_server_cannot_read_is_refused_not_a_traceback(ui):
             conn.close()
             assert resp.status == 400, f"{path} accepted {body!r}"
             assert payload["error"]
+
+
+class _Sock:
+    """A socket that hands out the chunks it was given, then whatever
+    `then` is — `b""` for a peer that closed, or an exception to raise."""
+
+    def __init__(self, chunks, then=b""):
+        self.chunks = list(chunks)
+        self.then = then
+        self.timeout = None
+        self.asked = []
+
+    def settimeout(self, t):
+        self.timeout = t
+
+    def recv(self, n):
+        self.asked.append(n)
+        if self.chunks:
+            head, rest = self.chunks[0][:n], self.chunks[0][n:]
+            if rest:
+                self.chunks[0] = rest
+            else:
+                self.chunks.pop(0)
+            return head
+        if isinstance(self.then, BaseException):
+            raise self.then
+        return self.then
+
+
+def test_a_refused_body_is_drained_before_the_socket_closes():
+    """Closing a socket with unread bytes in its receive buffer turns the
+    close into a reset, and on Windows a reset discards the 400 the client
+    has not read yet (`WinError 10053`, seen on the release PR's Windows leg
+    for exactly this test's neighbour).  The drain reads what arrived, waits
+    only `DRAIN_TIMEOUT_SECONDS` for more, is bounded by the body cap, and
+    swallows the socket's own errors — the answer is already sent."""
+    # the whole body arrived, then the peer closed
+    sock = _Sock([b"{}", b"more"])
+    assert server._drain(sock) == 6
+    assert sock.timeout == server.DRAIN_TIMEOUT_SECONDS
+    # nothing more arrives within the wait: the timeout is swallowed
+    sock = _Sock([b"{}"], then=TimeoutError())
+    assert server._drain(sock) == 2
+    # a peer that never stops sending is cut off at the cap, never read past it
+    sock = _Sock([b"x" * 65536] * 40)
+    assert server._drain(sock, limit=100_000) == 100_000
+    assert max(sock.asked) <= 65536 and sum(sock.asked) >= 100_000
+    # a socket that is already gone is not an error
+    sock = _Sock([], then=OSError())
+    assert server._drain(sock) == 0
+
+
+def test_a_refused_content_length_reaches_the_drain(ui, monkeypatch):
+    """The refusal path must actually call the drain on the live connection —
+    the unit test above proves what draining does, this proves it happens,
+    once, after the answer is on the wire (the client read a 400)."""
+    calls = []
+    real = server._drain
+
+    def _spy(sock, **kw):
+        calls.append(sock)
+        return real(sock, **kw)
+
+    monkeypatch.setattr(server, "_drain", _spy)
+    status, raw = _request(
+        ui, "POST", "/api/store", body=b"{}",
+        headers={"Content-Type": "application/json", "Content-Length": "abc"},
+    )
+    assert status == 400 and json.loads(raw)["error"]
+    assert len(calls) == 1 and hasattr(calls[0], "recv")
 
 
 def test_a_content_length_that_is_not_a_number_is_refused(ui):

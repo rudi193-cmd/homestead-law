@@ -48,7 +48,7 @@ needs the optional `entity` extra:
 pip install -e .
 
 homestead-law ui                                   # entry forms, intake and dashboard, on localhost
-homestead-law put custody courthouse "Dept 4, Superior Court of California, County of Marin"
+homestead-law put custody courthouse "Dept 4, Second Judicial District Court, Bernalillo County"
 homestead-law put custody child_name "A. Rivera"   # stored at the pack's rung (L4) — no rung is chosen here
 homestead-law deadline custody hearing 2026-10-01 "Custody hearing"
 homestead-law deadline custody evaluation 2026-08-12 --rung L4 "A submission is due"
