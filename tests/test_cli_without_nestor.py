@@ -944,3 +944,50 @@ def test_put_on_a_pack_with_no_validate_value_is_unaffected(capsys):
     stores exactly as it always has."""
     assert run_cli(["put", "custody", "notes", "x" * 5000]) == 0
     assert "L4" in capsys.readouterr().out
+
+
+# ── venture's own refusals through the `put` door (L8-venture audit) ─────────
+
+@pytest.mark.parametrize(
+    "field,sub,planted,expect",
+    [
+        ("entity_type", None, "ZZZ-S-CORP-ZZZ", "must be one of"),
+        ("application_status", None, "ZZZ-DRAFTING-ZZZ", "must be one of"),
+        ("registration.kind", "r1", "ZZZ-TRADEMARK-ZZZ", "must be one of"),
+        ("bank_account_label", None, "ZZZ Bad Label", "a label matches"),
+        ("bank_account_label", None, "12345678", "account number"),
+        ("ein", None, "ZZZ-NOT-AN-EIN", "an EIN matches"),
+    ],
+)
+def test_put_refuses_a_venture_value_by_name_and_never_echoes_it(
+    field, sub, planted, expect, capsys,
+):
+    """`cli._cmd_put` calls `venture.validate_value` before it builds the
+    `Classified` — the closed sets, the ledger label shape (including the
+    all-digit account-number shape) and the `ein` shape all refuse here, and
+    the message names the field and this pack's own published rule, never
+    what was typed (I-15). `ein` matters most: it is `L5`, so the refusal is
+    the only text about it a human will ever see."""
+    argv = ["put", "venture", field, planted, "--id", "primary"]
+    if sub:
+        argv += ["--sub", sub]
+
+    assert run_cli(argv) == 1
+
+    err = capsys.readouterr().err
+    assert field in err and expect in err
+    assert planted not in err
+
+    from homestead_law.store import Sidecar
+
+    assert not Sidecar().records("venture")
+
+
+def test_put_stores_a_venture_value_the_pack_does_allow(capsys):
+    assert run_cli(["put", "venture", "entity_type", "pbc", "--id", "primary"]) == 0
+    assert run_cli(
+        ["put", "venture", "bank_account_label", "venture-ops", "--id", "primary"]
+    ) == 0
+    assert run_cli(["put", "venture", "ein", "12-3456789", "--id", "primary"]) == 0
+    out = capsys.readouterr().out
+    assert "12-3456789" not in out.split("stored: venture/ein")[-1]

@@ -11,7 +11,13 @@ may require the other filled in first: **the application**
 filings, founders, SAFEs, equity grants). `NOTICE` is the sentence every
 surface renders; `tests/test_i44_no_drafting.py` is the same guard
 `bankruptcy.py` is held to, extended here with a
-form/incorporate/file-with-the-state phrase.
+form/incorporate/file-with-the-state phrase. `NOTICE` is the sentence a
+surface renders when it opens this matter — `app/panes.py`'s
+`bankruptcy_pane` does exactly that for the pack beside this one, and the
+venture pane that will do it here is `L8-surfaces`' bite, not this one: until
+it lands, `pane_for` falls back to `generic_pane`, which renders rows and no
+notice. The sentence is declared, tested and unused by a surface, in that
+order.
 
 ## `JURISDICTIONS`, and a correction to the engine's `RULES`
 
@@ -58,22 +64,58 @@ instance, the anchor `election-83b` actually reads.
 plan names them — entered, one pair per founder; only the computed template
 is single-anchor.
 
-## Why so much of this pack is `L1` with no public docket behind it
+**One venture instance per grant**, and that is the documented answer to the
+follow-on question rather than an omission. `grant_date` is one top-level
+field, so one instance carries one grant date and therefore one computed
+`election-83b`; a second founder whose stock was transferred on a different
+day needs a second instance (`--id founders-2026-09`, say), not a second
+anchor. The alternative — teaching `rules.compute` to address
+`(matter, anchor, instance.sub)` — is an engine-shaped change to a shared
+module that every other pack's templates would inherit, and this bite does
+not make it. For a two-founder company whose stock is usually transferred on
+one day at formation, one instance is the ordinary case and two is the
+outside one; `instances_of` already lists them and the queue already names
+matter+instance on every line, so nothing downstream needs to know why there
+are two. Entered dates are unaffected either way:
+`founder.election_83b_deadline` is `REPEATABLE`, so every founder's own
+confirmed date fits in one instance regardless.
 
-Custody/bankruptcy's `L1` fields lean on a public forum (step 1); an
-accelerator application has none (a Delaware formation instrument and
-registered agent *are* filed with the Secretary of State, which is why the
-compliance dates sit at `L1` on that ground). Step 3 classifies the rest: an
-application date, a formation date, a vesting start or an entered
-compliance deadline names no one's protected circumstance and resolves to
-the venture's own calendar — bankruptcy's `plan_payment_due_day` states the
-same ("an administrative term ... no protected category attaches to a
-day-of-month"). A field that names a person/entity (`legal_name`,
+## Every entered date here is `L2`. `grant_date` is the one exception
+
+~~Why so much of this pack is `L1` with no public docket behind it~~ —
+corrected by audit, 2026-09-12, to the ruling the parallel `L8-grant` audit
+settled on the identical question. `Rung.L1` is *"public in this matter's
+forum"*, and **this matter has no forum**: there is no court, no docket and
+no case number, and a Secretary of State's corporate register is not one
+either — it is a register the company files into, the same relation the
+household has to its bank. So step 1 never reaches `L1` here. A date that
+reveals an application, a formation or an award *exists* is household
+metadata, which is `L2` — the rung custody gives `move_date` and the ledger
+gives a posting date — and every entered date in this pack now sits there:
+the three application dates, the compliance dates
+(`benefit_report_due`/`formation_date`/`foreign_qualification_date`/
+`annual_report_due`/`franchise_tax_due`/`business_license_due`/
+`registration.due`/`registration.done`), the private-instrument dates
+(`founder.vesting_start`/`founder.election_83b_deadline`/`safe.signed`/
+`equity_grant.granted`) and `revenue_start`. Nothing downstream moves:
+`S1_LIST` renders `L1` and `L2` alike, the queue shows a date for `L1`-`L3`,
+and `plan_period.flag` reads presence through the gate.
+
+The one exception is **`grant_date`**, which stays `L1` because
+`rules.validate_templates` refuses any anchor that is not, and
+`election-83b` is the one computed template this pack has. Its own `why`
+states the exception and the narrowest argument for it rather than dressing
+it up; `tests/test_venture.py::test_grant_date_is_the_only_l1_date_and_why`
+pins that it is the only one, so the exception cannot quietly become a
+habit. `jurisdiction` stays `L1` too and is not a date: it is a constant of
+the pack (decision 1), not a fact about the household.
+
+Step 3 does the rest. A field that names a person/entity (`legal_name`,
 `registered_agent`, `founder.name`, `safe.investor`, `equity_grant.grantee`,
 `advisor.name`) or an argue-up figure (`founder.equity_pct`,
 `safe.amount`/`valuation_cap`/`discount`, `equity_grant.amount`) sits at
-`L3`/`L4` instead — custody's `opposing_party`/bankruptcy's `creditor.name`
-reasoning.
+`L3`/`L4` — custody's `opposing_party`/bankruptcy's `creditor.name`
+reasoning — and `ein` is sealed at `L5`.
 
 ## The plan-period interaction flag
 
@@ -82,7 +124,11 @@ This bite corrects the two field names this pack can actually produce a
 record under: `safe.amount`/`equity_grant.amount`, not the bare
 `"safe"`/`"equity_grant"` the frozenset held before — both groups are
 `REPEATABLE`, so every field either stores is dotted. `revenue_start` needed
-no change: this pack's one top-level, non-repeatable signal field.
+no change: this pack's one top-level, non-repeatable signal field. The
+frozenset is written sorted, one name per line, and carries `L8-grant`'s two
+`disbursement.*` names alongside this pack's: two Wave 8 bites edit that one
+literal in parallel, and a sorted one-per-line set merges as a plain union
+where a packed line is a conflict inside a line.
 """
 from __future__ import annotations
 
@@ -95,7 +141,7 @@ __all__ = [
     "MATTER", "JURISDICTION", "JURISDICTIONS", "REPEATABLE", "SCHEMA",
     "FIELDS", "NOTICE", "TEMPLATES",
     "APPLICATION_STATUSES", "ENTITY_TYPES", "REGISTRATION_KINDS",
-    "InvalidChoice", "InvalidLabel", "validate_value",
+    "InvalidChoice", "InvalidEin", "InvalidLabel", "validate_value",
 ]
 
 MATTER = "venture"
@@ -134,17 +180,23 @@ SCHEMA: dict[str, dict[str, Any]] = {
         "accelerator (step 2 no).",
     ),
     "application_submitted": _field(
-        Rung.L1,
-        "an administrative date of the household's own process, no party "
-        "or category (step 3 no); see the module docstring.",
+        Rung.L2,
+        "entered off the program's own correspondence, not a docket: an "
+        "accelerator has no forum, so the date is not public anywhere "
+        "(step 1 no) and L1 is unavailable to it. It names no party and no "
+        "protected category (steps 2/3 no), which lands it at L2 — "
+        "household metadata, the rung the ledger gives a posting date and "
+        "custody gives move_date. What it reveals is that an application "
+        "exists at all, and that is exactly the household fact L2 covers.",
     ),
     "interview_date": _field(
-        Rung.L1, "same administrative posture as application_submitted "
-        "(step 3 no).",
+        Rung.L2, "same no-forum posture as application_submitted (step 1 "
+        "no, steps 2/3 no).",
     ),
     "decision_date": _field(
-        Rung.L1, "same posture as application_submitted; the decision's "
-        "content is application_status, entered separately (step 3 no).",
+        Rung.L2, "same no-forum posture as application_submitted; the "
+        "decision's content is application_status, entered separately "
+        "(step 1 no, steps 2/3 no).",
     ),
     "application_status": _field(
         Rung.L2,
@@ -172,24 +224,43 @@ SCHEMA: dict[str, dict[str, Any]] = {
         derived="A stated public benefit is on file",
     ),
     "benefit_report_due": _field(
-        Rung.L1,
+        Rung.L2,
         "the biennial report's due date (8 Del. C. § 366(b)) is entered "
         "from the certificate/bylaws cadence — the statute fixes only a "
-        "floor, so there is no period to count (step 3 no).",
+        "floor, so there is no period to count. § 366(b) runs the report "
+        "to STOCKHOLDERS; § 366(c) makes publication optional, so the date "
+        "is not public in any forum (step 1 no) and names no party or "
+        "category (steps 2/3 no) — L2.",
     ),
     "formation_state": _field(
         Rung.L2, "the state of incorporation — coarse geography, no party "
         "resolved (step 2 no).",
     ),
     "formation_date": _field(
-        Rung.L1, "the certificate's filing date is on file with the "
-        "Delaware Secretary of State (step 1).",
+        Rung.L2,
+        "the certificate is on file with the Delaware Secretary of State, "
+        "but a corporate registry is not *this matter's forum* — there is "
+        "no court and no docket here, so step 1 does not reach L1 (the "
+        "ruling the L8-grant audit settled for every entered date in a "
+        "forumless matter). No party, no category (steps 2/3 no) — L2.",
     ),
     "grant_date": _field(
         Rung.L1,
-        "the date stock was transferred to a person — an administrative "
-        "equity-calendar fact, no category (step 3 no). The anchor "
-        "election-83b reads; see the module docstring for why.",
+        "THE PACK'S ONE L1 FIELD THAT IS A DATE, AND A DELIBERATE "
+        "EXCEPTION. Every other entered date here is L2 (no forum). This "
+        "one is L1 because `rules.validate_templates` refuses any anchor "
+        "that is not — 'a deadline template may only anchor on a field "
+        "public in this matter's forum' — and `election-83b` is the one "
+        "computed template the plan gives this pack. The narrowest reading "
+        "that supports it: the date alone reveals only that an equity "
+        "grant was made, the same bare fact equity_grant.granted carries, "
+        "and it is the date written on the 83(b) election filed with the "
+        "IRS. That is a filing, not a public forum (26 U.S.C. § 6103 seals "
+        "returns), so the exception is recorded here rather than argued "
+        "away: raising it to L2 would delete this pack's only computed "
+        "deadline, which is a decision for the anchor rule, not for a "
+        "pack. See tests/test_venture.py::test_grant_date_is_the_only_l1_"
+        "date_and_why.",
     ),
     "ein": _field(
         Rung.L5,
@@ -208,22 +279,24 @@ SCHEMA: dict[str, dict[str, Any]] = {
         "geography, no party resolved (step 2 no).",
     ),
     "foreign_qualification_date": _field(
-        Rung.L1, "the date the company qualified to do business in Oregon "
-        "is filed with Oregon's Secretary of State (step 1).",
+        Rung.L2, "same posture as formation_date — a Secretary of State's "
+        "register is not this matter's forum (step 1 no), no party, no "
+        "category (steps 2/3 no).",
     ),
     "annual_report_due": _field(
-        Rung.L1,
-        "Delaware's fixed statutory annual-report date, filed with the "
-        "state (step 1) — entered, never computed (a fixed calendar date "
-        "is not a period to count).",
+        Rung.L2,
+        "Delaware's fixed statutory annual-report date — entered, never "
+        "computed (a fixed calendar date is not a period to count). The "
+        "statute is public; *this company's* due date on file is household "
+        "metadata in a matter with no forum (step 1 no, steps 2/3 no) — L2.",
     ),
     "franchise_tax_due": _field(
-        Rung.L1, "the Delaware franchise tax due date — same statutory, "
-        "filed-with-the-state posture as annual_report_due (step 1).",
+        Rung.L2, "the Delaware franchise tax due date — same statutory, "
+        "no-forum posture as annual_report_due (step 1 no, steps 2/3 no).",
     ),
     "business_license_due": _field(
-        Rung.L1, "an Oregon or local business-license renewal date, filed "
-        "with the issuing authority (step 1).",
+        Rung.L2, "an Oregon or local business-license renewal date — same "
+        "no-forum posture (step 1 no, steps 2/3 no).",
     ),
     "bank_account_label": _field(
         Rung.L2,
@@ -232,10 +305,13 @@ SCHEMA: dict[str, dict[str, Any]] = {
         "validate_value so the account NUMBER never lives here.",
     ),
     "revenue_start": _field(
-        Rung.L1,
-        "the date revenue was first recognized — an administrative "
-        "milestone, no category (step 3 no). This pack's one top-level "
-        "plan-period signal field (see the module docstring).",
+        Rung.L2,
+        "the date revenue was first recognized — an internal accounting "
+        "milestone, public nowhere (step 1 no), naming no party and no "
+        "category (steps 2/3 no). This pack's one top-level plan-period "
+        "signal field (see the module docstring); the flag reads presence "
+        "through the gate, and L2 renders on S1_LIST exactly as L1 did, so "
+        "the rung change moves no line.",
     ),
     "notes": _field(
         Rung.L4,
@@ -263,19 +339,24 @@ SCHEMA: dict[str, dict[str, Any]] = {
         derived="An equity percentage is on file",
     ),
     "founder.vesting_start": _field(
-        Rung.L1,
-        "when vesting began — administrative, no category once separated "
-        "from the equity figure (step 3 no); cannot anchor election-83b "
-        "(see the module docstring).",
+        Rung.L2,
+        "when vesting began — a private stock agreement's own date, public "
+        "nowhere (step 1 no), naming no party once separated from "
+        "founder.name and no category (steps 2/3 no). Cannot anchor "
+        "election-83b for a second reason as well (see the module "
+        "docstring): it is REPEATABLE.",
     ),
     "founder.cliff_months": _field(
         Rung.L2, "the cliff length in months — a coarse structural term "
         "(step 2 no).",
     ),
     "founder.election_83b_deadline": _field(
-        Rung.L1,
-        "one founder's own confirmed 83(b) filing date, entered directly "
-        "— the computed template anchors on grant_date instead (step 3 no).",
+        Rung.L2,
+        "one founder's own confirmed 83(b) date, entered directly — a "
+        "federal tax filing is not a public forum (26 U.S.C. § 6103; step "
+        "1 no), and the date names no party or category once separated "
+        "from founder.name (steps 2/3 no). The computed template anchors "
+        "on grant_date instead.",
     ),
     # ── repeatable: safe ─────────────────────────────────────────────────
     "safe.investor": _field(
@@ -303,9 +384,10 @@ SCHEMA: dict[str, dict[str, Any]] = {
         derived="A discount rate is on file",
     ),
     "safe.signed": _field(
-        Rung.L1,
-        "the date one SAFE was signed — administrative, no category once "
-        "separated from the investor and the amounts above (step 3 no).",
+        Rung.L2,
+        "the date one SAFE was signed — a private contract's own date, "
+        "public nowhere (step 1 no), no party or category once separated "
+        "from the investor and the amounts above (steps 2/3 no).",
     ),
     "safe.post_money": _field(
         Rung.L2, "whether the SAFE is post-money — a structural flag, no "
@@ -325,9 +407,10 @@ SCHEMA: dict[str, dict[str, Any]] = {
         derived="An equity grant amount is on file",
     ),
     "equity_grant.granted": _field(
-        Rung.L1,
-        "the date a grant was made — administrative, no category once "
-        "separated from the grantee's name and the amount (step 3 no).",
+        Rung.L2,
+        "the date a grant was made — a private board action, public "
+        "nowhere (step 1 no), no party or category once separated from the "
+        "grantee's name and the amount (steps 2/3 no).",
     ),
     # ── repeatable: registration ─────────────────────────────────────────
     "registration.kind": _field(
@@ -335,12 +418,13 @@ SCHEMA: dict[str, dict[str, Any]] = {
         "(step 2 no).",
     ),
     "registration.due": _field(
-        Rung.L1, "one registration's own due date — filed with the "
-        "issuing authority (step 1).",
+        Rung.L2, "one registration's own due date — the issuing authority "
+        "is not this matter's forum (step 1 no), no party, no category "
+        "(steps 2/3 no).",
     ),
     "registration.done": _field(
-        Rung.L1, "the date a registration was completed — same "
-        "filed-with-the-authority posture as registration.due (step 1).",
+        Rung.L2, "the date a registration was completed — same no-forum "
+        "posture as registration.due (step 1 no, steps 2/3 no).",
     ),
     # ── repeatable: advisor ──────────────────────────────────────────────
     "advisor.name": _field(
@@ -408,6 +492,28 @@ _CLOSED_SETS: dict[str, frozenset[str]] = {
 #: comparison so they cannot drift.
 _LABEL_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{0,39}$")
 
+#: …and one thing the shared pattern alone does not stop. `12345678` matches
+#: `_LABEL_PATTERN` and is exactly what an account *number* looks like, which
+#: is the one value this field's own `why` promises can never live here — a
+#: label is a name the operator chose, and an all-digit string is never that.
+#: Refused separately so the refusal can say which of the two rules was
+#: broken without echoing the value (I-15), and so the mirrored
+#: `instances.ID_PATTERN` equality above stays exact.
+_ALL_DIGITS = re.compile(r"^[0-9]+$")
+
+#: `ein`'s shape. An EIN is `NN-NNNNNNN` — two digits, a hyphen, seven digits
+#: (IRS Pub. 1635's own layout). **Validating the shape of an L5 value is not
+#: reading it**: `validate_value` is handed the candidate by the door that is
+#: about to store it, decides yes or no, and returns `None` either way; the
+#: refusal names the field and the shape — this pack's own published data —
+#: and never the digits typed (I-15). The check exists because L5 has no
+#: override and no derived form: nothing downstream will ever render an `ein`
+#: for a human to notice it was typed into the wrong box, so entry is the
+#: only moment a transposed or misfiled value can be caught at all (I-11 —
+#: absence of a check is not permission, and a sealed field is the last place
+#: to leave one out).
+_EIN_PATTERN = re.compile(r"^[0-9]{2}-[0-9]{7}$")
+
 
 class InvalidChoice(ValueError):
     """A closed-set field given a value outside its own set. Names the field
@@ -426,23 +532,47 @@ class InvalidLabel(ValueError):
     """`bank_account_label` given a value that is not a label shape — same
     I-15 posture `instances.InvalidId` takes for an instance id."""
 
-    def __init__(self, field: str) -> None:
+    def __init__(self, field: str, *, because: str = "") -> None:
         super().__init__(
             f"{field}: refused — a label matches {_LABEL_PATTERN.pattern} "
             "(lowercase letters, digits and hyphens, 1-40 characters, "
-            "starting with a letter or digit). This refusal does not "
-            "repeat what was typed (I-15)."
+            "starting with a letter or digit) and is never all digits"
+            f"{because}. This refusal does not repeat what was typed (I-15)."
+        )
+        self.field = field
+
+
+class InvalidEin(ValueError):
+    """`ein` given a value that is not `NN-NNNNNNN`. Names the field and the
+    shape, never the digits — the field is `L5`, so echoing the value back in
+    an error string would be the one surface a sealed rung has none of."""
+
+    def __init__(self, field: str) -> None:
+        super().__init__(
+            f"{field}: refused — an EIN matches {_EIN_PATTERN.pattern} "
+            "(two digits, a hyphen, seven digits). This refusal does not "
+            "repeat what was typed (I-15), and this field is sealed at L5: "
+            "it renders on no surface and has no derived form."
         )
         self.field = field
 
 
 def validate_value(field: str, value: object) -> None:
-    """Refuse a closed-set field given a value outside its set, or
-    `bank_account_label` given a non-label-shaped value; silent otherwise.
+    """Refuse a closed-set field given a value outside its set,
+    `bank_account_label` given a non-label-shaped or all-digit value, or
+    `ein` given a value that is not `NN-NNNNNNN`; silent otherwise.
 
-    **Not yet called by any door** — the same gap `workers_comp.py`'s own
-    `validate_value` carries until `L8-surfaces` wires it in (I-11: absence
-    of a check is not permission)."""
+    **Both writing doors call this.** `cli._cmd_put` and `server._post_store`
+    each do `hasattr(mt.pack, "validate_value")` and call it before building
+    the `Classified` they would store — wired by `L4-surfaces` (wave 4) for
+    `workers_comp.py`'s own cap, and picked up by this pack for free the day
+    it registered. ~~"Not yet called by any door"~~ was true of the shape
+    `workers_comp.py` shipped in wave 3 and is not true now;
+    `tests/test_workers_comp.py::test_the_doors_call_validate_value` is the
+    pin, and `tests/test_venture.py`'s own two door tests are this pack's.
+
+    Every refusal names the field and this pack's own published rule, never
+    the value offered (I-15)."""
     if field in _CLOSED_SETS:
         allowed = _CLOSED_SETS[field]
         if value not in allowed:
@@ -451,6 +581,16 @@ def validate_value(field: str, value: object) -> None:
     if field == "bank_account_label":
         if not isinstance(value, str) or not _LABEL_PATTERN.match(value):
             raise InvalidLabel(field)
+        if _ALL_DIGITS.match(value):
+            raise InvalidLabel(
+                field,
+                because=" — an all-digit string is an account number, not a "
+                "label the operator chose",
+            )
+        return
+    if field == "ein":
+        if not isinstance(value, str) or not _EIN_PATTERN.match(value):
+            raise InvalidEin(field)
 
 
 # ── deadline templates — one row (data only; rules.py does the counting) ────

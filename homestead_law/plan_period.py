@@ -43,23 +43,34 @@ from homestead_law.store import Sidecar
 __all__ = ["SIGNAL_FIELDS", "flag"]
 
 #: Item types, in any *other* matter, whose mere presence — never their value
-#: — is the signal: `award_amount`/`disbursement` from a grant (a producer
-#: this bite does not build), `safe.amount`/`equity_grant.amount`/
-#: `revenue_start` from `packs/venture.py` (L8-venture). A frozenset of
-#: field names, not matter names, so it carries no I-23 exposure of its own.
-#: `"safe"`/`"equity_grant"` (the plan paragraph's group names, not field
-#: names) are corrected here to the dotted field names venture actually
-#: stores — both groups are `REPEATABLE` (decision 2), so no field is ever
-#: written under the bare group name, and `_any_signal_elsewhere`'s
-#: `ref[1] not in SIGNAL_FIELDS` check is exact. `revenue_start` needed no
-#: correction: venture's one top-level, non-repeatable signal field.
+#: — is the signal: `award_amount`/`disbursement.amount`/
+#: `disbursement.received` from a grant (`packs/grant.py`, L8-grant),
+#: `safe.amount`/`equity_grant.amount`/`revenue_start` from a venture
+#: (`packs/venture.py`, L8-venture). A frozenset of field names, not matter
+#: names, so it carries no I-23 exposure of its own.
+#:
+#: **Every name is dotted where its group is `REPEATABLE` (decision 2).** The
+#: plan paragraph names the *groups* — `"safe"`, `"equity_grant"`,
+#: `"disbursement"` — and no record is ever stored under a bare group name: a
+#: repeatable group is one composed `Classified` per sub-id, addressed
+#: `safe.amount`, `disbursement.received` and so on. A set naming the bare
+#: group would match nothing a real pack writes, and this consumer would
+#: silently never fire — `_any_signal_elsewhere` compares `ref[1]` exactly.
+#: So each group contributes the member that actually carries money or its
+#: arrival, and nothing else: a scheduling date or a ledger reference is
+#: neither new income nor an asset.
+#:
+#: **One entry per line, sorted.** Two Wave 8 bites add producers to this one
+#: literal in parallel; a packed line is a merge conflict inside a line,
+#: while a sorted one-per-line set merges as a plain union.
 SIGNAL_FIELDS: frozenset[str] = frozenset(
     {
         "award_amount",
-        "disbursement",
-        "safe.amount",
+        "disbursement.amount",
+        "disbursement.received",
         "equity_grant.amount",
         "revenue_start",
+        "safe.amount",
     }
 )
 

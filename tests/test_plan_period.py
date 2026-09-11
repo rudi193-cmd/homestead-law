@@ -167,18 +167,51 @@ def test_multiple_confirmed_instances_each_get_their_own_line(tmp_path, monkeypa
 
 
 def test_signal_fields_is_the_frozenset_wave_8_names():
-    """`"safe"`/`"equity_grant"` were the field names pinned here before
-    L8-venture built the actual producer — corrected to
-    `"safe.amount"`/`"equity_grant.amount"`, the dotted field names the real
-    (REPEATABLE) venture pack stores under; see plan_period.py's own note."""
+    """Every name dotted where its group is REPEATABLE, sorted, one per line.
+    `"safe"`/`"equity_grant"`/`"disbursement"` were the *group* names pinned
+    here before either Wave 8 producer existed; no record is ever stored
+    under a bare group name, so each contributes the member that carries
+    money or its arrival instead. The two `disbursement.*` names are
+    L8-grant's, the two dotted venture names are L8-venture's, and the two
+    bites edit this one literal in parallel — see
+    `plan_period.SIGNAL_FIELDS`' own note on why it is written this way."""
     assert plan_period.SIGNAL_FIELDS == frozenset(
         {
             "award_amount",
-            "disbursement",
-            "safe.amount",
+            "disbursement.amount",
+            "disbursement.received",
             "equity_grant.amount",
             "revenue_start",
+            "safe.amount",
         }
+    )
+
+
+def test_signal_fields_is_written_sorted_one_name_per_line():
+    """Merge-friendliness, held by a test rather than by a comment nobody
+    re-reads: the literal in `plan_period.py` is one string per line and in
+    sorted order, so two bites adding a producer in parallel produce a
+    conflict git resolves as a plain union instead of a conflict *inside* a
+    line. Planted: the packed single-line shape this replaced fails it."""
+    import ast
+    import inspect
+
+    source = inspect.getsource(plan_period)
+    tree = ast.parse(source)
+    (node,) = [
+        n for n in ast.walk(tree)
+        if isinstance(n, ast.AnnAssign)
+        and isinstance(n.target, ast.Name)
+        and n.target.id == "SIGNAL_FIELDS"
+    ]
+    (literal,) = node.value.args
+    names = [e.value for e in literal.elts]
+    linenos = [e.lineno for e in literal.elts]
+
+    assert names == sorted(names), f"SIGNAL_FIELDS is not sorted: {names}"
+    assert len(set(linenos)) == len(linenos), (
+        f"two names share a line ({linenos}) — a packed line makes a "
+        "parallel addition a conflict inside the line"
     )
 
 
