@@ -137,15 +137,84 @@ to make it (they are a later bite).
 
 A pack may also declare `REPEATABLE` — field names that accept a `--sub`
 (a repeatable sub-record, e.g. a child of a custody matter). Custody declares
-none yet; `--sub` on any of its fields is refused by name. Workers' comp
-declares three — `ime.date`, `ime.examiner`, `ime.note`, one independent
-medical exam per sub-id (below).
+three — `child.name`, `child.dob`, `child.school` — one record per child per
+field, so a second child does not overwrite the first the way the older,
+singular `child_name` field always could:
+
+```bash
+homestead-law put custody child.name "Alex Rivera" --id primary --sub c1
+homestead-law put custody child.dob 2016-03-02 --id primary --sub c1
+homestead-law put custody child.name "Robin Rivera" --id primary --sub c2
+homestead-law show custody child.name primary.c1     # the detail pane, that child only
+```
+
+`--sub` on any other custody field is refused by name (not declared
+`REPEATABLE`) — and a `REPEATABLE` field written *without* one is refused too,
+because it would otherwise land in the instance's single slot, where the
+second child overwrites the first. `REPEATABLE` holds **field names**, not a
+concept: `child.name`, `child.dob`, `child.school`, each a field the pack
+declares, because both guards that read it (`cli._cmd_put` and
+`registry._validate`) compare a member against the field string a `put`
+actually names.
+
+Workers' comp declares three of its own — `ime.date`, `ime.examiner`,
+`ime.note`, one independent medical exam per sub-id (below).
 
 `GET /api/instances?matter=` and `POST /api/matter/open` are the browser UI's
 doors onto the same two functions; `/api/store` and `/api/deadline` accept
 `id`/`sub` alongside the existing fields. The page's own forms do not yet
 offer an instance picker — that UI wiring is left to a later (surfaces) bite;
 today they always write the `primary` instance, exactly as before this one.
+
+## The custody matter — fields, and what a deadline needs
+
+Beyond the original set (`courthouse`, `hearing_date`, `jurisdiction`,
+`case_number`, `docket`, `opposing_party`, `parenting_time`, `child_name`
+— kept, struck through, see `homestead_law/packs/custody.py`'s module
+docstring — `diagnosis`, `notes`, `ssn`), the relocation bite (wave 3) adds:
+
+| field | rung | what it is |
+|---|---|---|
+| `custody_order_date` | L1 | the date the underlying order was entered |
+| `uccjea_registration_date` | L1 | the date the order was registered with the receiving forum |
+| `registration_contest_deadline` | L1 | the deadline to contest that registration |
+| `mediation_date` | L1 | a court-ordered mediation session's date |
+| `new_residence_state` | L2 | the destination state (household-level, no identity) |
+| `custody_type` | L3 | sole / joint / legal / physical — the arrangement's shape |
+| `move_date` | L3 | the date of the household's relocation |
+| `relocation_notice_date` | L3 | the date notice of the move was given to the other parent |
+| `child.name` / `child.dob` / `child.school` | L4 each | repeatable, one record per child per field (`--sub`) |
+
+**What the app can compute, and what the operator enters.** Deadline
+*templates* are declared as data (`custody.TEMPLATES`) for a parallel bite's
+engine-backed `rules.py` to read and compute from — this module does not
+compute a date itself (I-2: one door). Every row anchors on an **L1** field
+(the anchor is named in refusals, and only a public-in-this-forum rung
+survives that), carries a **name that is a legal sub-id** (`--accept` files
+the result at `"<instance>.<template>"`), and carries a name that is
+**unique in the pack** (a template is found by name; the jurisdiction belongs
+to the instance). Today:
+
+* **`nm-registration-contest`** — 20 days forward from
+  `uccjea_registration_date`, `VERIFIED` (NMSA 1978 § 40-10A-305). The
+  primary text is blocked from this build, so the row's `source` carries a
+  dated `PROVENANCE` sentence naming the hosts that were refused and the
+  converging restatements read instead. A pinpoint subsection is deliberately
+  not cited: it could not be confirmed from here.
+* **`or-registration-contest`** — `UNCERTAIN`. Secondary sources say 21 days
+  (ORS 109.787) and 21 is what the row carries, but the uniform section and
+  every other state enactment read here say 20, and the primary is unread. The
+  operator enters the date from the court's own notice.
+* **No relocation-notice template, in either forum.** New Mexico has none, and
+  Oregon's (ORS 107.159) requires "reasonable notice" without fixing a day
+  count — there is no period to count. The date notice was actually given is
+  **entered, not computed**, as the `relocation_notice_date` field.
+
+An `UNCERTAIN` template is a documented refusal, never a guess, and a missing
+template is the same refusal in its strongest form: the app will not compute a
+date it cannot stand behind, so the operator's own read of the court's notice
+is what goes on file, at the rung `deadline` was always given at (L1 by
+default).
 
 ## Workers' comp
 
