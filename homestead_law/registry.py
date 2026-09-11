@@ -180,8 +180,23 @@ def _validate(registry: Mapping[str, Any], on_disk: Mapping[str, ModuleType]) ->
       the key check one field over. `jurisdiction` is the only part of an entry
       that is copied out of the pack instead of read live, so it is the only
       part that can drift, and the drift is invisible without this check now
-      that `jurisdictions` next to it *is* live.
+      that `jurisdictions` next to it *is* live;
+    * a pack with an `L3`/`L4` field that declares no `"derived"` sentence —
+      decision 3's contract, held here rather than left to the write path.
+      `classify_schema` deliberately ignores the key, so such a pack imports
+      clean and fails at the first `put` instead: `derived_of` returns `None`,
+      `Classified(rung, value, None)` raises `UnclassifiedField`, and neither
+      door builds that `Classified` inside its `try`, so the CLI tracebacks and
+      the browser's POST dies on the socket. A build failure naming the field
+      is the refusal this module gives every other kind of absence (I-11).
     """
+    # The rungs a stored record may be *served as a stand-in for*, which is
+    # therefore the set that must carry one. Stated here rather than imported:
+    # the engine's own copy (`rungs._NEEDS_DERIVED`) is private, and
+    # `tests/test_registry.py::test_the_derived_requirement_matches_the_engines`
+    # pins the two together behaviourally — by constructing a `Classified` and
+    # watching which rungs refuse — so this cannot drift from it in silence.
+    needs_derived = (Rung.L3, Rung.L4)
     for key, entry in registry.items():
         if not isinstance(entry, MatterType):
             raise RuntimeError(
@@ -193,6 +208,15 @@ def _validate(registry: Mapping[str, Any], on_disk: Mapping[str, ModuleType]) ->
                 f"({entry.pack.MATTER!r}) — a matter is keyed by the name its "
                 "pack declares, read once, so the two cannot drift. A key kept "
                 "by hand next to a name set elsewhere is BUG-6's shape."
+            )
+        default = getattr(entry.pack, "JURISDICTION", None)
+        if not isinstance(default, str) or not default.strip():
+            raise RuntimeError(
+                f"{key!r}: JURISDICTION must be a non-empty string, not "
+                f"{default!r}. A pack that declares no default jurisdiction "
+                "has nothing for a new instance to start under (decision 1), "
+                "and absence refuses by name here rather than surfacing as an "
+                "AttributeError from whatever reads it first (I-11)."
             )
         jurisdictions = getattr(entry.pack, "JURISDICTIONS", None)
         if (
@@ -226,6 +250,23 @@ def _validate(registry: Mapping[str, Any], on_disk: Mapping[str, ModuleType]) ->
                 "every new instance starts at the default, and a default "
                 "outside the supported tuple is a matter that cannot open."
             )
+        for field, rung in entry.fields.items():
+            if rung not in needs_derived:
+                continue
+            declaration = entry.schema.get(field)
+            sentence = (
+                declaration.get("derived") if isinstance(declaration, Mapping) else None
+            )
+            if not isinstance(sentence, str) or not sentence.strip():
+                raise RuntimeError(
+                    f"{key!r}: field {field!r} is {rung.value} and declares no "
+                    "'derived' sentence. Decision 3 puts the stand-in a surface "
+                    "shows in place of the payload on the pack itself, and an "
+                    f"{rung.value} record is served as that stand-in on at "
+                    "least one surface — so a pack that omits it has a field "
+                    "that cannot be written at all, and would say so only at "
+                    "the first `put`. Add SCHEMA[field]['derived']."
+                )
 
     unregistered = sorted(set(on_disk) - set(registry))
     if unregistered:
