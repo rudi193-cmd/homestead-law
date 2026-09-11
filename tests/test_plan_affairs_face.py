@@ -214,7 +214,16 @@ def test_l8_surfaces_is_struck_with_its_own_pr_and_release():
 #: The bites this document tracks as *found and not built*. A strike on one of
 #: these would be the same false claim `L4-surfaces`'s own landing made about
 #: `child_name` — "the bite that retires it" written before the bite existed.
-OPEN_BITES = ("L9-child-name",)
+#: ~~`("L9-child-name",)`~~ — L9 landed (PR #50, released 0.10.0, 2026-09-11)
+#: and moved to `LANDED_FOLLOW_UPS` below; the tuple is empty until the next
+#: sweep names an open bite, and the guard's plants keep the mechanism honest.
+OPEN_BITES: tuple[str, ...] = ()
+
+#: Follow-ups that were open here and have since landed, with the evidence
+#: their strike must carry: (bite, PR, release). The release is checked against
+#: `CHANGELOG.md`'s own section, so a strike can never run ahead of the tag.
+LANDED_FOLLOW_UPS = (("L9-child-name", "#50", "0.10.0"),)
+CHANGELOG = PLAN_FACE.parent.parent / "CHANGELOG.md"
 
 
 def _struck_spans(text: str) -> list[str]:
@@ -223,9 +232,12 @@ def _struck_spans(text: str) -> list[str]:
 
 def test_every_open_bite_is_named_and_none_of_them_is_struck():
     """An open item that names no bite is a to-do nobody can look up, and a
-    struck one is a claim that it landed. `L9-child-name` is the retirement
+    struck one is a claim that it landed. ~~`L9-child-name` is the retirement
     `L4-surfaces` was wrongly promised to do; it has no PR and no release, so
-    it must appear by name and appear unstruck."""
+    it must appear by name and appear unstruck.~~ (L9 landed 2026-09-11 and is
+    now checked by `test_every_landed_follow_up_is_struck_with_its_evidence`;
+    `OPEN_BITES` is empty, so this loop runs over nothing until the next
+    sweep names an open bite — the plants below are what keep it a check.)"""
     text = PLAN_FACE.read_text("utf-8")
     struck = " ".join(_struck_spans(text))
     for bite in OPEN_BITES:
@@ -250,8 +262,45 @@ def test_the_open_bite_guard_fires_on_a_planted_strike_and_a_planted_omission():
     planted_absent = "- **L8-surfaces** — nothing about the retirement here.\n"
     assert "L9-child-name" not in planted_absent
 
-    # and the real document satisfies both, which is what makes the plants
-    # a check rather than a restatement.
+    # and the real document satisfies both halves for every open bite, which
+    # is what makes the plants a check rather than a restatement. ~~L9 was the
+    # one open bite this asserted unstruck~~ (landed 2026-09-11, PR #50,
+    # 0.10.0 — it is now asserted *struck*, in the test below).
     text = PLAN_FACE.read_text("utf-8")
-    assert "L9-child-name" in text
-    assert "L9-child-name" not in " ".join(_struck_spans(text))
+    struck = " ".join(_struck_spans(text))
+    for bite in OPEN_BITES:
+        assert bite in text and bite not in struck
+
+
+def test_every_landed_follow_up_is_struck_with_its_evidence():
+    """A follow-up that was open here and then landed is struck like every
+    other landed bite — with its PR and its release named *outside* the
+    strike, and the release confirmed by `CHANGELOG.md`'s own section, never
+    by this document's prediction of it."""
+    changelog = CHANGELOG.read_text("utf-8")
+    items = _list_items(PLAN_FACE.read_text("utf-8"))
+    for bite, pr, release in LANDED_FOLLOW_UPS:
+        assert f"## [{release}]" in changelog, (
+            f"{bite} is recorded as released {release} but CHANGELOG.md has no "
+            f"[{release}] section — the strike ran ahead of the release"
+        )
+        for item in items:
+            if bite in item:
+                assert _STRUCK_SPAN.search(item), f"{bite} landed and must be struck"
+                evidence = live(item)
+                assert pr in evidence and release in evidence, (
+                    f"{bite}'s bullet must name {pr} and {release} outside the strike"
+                )
+                break
+        else:
+            raise AssertionError(f"{bite} is not named in docs/PLAN-affairs-face.md at all")
+
+
+def test_the_landed_follow_up_guard_fires_on_a_planted_unstruck_bullet():
+    """Planted: the bullet exists, names the PR and the release, but is not
+    struck — the guard must see the missing strike, not be satisfied by the
+    evidence words alone."""
+    planted = "- **L9-child-name** landed: PR #50, released 0.10.0.\n"
+    (item,) = _list_items(planted)
+    assert "L9-child-name" in item and "#50" in live(item) and "0.10.0" in live(item)
+    assert not _STRUCK_SPAN.search(item)
