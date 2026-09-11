@@ -19,6 +19,7 @@ from homestead_law import queue as queue_mod
 from homestead_law.app import panes as panes_mod
 from homestead_law.app.window import Ref, Window
 from homestead_law.packs import bankruptcy, custody, workers_comp
+from homestead_law.registry import all_matters
 from homestead_law.store import Sidecar
 
 MATTER = custody.MATTER  # "custody"
@@ -162,48 +163,34 @@ def compose_queue(store: Sidecar, today: str = TODAY) -> str:
 _PANE_INSTANCE = "primary"
 
 
+#: What `seed_pane_demo` files, as data: `(pack, field, sub-or-None,
+#: payload)`. A table rather than seven hand-written `store.put` calls — and
+#: with neither the rung nor the derived form in it: both come off the pack's
+#: own `FIELDS`/`SCHEMA` (decision 3), exactly as `seed()` already reads
+#: them, so this demo has no way to classify a field differently from the
+#: pack it is demonstrating.
+_PANE_SEED = (
+    (custody, "registration_contest_deadline", None, "2026-08-30"),
+    (custody, "child.name", "c1", "A. Rivera"),
+    (bankruptcy, "petition_date", None, "2026-01-15"),
+    (bankruptcy, "claims_bar_date", None, "2026-03-26"),
+    (bankruptcy, "creditor.name", "cred1", "First National Bank"),
+    (workers_comp, "hcp_selection_date", None, "2026-02-01"),
+    (workers_comp, "ime.date", "2026-05", "2026-05-12"),
+)
+
+
 def seed_pane_demo(store: Sidecar) -> None:
     """Add just enough to `seed()`'s custody matter, plus a minimal
     bankruptcy and workers' comp instance, so `compose_panes` has something
     of every shape to compose. Idempotent, like `seed()`."""
-    store.put(
-        custody.MATTER, "registration_contest_deadline", _PANE_INSTANCE,
-        Classified(Rung.L1, "2026-08-30"), overwrite=True,
-    )
-    store.put(
-        custody.MATTER, "child.name", instances.item_id(_PANE_INSTANCE, "c1"),
-        Classified(Rung.L4, "A. Rivera", custody.SCHEMA["child.name"]["derived"]),
-        overwrite=True,
-    )
-
-    store.put(
-        bankruptcy.MATTER, "petition_date", _PANE_INSTANCE,
-        Classified(Rung.L1, "2026-01-15"), overwrite=True,
-    )
-    store.put(
-        bankruptcy.MATTER, "claims_bar_date", _PANE_INSTANCE,
-        Classified(Rung.L1, "2026-03-26"), overwrite=True,
-    )
-    store.put(
-        bankruptcy.MATTER, "creditor.name",
-        instances.item_id(_PANE_INSTANCE, "cred1"),
-        Classified(Rung.L3, "First National Bank",
-                   bankruptcy.SCHEMA["creditor.name"]["derived"]),
-        overwrite=True,
-    )
-
-    store.put(
-        workers_comp.MATTER, "hcp_selection_date", _PANE_INSTANCE,
-        Classified(Rung.L4, "2026-02-01",
-                   workers_comp.SCHEMA["hcp_selection_date"]["derived"]),
-        overwrite=True,
-    )
-    store.put(
-        workers_comp.MATTER, "ime.date",
-        instances.item_id(_PANE_INSTANCE, "2026-05"),
-        Classified(Rung.L4, "2026-05-12", workers_comp.SCHEMA["ime.date"]["derived"]),
-        overwrite=True,
-    )
+    for pack, field, sub, payload in _PANE_SEED:
+        store.put(
+            pack.MATTER, field, instances.item_id(_PANE_INSTANCE, sub),
+            Classified(pack.FIELDS[field], payload,
+                       pack.SCHEMA[field].get("derived")),
+            overwrite=True,
+        )
 
 
 def compose_panes(store: Sidecar, today: str = TODAY) -> str:
@@ -213,8 +200,14 @@ def compose_panes(store: Sidecar, today: str = TODAY) -> str:
     `server.py`'s JS does, without a matter name literal anywhere in that
     dispatch (I-23)."""
     seed_pane_demo(store)
+    # Every *registered* matter, not the three this function happens to seed
+    # (I-23): a fourth pack composes here the day its registry entry lands,
+    # through `pane_for`'s generic fallback, with no edit to this file. The
+    # seed above is necessarily pack-shaped; the composition is not, and the
+    # one that would have gone stale is the composition.
     sections = [
-        panes_mod.pane_text(panes_mod.pane_for(store, mt.MATTER, _PANE_INSTANCE, today=today))
-        for mt in (custody, bankruptcy, workers_comp)
+        panes_mod.pane_text(
+            panes_mod.pane_for(store, name, _PANE_INSTANCE, today=today))
+        for name in all_matters()
     ]
     return "panes:\n" + "\n".join(sections)

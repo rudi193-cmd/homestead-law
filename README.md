@@ -558,21 +558,36 @@ The *Matter* tab composes two things for `currentMatter()`/
   in the page names a matter to choose between them (I-23's habit, held
   here too), so a fourth pack lands with a working, if generic, pane the day
   its registry entry does, with no change to this file.
+
+  **The pane is a list surface, not a detail one** (`S1_LIST`, ceiling `L3`).
+  A child's name, a date of birth, a diagnosis are `L4`: the pane shows the
+  pack's own derived sentence for them, never the payload. `S1_DETAIL` — where
+  an `L4` renders — is reached one record at a time, by clicking that row:
+  the act of opening *is* the purpose declaration, and it lands in the Matter
+  tab's own detail box. Serving a whole instance at `S1_DETAIL` would make a
+  tab switch a bulk reveal of every `L4` in the matter, under a default
+  instance nobody chose. An `L5` leaves no row at all, here as everywhere.
 * **Computed deadlines** (`GET /api/deadline/templates?matter=`, then the
   existing `/api/deadline/compute`/`/api/deadline/accept` doors): pick a
   declared template, **Compute** shows the anchor, the result, the district
-  calendar note and the preview token, and **Accept** posts exactly that
-  token back — a preview the store has since moved under is refused by name
-  (`rules.compute`/`accept`'s own comparison), and the page shows the
-  refusal rather than the date it never actually confirmed.
+  calendar note and the preview token, and **Accept** posts back exactly the
+  preview that was shown — its matter, instance, template, `mail` flag and
+  token, all read off the shown preview rather than off the live controls,
+  because every one of them is hashed into the token. A preview the store has
+  since moved under is refused by name (`rules.compute`/`accept`'s own
+  comparison), and the page shows the refusal rather than the date it never
+  actually confirmed.
 
 **I-33 — one indicator per pane.** Every pane carries a single `indicator`
 field (`None`, `"overdue"`, `"needs_attention"`, or `"nothing_due"`),
 computed from the pane's own served dates — never a second read, never a
 value above the rung the pane already rendered — and the page draws it from
-one call site (`renderIndicator`, called once by `renderPane` after every
-shape). A pane can show at most one badge by construction: a scalar in, a
-scalar out.
+one call site, after every shape. A pane can show at most one badge by
+construction: a scalar in, a scalar out. The guard for it
+(`tests/test_i33_one_indicator.py`) is structural over the served markup —
+it finds the badge by the `ind-` class the page emits, not by a helper's
+name, so a branch that writes the badge inline without calling the helper is
+caught too, and both plants are run through the real scan.
 
 ## What is enforced here today
 

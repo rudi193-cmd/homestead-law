@@ -273,6 +273,22 @@ def pane_for(
     return composer(store, matter_name, instance, today=today)
 
 
+def _card_lines(label: str, cards: list[dict]) -> list[str]:
+    """One `_cards()` entry per line-group — the same shape for a child, a
+    creditor and an exam, so `pane_text` renders all three through one
+    function rather than three copies that can drift."""
+    lines = []
+    for card in cards:
+        lines.append(f"  {label} {card['sub']}:")
+        for field_type, field in sorted(card["fields"].items()):
+            lines.append(f"    {field_type}: {field['text']}")
+    return lines
+
+
+def _timeline_lines(rows: list[dict]) -> list[str]:
+    return [f"  {row['item_type']}: {row['text']}" for row in rows]
+
+
 def pane_text(pane: dict) -> str:
     """A pane composed by `pane_for`, as a few lines of plain text — the tk
     view's own rendering (`app/view.py`'s `show_list`), and a headless way
@@ -284,18 +300,11 @@ def pane_text(pane: dict) -> str:
     if pane.get("indicator"):
         lines.append(f"  [{pane['indicator']}]")
     if "children" in pane:
-        for card in pane["children"]:
-            lines.append(f"  child {card['sub']}:")
-            for field_type, field in sorted(card["fields"].items()):
-                lines.append(f"    {field_type}: {field['text']}")
-        for row in pane["timeline"]:
-            lines.append(f"  {row['item_type']}: {row['text']}")
+        lines += _card_lines("child", pane["children"])
+        lines += _timeline_lines(pane["timeline"])
     elif "creditors" in pane:
         lines.append(f"  {pane['notice']}")
-        for card in pane["creditors"]:
-            lines.append(f"  creditor {card['sub']}:")
-            for field_type, field in sorted(card["fields"].items()):
-                lines.append(f"    {field_type}: {field['text']}")
+        lines += _card_lines("creditor", pane["creditors"])
         for bar in pane["bar_dates"]:
             if bar["gap"]:
                 mark = "unreadable"
@@ -307,13 +316,8 @@ def pane_text(pane: dict) -> str:
         for note in pane["plan_period"]:
             lines.append(f"  note: {note}")
     elif "exams" in pane:
-        for row in pane["timeline"]:
-            lines.append(f"  {row['item_type']}: {row['text']}")
-        for card in pane["exams"]:
-            lines.append(f"  exam {card['sub']}:")
-            for field_type, field in sorted(card["fields"].items()):
-                lines.append(f"    {field_type}: {field['text']}")
+        lines += _timeline_lines(pane["timeline"])
+        lines += _card_lines("exam", pane["exams"])
     else:
-        for row in pane["rows"]:
-            lines.append(f"  {row['item_type']}: {row['text']}")
+        lines += _timeline_lines(pane["rows"])
     return "\n".join(lines)

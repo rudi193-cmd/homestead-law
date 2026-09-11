@@ -295,6 +295,13 @@ textarea:focus{outline:2px solid var(--accent);border-color:transparent}
        picks the composer server-side (I-23). -->
   <h2 id="mtitle">Pane</h2>
   <div id="paneview"></div>
+  <!-- The pane is a *list* surface (S1_LIST, ceiling L3): an L4 field shows
+       its derived form there, never its payload. Clicking a row opens that
+       one record on S1_DETAIL, where L4 renders — the act of opening is the
+       purpose declaration (by widget), one record at a time. Its own target,
+       not the Records tab's #rdetail: a detail written into a hidden section
+       is a reveal the operator asked for and never saw. -->
+  <div id="mdetail"></div>
 
   <h2>Computed deadlines</h2>
   <div class="card">
@@ -521,17 +528,16 @@ function loadRecords() {
         +'</div>';
     });
     div.innerHTML=html;
-    Array.prototype.forEach.call(div.querySelectorAll('.rw'), function(el){
-      el.addEventListener('click', function(){
-        openRecord(el.getAttribute('data-matter'), el.getAttribute('data-type'),
-                   el.getAttribute('data-id'));
-      });
-    });
+    bindOpenableRows(div,'rdetail');
   }).catch(function(){div.innerHTML='<p class="sm s-err">Failed to load records</p>';});
 }
 
-function openRecord(matter,item_type,item_id) {
-  var div=document.getElementById('rdetail');
+// `target` is the id of the element this detail is drawn into — the Records
+// tab's own #rdetail here, the Matter tab's #mdetail for a pane row. A
+// reveal has to land where the operator is looking; writing it into a
+// section that is not on screen is an open they asked for and never saw.
+function openRecord(matter,item_type,item_id,target) {
+  var div=document.getElementById(target||'rdetail');
   fetch('/api/record?matter='+encodeURIComponent(matter)+'&item_type='+encodeURIComponent(item_type)
     +'&item_id='+encodeURIComponent(item_id)).then(function(r){return r.json()}).then(function(data){
     if(data.error){div.innerHTML='<p class="sm s-err">'+esc(data.error)+'</p>';return;}
@@ -638,13 +644,36 @@ function fieldRow(f) {
     +'<span class="qs">'+esc(f.text)+'</span></div>';
 }
 
-function bindOpenableRows(container) {
+function bindOpenableRows(container,target) {
   Array.prototype.forEach.call(container.querySelectorAll('.rw'), function(el){
     el.addEventListener('click', function(){
       openRecord(el.getAttribute('data-matter'), el.getAttribute('data-type'),
-                 el.getAttribute('data-id'));
+                 el.getAttribute('data-id'), target);
     });
   });
+}
+
+// One card renderer for every pane shape that groups sub-records: custody's
+// children, bankruptcy's creditors and workers' comp's exams are the same
+// {sub, fields} shape drawn the same way, so they are one function rather
+// than three copies that can drift apart on escaping.
+function renderCards(heading,label,cards,emptyText) {
+  var html='<h3>'+esc(heading)+'</h3>';
+  if(!cards.length) return html+'<p class="empty">'+esc(emptyText)+'</p>';
+  cards.forEach(function(card){
+    html+='<div class="card"><strong>'+esc(label)+' '+esc(card.sub)+'</strong>';
+    Object.keys(card.fields).sort().forEach(function(ft){
+      html+=fieldRow(card.fields[ft]);
+    });
+    html+='</div>';
+  });
+  return html;
+}
+
+function renderTimeline(heading,rows) {
+  var html='<h3>'+esc(heading)+'</h3>';
+  rows.forEach(function(t){ html+=fieldRow(t); });
+  return html;
 }
 
 // I-33: one indicator per pane. Called exactly once by renderPane below —
@@ -664,28 +693,11 @@ function renderIndicator(ind) {
 function renderPane(data) {
   var html='';
   if(data.children){
-    html+='<h3>Children</h3>';
-    if(!data.children.length) html+='<p class="empty">No children on file.</p>';
-    data.children.forEach(function(card){
-      html+='<div class="card"><strong>Child '+esc(card.sub)+'</strong>';
-      Object.keys(card.fields).sort().forEach(function(ft){
-        html+=fieldRow(card.fields[ft]);
-      });
-      html+='</div>';
-    });
-    html+='<h3>Relocation timeline</h3>';
-    data.timeline.forEach(function(t){ html+=fieldRow(t); });
+    html+=renderCards('Children','Child',data.children,'No children on file.');
+    html+=renderTimeline('Relocation timeline',data.timeline);
   } else if(data.creditors){
     html+='<div class="dt">'+esc(data.notice)+'</div>';
-    html+='<h3>Creditors</h3>';
-    if(!data.creditors.length) html+='<p class="empty">No creditors on file.</p>';
-    data.creditors.forEach(function(card){
-      html+='<div class="card"><strong>Creditor '+esc(card.sub)+'</strong>';
-      Object.keys(card.fields).sort().forEach(function(ft){
-        html+=fieldRow(card.fields[ft]);
-      });
-      html+='</div>';
-    });
+    html+=renderCards('Creditors','Creditor',data.creditors,'No creditors on file.');
     html+='<h3>Bar dates</h3>';
     data.bar_dates.forEach(function(b){
       var txt=b.gap?'date unreadable':(b.overdue?Math.abs(b.days_until)+'d overdue':'in '+b.days_until+'d');
@@ -697,17 +709,8 @@ function renderPane(data) {
       data.plan_period.forEach(function(l){ html+='<div class="why">'+esc(l)+'</div>'; });
     }
   } else if(data.exams){
-    html+='<h3>Treatment timeline</h3>';
-    data.timeline.forEach(function(t){ html+=fieldRow(t); });
-    html+='<h3>Independent medical exams</h3>';
-    if(!data.exams.length) html+='<p class="empty">No exams on file.</p>';
-    data.exams.forEach(function(card){
-      html+='<div class="card"><strong>Exam '+esc(card.sub)+'</strong>';
-      Object.keys(card.fields).sort().forEach(function(ft){
-        html+=fieldRow(card.fields[ft]);
-      });
-      html+='</div>';
-    });
+    html+=renderTimeline('Treatment timeline',data.timeline);
+    html+=renderCards('Independent medical exams','Exam',data.exams,'No exams on file.');
   } else {
     if(!data.rows.length) html+='<p class="empty">Nothing on file.</p>';
     data.rows.forEach(function(r){ html+=fieldRow(r); });
@@ -719,12 +722,13 @@ function renderPane(data) {
 function loadPane() {
   var matter=currentMatter(), instance=currentInstance();
   var div=document.getElementById('paneview');
+  document.getElementById('mdetail').innerHTML='';
   if(!matter){div.innerHTML='';return;}
   fetch('/api/pane?matter='+encodeURIComponent(matter)+'&id='+encodeURIComponent(instance))
   .then(function(r){return r.json()}).then(function(data){
     if(data.error){div.innerHTML='<p class="sm s-err">'+esc(data.error)+'</p>';return;}
     div.innerHTML=renderPane(data);
-    bindOpenableRows(div);
+    bindOpenableRows(div,'mdetail');
   }).catch(function(){div.innerHTML='<p class="sm s-err">Failed to load the pane</p>';});
 }
 
@@ -774,13 +778,19 @@ function computeTemplate() {
   }).catch(function(){div.innerHTML='<span class="sm s-err">Error</span>';});
 }
 
+// Every field here comes from `_lastComputed` — the preview the operator was
+// actually shown — and none from the live controls: a matter, instance,
+// template or mail box changed after Compute would otherwise make Accept
+// post one preview's token against a different computation. The token covers
+// `mail` too (it is one of the ten fields hashed), so posting the checkbox's
+// current state instead of the shown one refused every mail preview by name.
 function acceptTemplate() {
-  var matter=currentMatter(), instance=currentInstance();
-  var template=document.getElementById('tplname').value;
   var div=document.getElementById('tplresult');
   if(!_lastComputed){div.innerHTML+='<div class="sm s-err">Compute first</div>';return;}
   fetch('/api/deadline/accept',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({matter:matter,id:instance,template:template,token:_lastComputed.token})})
+    body:JSON.stringify({matter:_lastComputed.matter,id:_lastComputed.instance,
+                         template:_lastComputed.template,mail:_lastComputed.mail,
+                         token:_lastComputed.token})})
   .then(function(r){return r.json()}).then(function(data){
     if(data.ok){div.innerHTML+='<div class="sm s-ok">Accepted</div>'; loadPane();}
     else{div.innerHTML+='<div class="sm s-err">'+esc(data.error||'Failed')+'</div>';}
