@@ -132,8 +132,8 @@ checked on the way out as well as on the way in, since `L1` renders whatever
 is on disk). **Anything that will one day do date arithmetic on a
 deadline in an instance must call `jurisdiction_of` first** — an anchor date
 counted under an assumed forum is a guess about which rules to count under,
-and this module refuses that guess before the counting rules themselves exist
-to make it (they are a later bite).
+and this module refuses that guess before the counting rules themselves ever
+run (see "Computing a deadline", below).
 
 A pack may also declare `REPEATABLE` — field names that accept a `--sub`
 (a repeatable sub-record, e.g. a child of a custody matter). Custody declares
@@ -144,6 +144,64 @@ doors onto the same two functions; `/api/store` and `/api/deadline` accept
 `id`/`sub` alongside the existing fields. The page's own forms do not yet
 offer an instance picker — that UI wiring is left to a later (surfaces) bite;
 today they always write the `primary` instance, exactly as before this one.
+
+## Computing a deadline
+
+A pack may declare **templates** — data, not code — on its own `TEMPLATES`
+tuple: an anchor field (one of the pack's own `L1`, public fields), a period,
+a counting rule (`court_days`, `court_days_before`, `business_days` or
+`calendar_days`), whether mail days apply, the jurisdiction it is scoped to
+(or `None` for whichever the instance is actually opened in), the citation
+behind it, and a `VERIFIED`/`UNCERTAIN` status. `homestead_law.rules` is the
+one place that reads that data, checks it against the pack's own fields at
+**registry time** (a bad template — a missing key, an anchor that is not the
+pack's own `L1` field, `calendar_days` asking for mail — is a build failure
+naming the pack and the template, exactly like an unclassified schema field),
+and turns it into a computed date at runtime, through `homestead.keep.dates`.
+
+```bash
+homestead-law deadline templates custody
+homestead-law deadline compute custody notice --id nm-order
+homestead-law deadline compute custody notice --id nm-order --mail --accept
+```
+
+**`deadline compute` stores nothing** — it reads the anchor (through the
+gate — an anchor that is missing, or on file at a rung the gate would not
+render, is refused by name) and the instance's jurisdiction (provisional
+I-42), checks the template applies to that jurisdiction, and prints the
+result, the source and a preview token. **`--accept` is the only thing that
+writes**, and only once a token proves it matches a fresh computation of the
+same anchor and jurisdiction: it stores `(matter, "deadline",
+"<instance>.<template>")` at `L1` with the instruction *"computed from
+`<anchor>` under `<source>`; confirm against the court's notice"* — the same
+two-field shape (a date, an instruction) the plain `deadline` command already
+writes, so the queue and `show` read a computed deadline exactly as they read
+a hand-entered one, by reference. `--replace` is the same consent an occupied
+key always needs (I-9); without it, a second `--accept` of the same
+`<instance>.<template>` is refused, not silently overwritten.
+
+**`UNCERTAIN` means the citation behind that branch of the rule has not been
+checked against a primary source** — a pack author's honest "not yet",
+not "probably fine." A template whose `status` is `UNCERTAIN` refuses,
+`"UNCERTAIN: <source>"`, before any counting function is ever called; a
+`VERIFIED` template can still hit the same wall one layer down; if the
+specific branch `homestead.keep.dates` needs (a short period, a backward
+count, the added mail days) is itself unverified for that jurisdiction, the
+engine's own refusal propagates unchanged. Either way nothing is guessed —
+confirm the actual date against the court's own notice regardless of what
+this prints, which is exactly what the accepted instruction says.
+
+`calendar_days` is the one rule this package computes itself rather than
+asking the engine for: a plain count of days with **no roll off a weekend or
+holiday, and no calendar read at all** — a 30-day `calendar_days` span that
+lands on a Sunday stays on that Sunday. Use `court_days` or `business_days`
+for a period a court's calendar should move.
+
+`POST /api/deadline/compute` and `POST /api/deadline/accept` are the browser
+UI's doors onto the same two functions; `accept` recomputes fresh from the
+current store state before comparing the submitted token, so a preview left
+open in a tab while the underlying anchor or jurisdiction changed is refused
+as stale rather than accepted against content nobody actually saw.
 
 ## What is enforced here today
 

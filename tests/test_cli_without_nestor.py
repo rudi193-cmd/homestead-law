@@ -579,3 +579,93 @@ def test_deadline_refuses_an_option_it_does_not_take(capsys):
 
     assert run_cli(["show", "custody", "deadline", "primary.hearing"]) == 1
     assert "no such record" in capsys.readouterr().err
+
+
+# ── deadline compute / deadline templates (L3-deadline-templates) ───────────
+#
+# Custody has no TEMPLATES on this branch (the sibling custody bite adds them,
+# in parallel) — these tests monkeypatch one onto the real pack rather than
+# building a fake matter, so the CLI wiring is proven against the same pack
+# every other test in this file already uses.
+
+_NOTICE_TEMPLATE = {
+    "name": "notice", "anchor": "hearing_date", "days": 20,
+    "direction": "forward", "rule": "court_days", "mail": False,
+    "jurisdiction": "US-NM", "source": "NMSA 40-10A-305",
+    "status": "VERIFIED", "note": "",
+}
+
+
+def test_deadline_templates_lists_nothing_for_a_pack_with_none(capsys):
+    assert run_cli(["deadline", "templates", "custody"]) == 0
+    assert "no deadline templates declared" in capsys.readouterr().out
+
+
+def test_deadline_templates_lists_a_packs_declared_templates(monkeypatch, capsys):
+    from homestead_law.packs import custody
+
+    monkeypatch.setattr(custody, "TEMPLATES", (_NOTICE_TEMPLATE,), raising=False)
+    assert run_cli(["deadline", "templates", "custody"]) == 0
+    out = capsys.readouterr().out
+    assert "notice" in out and "VERIFIED" in out and "court_days" in out
+
+
+def test_deadline_compute_prints_the_preview_and_stores_nothing(monkeypatch, capsys):
+    from homestead_law.packs import custody
+    from homestead_law.store import Sidecar
+
+    monkeypatch.setattr(custody, "TEMPLATES", (_NOTICE_TEMPLATE,), raising=False)
+    assert run_cli(["matter", "open", "custody", "--id", "primary", "--jurisdiction", "US-NM"]) == 0
+    capsys.readouterr()
+    assert run_cli(["put", "custody", "hearing_date", "2026-01-01"]) == 0
+    capsys.readouterr()
+
+    assert run_cli(["deadline", "compute", "custody", "notice", "--id", "primary"]) == 0
+    out = capsys.readouterr().out
+    assert "anchor:  hearing_date = 2026-01-01" in out
+    assert "result:  2026-01-21" in out
+    assert "token:" in out
+
+    assert not Sidecar().has("custody", "deadline", "primary.notice")
+
+
+def test_deadline_compute_accept_stores_and_a_second_accept_refuses(monkeypatch, capsys):
+    from homestead_law.packs import custody
+    from homestead_law.store import Sidecar
+
+    monkeypatch.setattr(custody, "TEMPLATES", (_NOTICE_TEMPLATE,), raising=False)
+    assert run_cli(["matter", "open", "custody", "--id", "primary", "--jurisdiction", "US-NM"]) == 0
+    capsys.readouterr()
+    assert run_cli(["put", "custody", "hearing_date", "2026-01-01"]) == 0
+    capsys.readouterr()
+
+    assert run_cli(["deadline", "compute", "custody", "notice", "--id", "primary", "--accept"]) == 0
+    out = capsys.readouterr().out
+    assert "accepted: custody/deadline/primary.notice" in out
+
+    record = Sidecar().get("custody", "deadline", "primary.notice")
+    assert record.payload == "2026-01-21"
+    assert "confirm against the court's notice" in record.derived
+
+    assert run_cli(["deadline", "compute", "custody", "notice", "--id", "primary", "--accept"]) == 1
+    err = capsys.readouterr().err
+    assert "already on file" in err and "--replace" in err
+
+
+def test_deadline_compute_refuses_an_uncertain_template_naming_the_source(monkeypatch, capsys):
+    from homestead_law.packs import custody
+
+    monkeypatch.setattr(custody, "TEMPLATES", ({
+        "name": "guess", "anchor": "hearing_date", "days": 5,
+        "direction": "forward", "rule": "court_days", "mail": False,
+        "jurisdiction": None, "source": "unclear rule",
+        "status": "UNCERTAIN", "note": "",
+    },), raising=False)
+    assert run_cli(["matter", "open", "custody", "--id", "primary", "--jurisdiction", "US-NM"]) == 0
+    capsys.readouterr()
+    assert run_cli(["put", "custody", "hearing_date", "2026-01-01"]) == 0
+    capsys.readouterr()
+
+    assert run_cli(["deadline", "compute", "custody", "guess", "--id", "primary"]) == 1
+    err = capsys.readouterr().err
+    assert "UNCERTAIN: unclear rule" in err

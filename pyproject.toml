@@ -60,7 +60,17 @@ classifiers = [
 #
 # sqlite3 is stdlib — no dependency line for the store. holidays arrives through
 # homestead.keep (its deadline arithmetic), declared there, not re-declared here.
-dependencies = ["homestead-affairs>=0.3.0,<1.0"]
+#
+# The floor is 0.6.0 as of L3-deadline-templates, raised from 0.3.0: this
+# bite's `rules.compute()` reaches `homestead.keep.dates.court_days_before`,
+# `add_mail_days` and `business_days` (backward counting, +3 mail days and
+# the open-days counter — decision 4) and the `US-NM`/`US-OR` rows of
+# `RULES` (`JURISDICTIONS`) those functions count under — all landed in the
+# 0.6.0 release. `tests/test_rules.py::test_the_engine_floor_carries_state_
+# jurisdictions_and_backward_counting` imports `court_days_before` by name
+# and asserts `"US-NM" in dates.JURISDICTIONS`, so CI proves the floor on
+# every run rather than trusting the version number alone.
+dependencies = ["homestead-affairs>=0.6.0,<1.0"]
 
 [project.optional-dependencies]
 # `pyyaml` and `tomli` are for tests/test_invariants_release.py, which reads the

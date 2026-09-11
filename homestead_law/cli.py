@@ -345,9 +345,138 @@ def _maybe_propose_party(field: str, value: str) -> None:
 
 # ── deadline ───────────────────────────────────────────────────────────────
 
+def _cmd_deadline_templates(args: Sequence[str]) -> int:
+    """``deadline templates <matter>`` — list a matter's declared templates
+    (L3-deadline-templates), each with its status. Reads only the pack's own
+    data (`rules.templates_of`); nothing here touches the store."""
+    if len(args) != 1:
+        print("usage: homestead-law deadline templates <matter>", file=sys.stderr)
+        return 1
+
+    matter_name = args[0]
+    try:
+        mt = matter(matter_name)
+    except KeyError:
+        print(f"unknown matter {matter_name!r} — registered: {', '.join(all_matters())}", file=sys.stderr)
+        return 1
+
+    from homestead_law import rules
+
+    templates = rules.templates_of(mt)
+    if not templates:
+        print(f"  {matter_name}: no deadline templates declared")
+        return 0
+    print(f"  {matter_name} templates:")
+    for t in templates:
+        scope = t.jurisdiction or "the instance's own jurisdiction"
+        print(f"  {t.name}  [{t.status}]  {t.rule} {t.days}d {t.direction}  ({scope})")
+    return 0
+
+
+def _cmd_deadline_compute(args: Sequence[str]) -> int:
+    """``deadline compute <matter> <template> --id <instance> [--mail]
+    [--accept] [--replace]`` — L3-deadline-templates.
+
+    Computes and prints the anchor, the result and the preview token;
+    **stores nothing** unless ``--accept`` is also given, in which case the
+    same computation is what gets stored (there is no second, separate
+    compute at accept time here — this is one process, one call to
+    ``rules.compute``) and ``--replace`` is the same consent
+    ``matter open --replace``/``put``'s overwrite already require for an
+    occupied key (I-9).
+    """
+    id_opt: str | None = None
+    mail = False
+    accept_flag = False
+    replace = False
+    positional: list[str] = []
+    i = 0
+    while i < len(args):
+        if args[i] == "--id" and i + 1 < len(args):
+            id_opt = args[i + 1]
+            i += 2
+        elif args[i] == "--mail":
+            mail = True
+            i += 1
+        elif args[i] == "--accept":
+            accept_flag = True
+            i += 1
+        elif args[i] == "--replace":
+            replace = True
+            i += 1
+        else:
+            positional.append(args[i])
+            i += 1
+
+    if len(positional) != 2 or id_opt is None:
+        print(
+            "usage: homestead-law deadline compute <matter> <template> --id "
+            "<instance> [--mail] [--accept] [--replace]",
+            file=sys.stderr,
+        )
+        return 1
+
+    matter_name, template_name = positional
+
+    from homestead.keep.dates import UnparseableDate
+    from homestead_law import rules
+    from homestead_law.jurisdiction import JurisdictionAbsent
+    from homestead_law.store import RecordExists
+
+    _boot()
+    sidecar = Sidecar()
+    try:
+        computed = rules.compute(sidecar, matter_name, id_opt, template_name, mail=mail)
+    except KeyError:
+        print(f"unknown matter {matter_name!r} — registered: {', '.join(all_matters())}", file=sys.stderr)
+        return 1
+    except (
+        instances.InvalidId,
+        JurisdictionAbsent,
+        UnparseableDate,
+        rules.TemplateNotFound,
+        rules.AnchorUnavailable,
+        rules.TemplateJurisdictionMismatch,
+        rules.UncertainTemplate,
+        rules.MailUnsupported,
+    ) as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"  {matter_name}/{id_opt}/{template_name}")
+    print(f"  anchor:  {computed.anchor_field} = {computed.anchor_iso}")
+    print(f"  result:  {computed.result_iso}")
+    print(f"  source:  {computed.source}")
+    print(f"  token:   {computed.preview_token}")
+
+    if accept_flag:
+        try:
+            replaced = rules.accept(
+                sidecar, computed, token=computed.preview_token, replace=replace
+            )
+        except RecordExists:
+            print(
+                f"refused: {matter_name}/{id_opt}.{template_name} is already "
+                "on file — pass --replace to overwrite it",
+                file=sys.stderr,
+            )
+            return 1
+        print(f"  accepted: {matter_name}/deadline/{id_opt}.{template_name}")
+        if replaced:
+            print("  (replaced the previous value)")
+    return 0
+
+
 def _cmd_deadline(args: Sequence[str]) -> int:
     """``deadline <matter> <id> <date> [instruction] [--sub sub]`` — add a real
     deadline.
+
+    Two further subcommands (L3-deadline-templates): ``deadline compute`` and
+    ``deadline templates`` — see their own docstrings. Dispatched on the
+    first word rather than folded into the option loop below, the same way
+    ``matter open`` is a subcommand of ``matter``: no registered matter is
+    ever named ``compute`` or ``templates`` (the registry, I-23), so the two
+    can never collide with a real deadline id.
 
     The date is parsed by the engine's one strict parser and stored in its ISO
     form; a date it cannot read is refused here, in one line, rather than stored
@@ -375,6 +504,11 @@ def _cmd_deadline(args: Sequence[str]) -> int:
     address. L3-deadline-templates' ``(matter, "deadline", "<inst>.<template>")``
     and the queue's matter+instance naming both rest on this shape.
     """
+    if args and args[0] == "compute":
+        return _cmd_deadline_compute(list(args[1:]))
+    if args and args[0] == "templates":
+        return _cmd_deadline_templates(list(args[1:]))
+
     rung_str = "L1"
     sub_opt: str | None = None
     filtered: list[str] = []
