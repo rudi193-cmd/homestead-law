@@ -137,8 +137,10 @@ def run() -> int:
         subheading = DEMO_BANNER if context.demo else "The affairs you handle yourself."
         ttk.Label(content, text=subheading, style="Subheading.TLabel").pack(anchor="w", pady=(4, 24))
         # The resting cover shows only counts that survive the re-identification
-        # check (I-31). Over a single matter that is nothing, so the cover rests
-        # on "Nothing is open" — the queue is there when the operator asks.
+        # check (I-31) — over a household whose deadlines all sit in one matter
+        # that is nothing, so the cover rests on "Nothing is open". The queue is
+        # there when the operator asks; the roster the check reads is the
+        # matters that hold a deadline, not the matter types the registry knows.
         resting = queue_mod.cover(store, today=today)
         summary = ", ".join(f"{n} {k.replace('_', ' ')}" for k, n in resting.items())
         ttk.Label(content, text=summary or "Nothing is open.", style="Muted.TLabel").pack(anchor="w")

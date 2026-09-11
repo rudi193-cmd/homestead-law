@@ -11,8 +11,6 @@ from __future__ import annotations
 
 import types
 
-import pytest
-
 from homestead.keep.rungs import Classified, Rung
 from homestead_law import queue as queue_mod
 from homestead_law import registry as registry_mod
@@ -26,12 +24,17 @@ def _deadline(store: Sidecar, matter: str, item_id: str, rung: Rung, date: str, 
     store.put(matter, "deadline", item_id, Classified(rung, date, derived=instruction))
 
 
-def _register_second_matter(monkeypatch, name: str = "bankruptcy") -> None:
+def _register_second_matter(monkeypatch, name: str = "_fake_second") -> None:
     """Add a second matter to the registry the way test_registry does — a real
-    module, keyed by its own MATTER, injected for the test."""
+    module, keyed by its own MATTER, injected for the test. `"_fake_second"`,
+    never a real future pack name (bankruptcy/workers' comp land in Wave 3), so
+    this stays a *fake* second matter — and keeps exercising "a matter the
+    registry did not have before" — even after those packs are registered for
+    real."""
     fake = types.ModuleType(f"homestead_law.packs._fake_{name}")
     fake.MATTER = name
-    fake.JURISDICTION = "US-CA"
+    fake.JURISDICTION = "US-NM"
+    fake.JURISDICTIONS = ("US-NM",)
     fake.FIELDS = {"deadline": Rung.L1}
     fake.SCHEMA = {"deadline": {"rung": Rung.L1, "matter": name}}
     monkeypatch.setitem(registry_mod.REGISTRY, name, registry_mod._entry(fake))
@@ -46,11 +49,11 @@ def test_the_queue_iterates_the_registry_not_a_hardcoded_list(tmp_path, monkeypa
     monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
     store = Sidecar()
     _deadline(store, "custody", "hearing", Rung.L1, "2026-09-15", "a hearing is set")
-    _register_second_matter(monkeypatch, "bankruptcy")
-    _deadline(store, "bankruptcy", "341", Rung.L1, "2026-08-20", "a 341 meeting is set")
+    _register_second_matter(monkeypatch)
+    _deadline(store, "_fake_second", "341", Rung.L1, "2026-08-20", "a meeting is set")
 
     matters_in_queue = {it.matter for it in queue(store, today=TODAY)}
-    assert matters_in_queue == {"custody", "bankruptcy"}
+    assert matters_in_queue == {"custody", "_fake_second"}
 
 
 # ── ordering ─────────────────────────────────────────────────────────────────
@@ -130,14 +133,40 @@ def test_the_cover_hides_counts_over_a_single_matter(tmp_path, monkeypatch):
     assert cover(store, today=TODAY) == {}
 
 
+def test_the_cover_counts_matters_that_hold_a_deadline_not_registered_types(
+    tmp_path, monkeypatch
+):
+    """I-31's second gate reads *open* matters, and a registered pack is not an
+    open matter. More than one matter is registered here but every deadline
+    sits in a single one of them, so the household still *is* that one matter
+    and the count still resolves to it — the cover must show nothing.
+
+    This is the second-pack failure that would have been silent: passing
+    `all_matters()` as the roster satisfies the gate with the *software's*
+    shape, so the day a second pack ships this household's "2 overdue" starts
+    appearing on a resting screen with no code change and no test failure."""
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    store = Sidecar()
+    _register_second_matter(monkeypatch)
+    _deadline(store, "custody", "response", Rung.L1, "2026-08-05", "overdue")
+    _deadline(store, "custody", "answer", Rung.L1, "2026-08-04", "overdue")
+
+    # registry-relative: "more than one", never a count — a third real pack
+    # must not turn this test's own premise into the hand-kept number the bite
+    # exists to remove.
+    assert len(registry_mod.all_matters()) > 1, "more than one matter type is registered"
+    assert len({it.matter for it in queue(store, today=TODAY)}) == 1, "one open matter"
+    assert cover(store, today=TODAY) == {}
+
+
 def test_the_cover_shows_a_count_spread_across_two_matters(tmp_path, monkeypatch):
     """Two matters each with an overdue deadline: the count is 2 over 2 matters,
     which clears both anonymity gates, so it may be shown."""
     monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
     store = Sidecar()
-    _register_second_matter(monkeypatch, "bankruptcy")
+    _register_second_matter(monkeypatch)
     _deadline(store, "custody", "response", Rung.L1, "2026-08-05", "overdue")
-    _deadline(store, "bankruptcy", "objection", Rung.L1, "2026-08-04", "overdue")
+    _deadline(store, "_fake_second", "objection", Rung.L1, "2026-08-04", "overdue")
 
     assert cover(store, today=TODAY) == {"overdue": 2}
 

@@ -24,13 +24,18 @@ from homestead_law.store import Sidecar
 
 def _register_second_matter(monkeypatch, name: str = "_fake_second") -> None:
     """Add a second matter to the registry — a real module, keyed by its own
-    `MATTER`, injected for the test. The template `test_queue.py` established:
-    a name that is never a real future pack name (`_fake_second`, not
-    `bankruptcy`), so this stays a fake second matter even after Wave 3
-    registers a real one."""
+    `MATTER`, injected for the test. `"_fake_second"`, never a real future pack
+    name (bankruptcy/workers' comp land in Wave 3), so this stays a fake second
+    matter even after they are registered for real. `monkeypatch.setitem`
+    removes it again at teardown, so the registry a later test reads is the real
+    one no matter what order the suite runs in. It declares `JURISDICTIONS`
+    alongside `JURISDICTION` — the pack contract decision 1 settles — so this
+    fake stays a stand-in for a real pack once the registry validates that
+    tuple."""
     fake = types.ModuleType(f"homestead_law.packs.{name}")
     fake.MATTER = name
-    fake.JURISDICTION = "US-CA"
+    fake.JURISDICTION = "US-NM"
+    fake.JURISDICTIONS = ("US-NM",)
     fake.FIELDS = {"deadline": Rung.L1}
     fake.SCHEMA = {"deadline": {"rung": Rung.L1, "matter": name}}
     monkeypatch.setitem(registry_mod.REGISTRY, name, registry_mod._entry(fake))
@@ -76,8 +81,11 @@ def test_the_queue_demo_orders_gates_and_hides_the_cover(tmp_path, monkeypatch):
     as its derived instruction (never its date), and the resting cover held to
     `queue.cover()`'s own rule (I-31) rather than a literal "Nothing is open" —
     true under any registry, not only today's one-matter one. `cover()` returns
-    `{}` whenever there are fewer than two matters or every count is below the
-    anonymity floor, and the real counts otherwise (`cover.K`, `cover_counts`)."""
+    `{}` whenever fewer than two matters hold a deadline or every count is below
+    the anonymity floor, and the real counts otherwise (`cover.K`,
+    `cover_counts`). Both halves are checked: the rule, *and* that the composed
+    surface drew what the rule said — a test that only recomputed the rule would
+    pass with the cover line deleted from the surface entirely."""
     monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
     store = Sidecar()
     out = demo.compose_queue(store)
@@ -89,12 +97,30 @@ def test_the_queue_demo_orders_gates_and_hides_the_cover(tmp_path, monkeypatch):
     assert "A submission is due" in out    # the L4 deadline's derived form
     assert "2026-08-12" not in out         # never the L4 date on the ambient queue
 
+    # the rule `cover()` is held to, recomputed here rather than restated: the
+    # raw aggregate through `cover_counts`, over the matters that actually hold
+    # a deadline. Planting a `cover()` that skips the check (returning the raw
+    # counts) must fail this line.
     resting = queue_mod.cover(store, today=demo.TODAY)
-    counts = queue_mod.counts(store, today=demo.TODAY)
-    expected = cover_counts(list(all_matters()), **counts)
-    assert resting == expected
-    if len(all_matters()) < 2 or all(n < 2 for n in counts.values()):
-        assert resting == {}
+    raw = queue_mod.counts(store, today=demo.TODAY)
+    open_matters = sorted({it.matter for it in queue_mod.queue(store, today=demo.TODAY)})
+    assert resting == cover_counts(open_matters, **raw)
+
+    # …and that the composed surface *drew* that answer, which is the job the
+    # literal `"Nothing is open" in out` used to do. Without this, deleting the
+    # cover line from `compose_queue` outright leaves the test green — the rule
+    # above is about `cover()`, not about what the operator is shown.
+    cover_line = next(l for l in out.splitlines() if l.startswith("cover (resting):"))
+    if resting:
+        for category, n in resting.items():
+            assert category in cover_line and str(n) in cover_line
+    else:
+        assert "Nothing is open" in cover_line
+    for category in raw:
+        if category not in resting:
+            # absence, not zero (I-31): a dropped count leaves no key and no
+            # "0 overdue" standing in for it.
+            assert category not in cover_line
 
 
 # ── the window opens on the household's own records (`compose_store`) ────────
@@ -145,6 +171,32 @@ def test_compose_store_opens_the_real_store_when_a_record_was_entered(tmp_path, 
     window.open_list(context.store.records("custody"))
     assert [row.text for row in window.rows] == ["Dept 9"]
     assert "Jordan Rivera" not in [row.text for row in window.rows]   # no demo bleed
+
+
+def test_compose_store_does_not_seed_the_demo_for_a_second_matters_records(
+    tmp_path, monkeypatch
+):
+    """`_has_real_data` iterates `all_matters()` (I-23), so a household whose
+    only records live in a *second* matter has real data and must not be handed
+    the custody demo on top of it. Held with a second matter registered, because
+    with one pack the registry loop and a hardcoded `demo.MATTER` are
+    indistinguishable — this is the one test that tells them apart."""
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    import os
+
+    from homestead_law.app import view
+
+    _register_second_matter(monkeypatch)
+    Sidecar().put(
+        "_fake_second", "deadline", "primary",
+        Classified(Rung.L1, "2026-09-01", derived="a deadline is set"),
+    )
+
+    context = view.compose_store()
+
+    assert context.demo is False, "a second matter's records are real data too"
+    assert os.environ["HOMESTEAD_HOME"] == str(tmp_path), "the real root stays bound"
+    assert context.store.records(demo.MATTER) == [], "no custody demo seeded over it"
 
 
 def test_the_banner_and_hint_name_the_ways_in():
