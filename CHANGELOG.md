@@ -5,7 +5,6 @@
 
 ### Added
 
-* grant and venture panes; the plan-period line from the two new producers ([32c9804](https://github.com/homestead-affairs/homestead-law/commit/32c9804f1d092da0c54e52e1004176fbb63e9982))
 * grant and venture panes; the plan-period line from the two new producers ([80eed5c](https://github.com/homestead-affairs/homestead-law/commit/80eed5c084ae6f530b725f34aad2c7958b8469b6))
 
 
