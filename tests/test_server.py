@@ -944,9 +944,10 @@ def test_the_deadline_door_refuses_a_free_form_id_by_name(bad, ui):
 
 # ── /api/deadline/compute and /api/deadline/accept (L3-deadline-templates) ──
 #
-# Custody has no TEMPLATES on this branch (the sibling custody bite adds them
-# in parallel) — these monkeypatch one onto the real pack, same as the CLI's
-# own tests for the same two doors.
+# These monkeypatch a template onto the real custody pack, same as the CLI's
+# own tests for the same two doors — setting `TEMPLATES` rather than adding
+# to it, so whatever the sibling custody bite declares in parallel cannot
+# change what a door test here asserts.
 
 _NOTICE_TEMPLATE = {
     "name": "notice", "anchor": "hearing_date", "days": 20,

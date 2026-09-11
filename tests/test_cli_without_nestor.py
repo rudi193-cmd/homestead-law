@@ -583,10 +583,11 @@ def test_deadline_refuses_an_option_it_does_not_take(capsys):
 
 # ── deadline compute / deadline templates (L3-deadline-templates) ───────────
 #
-# Custody has no TEMPLATES on this branch (the sibling custody bite adds them,
-# in parallel) — these tests monkeypatch one onto the real pack rather than
+# These tests monkeypatch a template onto the real custody pack rather than
 # building a fake matter, so the CLI wiring is proven against the same pack
-# every other test in this file already uses.
+# every other test in this file already uses — and they set `TEMPLATES`
+# rather than adding to it, so what the sibling custody bite declares in
+# parallel never changes what a door test here is asserting about.
 
 _NOTICE_TEMPLATE = {
     "name": "notice", "anchor": "hearing_date", "days": 20,
@@ -596,7 +597,15 @@ _NOTICE_TEMPLATE = {
 }
 
 
-def test_deadline_templates_lists_nothing_for_a_pack_with_none(capsys):
+def test_deadline_templates_lists_nothing_for_a_pack_with_none(monkeypatch, capsys):
+    """The empty case. Custody's own `TEMPLATES` is emptied for the duration
+    rather than assumed empty: the sibling custody bite fills it in in
+    parallel, and a test that reads "the listing is empty" as "this pack
+    declares none" would start failing the day it lands — which is a test
+    about the merge order, not about the door."""
+    from homestead_law.packs import custody
+
+    monkeypatch.setattr(custody, "TEMPLATES", (), raising=False)
     assert run_cli(["deadline", "templates", "custody"]) == 0
     assert "no deadline templates declared" in capsys.readouterr().out
 
