@@ -323,8 +323,8 @@ def test_validate_value_refuses_201_chars_naming_the_field_never_echoing():
     """The whole contract of the message, in one place: it names the field, it
     names where the content belongs, it gives the cap — and it repeats no part
     of what was typed (I-15: a reference, never content)."""
-    secret = "L5 SPINAL STENOSIS AT C5-C6 PER DR CHEN"
-    value = secret + "x" * (workers_comp.MAX_L4_CHARS + 1 - len(secret))
+    planted = "L5 SPINAL STENOSIS AT C5-C6 PER DR CHEN"
+    value = planted + "x" * (workers_comp.MAX_L4_CHARS + 1 - len(planted))
 
     assert len(value) == workers_comp.MAX_L4_CHARS + 1
     with pytest.raises(workers_comp.MedicalNarrativeTooLong) as exc:
@@ -334,7 +334,7 @@ def test_validate_value_refuses_201_chars_naming_the_field_never_echoing():
     assert "ime.note" in message
     assert "homestead-health" in message
     assert str(workers_comp.MAX_L4_CHARS) in message
-    for fragment in (secret, "SPINAL", "STENOSIS", "C5-C6", "Chen"):
+    for fragment in (planted, "SPINAL", "STENOSIS", "C5-C6", "Chen"):
         assert fragment not in message
     assert exc.value.field == "ime.note"
     assert isinstance(exc.value, ValueError)
