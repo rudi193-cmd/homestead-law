@@ -5,7 +5,6 @@
 
 ### Added
 
-* sync a consented scope to the fleet — CLI and Sync tab ([8d1892f](https://github.com/homestead-affairs/homestead-law/commit/8d1892ff1735bd1b8e8f31ccdc78e1c614e5e660))
 * sync a consented scope to the fleet — CLI and Sync tab ([6d05d08](https://github.com/homestead-affairs/homestead-law/commit/6d05d0892917744ab2b4e7957bfa47933ab52ff5))
 
 
