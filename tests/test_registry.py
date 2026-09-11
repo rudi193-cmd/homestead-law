@@ -751,3 +751,43 @@ def test_no_derived_form_carries_a_digit():
                 "false for some records or a restatement of the value it exists "
                 "to withhold"
             )
+
+
+def test_a_misspelled_repeatable_fails_the_build():
+    """The audit's plant on the optional declaration itself. `REPEATABLE` is
+    read with `getattr(pack, "REPEATABLE", frozenset())`, which cannot tell a
+    pack that has none from a pack that spelled it `REPEATABLES` — so a
+    misspelling is silently "nothing is repeatable", and the pack author finds
+    out when `--sub` refuses a field they declared. An optional contract needs
+    a spelling check or it is not a contract."""
+    broken_pack = _fake_pack("workers_comp")
+    broken_pack.REPEATABLES = frozenset({"case_number"})
+    entry = registry_mod._entry(broken_pack)
+    with pytest.raises(RuntimeError) as exc:
+        registry_mod._validate(
+            {**REGISTRY, "workers_comp": entry},
+            {"custody": custody, "workers_comp": broken_pack},
+        )
+    assert "REPEATABLES" in str(exc.value) and "REPEATABLE" in str(exc.value)
+
+
+@pytest.mark.parametrize("name", ["REPEATABLES", "REPEATABLE_FIELDS", "REPEAT"])
+def test_every_near_miss_spelling_of_repeatable_fails_the_build(name):
+    """The scan is a prefix rule, not a list of one typo — so it catches the
+    plural, the decorated name and the truncation alike."""
+    broken_pack = _fake_pack("workers_comp")
+    setattr(broken_pack, name, frozenset({"case_number"}))
+    entry = registry_mod._entry(broken_pack)
+    with pytest.raises(RuntimeError) as exc:
+        registry_mod._validate(
+            {**REGISTRY, "workers_comp": entry},
+            {"custody": custody, "workers_comp": broken_pack},
+        )
+    assert name in str(exc.value)
+
+
+def test_the_real_packs_spell_repeatable_correctly():
+    """The positive side over the registry as shipped — the scan fires on a
+    plant above and stays silent here, which is the only pair that proves it
+    checks anything."""
+    registry_mod._validate(REGISTRY, registry_mod._discover_packs())

@@ -202,3 +202,39 @@ def test_queue_module_reaches_no_payload():
         if isinstance(n, ast.Attribute) and n.attr == "payload"
     ]
     assert not reaches, f"queue.py reaches a payload at {reaches}"
+
+
+def test_the_queue_row_text_names_matter_and_instance_in_both_surfaces(
+    tmp_path, monkeypatch
+):
+    """The plan's *"rows and `QueueItem` name matter+instance"*, held against
+    the two places a queue row is actually composed — the CLI's line and the tk
+    pane's listbox — rather than against the dataclass alone. `show_queue`
+    spans every registered matter (L2c) and a matter spans instances (decision
+    2), so a row naming neither cannot be told from the row beneath it. Read
+    out of the source, because the tk pane cannot be driven headless here."""
+    import inspect
+
+    from homestead_law import cli
+    from homestead_law.app import view
+
+    cli_line = inspect.getsource(cli._cmd_queue)
+    assert "{item.matter}/{item.instance}" in cli_line
+
+    pane = inspect.getsource(view.run)
+    assert "{item.matter}/{item.instance}" in pane
+
+
+def test_queue_item_instance_is_a_reference_off_the_ref(tmp_path, monkeypatch):
+    """…and the value behind both is read off the item's own key, never a
+    payload: `split_item_id(ref[2])[0]`."""
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    store = Sidecar()
+    store.put(
+        "custody", "deadline", "or-order.hearing",
+        Classified(Rung.L1, "2026-09-01"),
+    )
+    item = queue_mod.queue(store, today="2026-08-10")[0]
+    assert item.matter == "custody"
+    assert item.instance == "or-order"
+    assert item.ref == ("custody", "deadline", "or-order.hearing")

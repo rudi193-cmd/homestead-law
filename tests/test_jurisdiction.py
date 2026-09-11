@@ -154,18 +154,81 @@ def test_two_instances_carry_independent_jurisdictions():
     assert jurisdiction_of(store, "custody", "or-order") == "US-OR"
 
 
-def test_jurisdiction_of_never_reaches_a_payload():
-    """The chokepoint, pinned for the module most tempted to reach around
-    `serve()` for a one-field string: `jurisdiction.py` reads `Served.value`
-    only."""
-    import ast
-    from pathlib import Path
+# The chokepoint for this module is not re-implemented here: `jurisdiction.py`
+# calls `serve()`, so `tests/test_chokepoint.py` now counts it a surface and
+# holds it to both the `.payload` ban and the wider reflection ban — see
+# `test_the_surface_set_is_derived_from_the_gate_not_a_list_of_directories`.
+# A second, weaker copy of that scan here was the drift this repo keeps
+# catching, one file over.
 
-    from homestead_law import jurisdiction as jurisdiction_mod
 
-    src = Path(jurisdiction_mod.__file__).read_text("utf-8")
-    reaches = [
-        n.lineno for n in ast.walk(ast.parse(src))
-        if isinstance(n, ast.Attribute) and n.attr == "payload"
-    ]
-    assert not reaches, f"jurisdiction.py reaches a payload at {reaches}"
+def test_a_rendered_code_outside_the_packs_tuple_refuses_on_read_too(monkeypatch):
+    """The audit's plant, and the one the rung gate cannot catch. `L1` is the
+    rung `set_jurisdiction` itself writes at, so a hand-planted `US-CA` renders
+    perfectly on `S1_LIST` — `Disposition.RENDER`, a real string, nothing for
+    the gate to object to. Only the pack's own `JURISDICTIONS` says it is not a
+    forum this matter has; checking it on write alone leaves the read path
+    handing arithmetic a jurisdiction no counting rule in this matter supports.
+
+    Same shape as a pack whose tuple *shrank* after an instance was opened: the
+    record was legal when written and is not now."""
+    from homestead_law.registry import matter as matter_of
+
+    store = Sidecar()
+    outside = "US-CA"
+    assert outside not in matter_of("custody").jurisdictions
+    store.put(
+        "custody", "jurisdiction", "primary",
+        Classified(Rung.L1, outside), overwrite=True,
+    )
+
+    with pytest.raises(JurisdictionAbsent) as exc:
+        jurisdiction_of(store, "custody", "primary")
+    message = str(exc.value)
+    assert "custody" in message and "primary" in message
+    assert "US-NM" in message                      # the pack's own published set
+    assert outside not in message                  # a record value, never echoed
+
+
+def test_arbitrary_rendered_text_is_not_a_jurisdiction(monkeypatch):
+    """The same hole with no pretence of being a code: whatever is on disk at
+    L1 renders, so without the read-side check `jurisdiction_of` is just
+    `store.get` with extra steps."""
+    store = Sidecar()
+    store.put(
+        "custody", "jurisdiction", "primary",
+        Classified(Rung.L1, "<script>alert(1)</script>"), overwrite=True,
+    )
+    with pytest.raises(JurisdictionAbsent) as exc:
+        jurisdiction_of(store, "custody", "primary")
+    assert "script" not in str(exc.value)
+
+
+def test_jurisdiction_of_refuses_an_unregistered_matter():
+    """`set_jurisdiction` refuses one (`registry.matter`'s own `KeyError`); the
+    read path did not even ask, so an unregistered matter read back as a plain
+    absence instead of the enumeration error I-23 wants."""
+    store = Sidecar()
+    with pytest.raises(KeyError):
+        jurisdiction_of(store, "not_a_matter", "primary")
+
+
+def test_replace_rewrites_only_the_jurisdiction_record(tmp_path, monkeypatch):
+    """`matter open --replace` is consent to change *this instance's forum*, not
+    to reset the instance. Every other record filed under the same instance id
+    — a different item type, same third key component — is untouched."""
+    from homestead_law import instances as instances_mod
+
+    store = Sidecar()
+    set_jurisdiction(store, "custody", "nm-order", "US-NM")
+    store.put("custody", "courthouse", "nm-order", Classified(Rung.L1, "Dept 4"))
+    store.put(
+        "custody", "deadline", "nm-order.hearing", Classified(Rung.L1, "2099-10-01")
+    )
+
+    set_jurisdiction(store, "custody", "nm-order", "US-OR", replace=True)
+
+    assert jurisdiction_of(store, "custody", "nm-order") == "US-OR"
+    kept = {ref[1] for ref, _ in instances_mod.records_of(store, "custody", "nm-order")}
+    assert kept == {"jurisdiction", "courthouse", "deadline"}
+    assert store.get("custody", "courthouse", "nm-order").payload == "Dept 4"

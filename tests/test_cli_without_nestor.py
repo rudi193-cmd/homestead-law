@@ -159,10 +159,16 @@ def test_deadline_show_and_queue_round_trip(capsys):
     assert "ssn" not in out and "123-45-6789" not in out      # L5: no row, no trace
     assert "A. Rivera" not in out                             # L4 payload never on the list
 
-    # the deadline's own id (`--sub` was not used) is unaffected by instances —
-    # it is still opened exactly as it always was.
-    assert run_cli(["show", "custody", "deadline", "hearing"]) == 0
+    # `deadline custody hearing …` is unchanged on the command line and now
+    # files `primary.hearing`: every deadline is addressed to an instance, so
+    # the key is attributable and `instances_of` can read it.
+    assert run_cli(["show", "custody", "deadline", "primary.hearing"]) == 0
     assert "2099-10-01" in capsys.readouterr().out
+
+    # and the instance listing names it — the thing a free-form id made
+    # impossible.
+    assert run_cli(["show", "custody"]) == 0
+    assert "primary" in capsys.readouterr().out
 
     assert run_cli(["show", "custody", "child_name"]) == 0
     assert "A. Rivera" in capsys.readouterr().out             # …but renders in the detail
@@ -250,7 +256,7 @@ def test_deadline_parses_the_date_and_stores_its_iso_form(capsys):
     assert run_cli(["deadline", "custody", "hearing", "August 10, 2099", "Custody hearing"]) == 0
     capsys.readouterr()
 
-    assert run_cli(["show", "custody", "deadline", "hearing"]) == 0
+    assert run_cli(["show", "custody", "deadline", "primary.hearing"]) == 0
     assert "2099-08-10" in capsys.readouterr().out
 
     # …and it is a real date on the queue, not a gap
@@ -370,6 +376,37 @@ def test_deadline_sub_composes_a_dotted_item_id(capsys):
     assert "2099-10-01" in capsys.readouterr().out
 
 
+def test_deadline_without_sub_files_under_the_default_instance(capsys):
+    """The audit's ruling on this bite: a deadline id is never free-form. The
+    command line an operator already knows is unchanged — `deadline custody
+    hearing …` — and what it writes is `primary.hearing`, an id
+    `instances.split_item_id` can attribute to an instance. Without this, the
+    key scan this same bite adds reads `hearing` as a *phantom instance* that
+    no door can address (`matter open --id hearing` and `show --id hearing`
+    both refuse it), and L3-deadline-templates'
+    `(matter, "deadline", "<inst>.<template>")` has no consistent addressing to
+    grow into."""
+    from homestead_law import instances
+    from homestead_law.store import Sidecar
+
+    assert run_cli(["deadline", "custody", "hearing", "2099-10-01"]) == 0
+    assert "stored: custody/deadline/primary.hearing" in capsys.readouterr().out
+    assert instances.instances_of(Sidecar(), "custody") == ("primary",)
+
+
+@pytest.mark.parametrize("bad", ["it's-due", "Hearing", "has_underscore", "a.b"])
+def test_deadline_refuses_a_free_form_id_by_name_without_echoing_it(bad, capsys):
+    """Engine-legal, instance-illegal. `homestead.keep.store.key()` would hold
+    every one of these; this door will not write one, because an id it cannot
+    split is a deadline that cannot be attributed to an instance. Refused in
+    one line, naming the shape, never repeating what was typed (I-15)."""
+    assert run_cli(["deadline", "custody", bad, "2099-10-01"]) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("refused:")
+    assert "Traceback" not in err
+    assert bad not in err
+
+
 def test_ui_refuses_a_port_that_is_not_a_port(capsys):
     """`int(args[i + 1])` on whatever followed `--port`. Refused before anything
     binds — and refusing here is why this test can run at all."""
@@ -437,7 +474,9 @@ def test_the_two_doors_store_the_same_string_for_the_same_date(tmp_path, monkeyp
     window = Window()
     window.open_list(Sidecar().records("custody"))
     texts = {row.ref[2]: row.text for row in window.rows}
-    assert texts["by-cli"] == texts["by-ui"] == "2099-08-10"
+    # Both doors compose the same instance-addressed key from the same typed
+    # id, so the two are comparable at all: `primary.<id>`.
+    assert texts["primary.by-cli"] == texts["primary.by-ui"] == "2099-08-10"
 
 
 def test_boot_makes_no_directory_outside_the_household_root(tmp_path, monkeypatch):
@@ -493,3 +532,33 @@ def test_every_record_command_writes_only_inside_the_household_root(tmp_path, mo
 
     outside = [p for p in made if p != root and root not in p.parents]
     assert not outside, f"a record command created {outside} outside the household root"
+
+
+def test_show_refuses_a_matter_holding_an_unaddressable_id_in_one_line(capsys):
+    """On the branch as built this was a traceback out of `_cmd_show`: the
+    instance listing called `jurisdiction_of` on every id the key scan returned,
+    and the scan returned ids `item_id` refuses. One free-form deadline —
+    exactly what the pre-instances `deadline` door wrote — and `show custody`
+    crashed. It refuses by name now, one line, no id echoed."""
+    from homestead.keep.rungs import Classified, Rung
+    from homestead_law.store import Sidecar
+
+    Sidecar().put(
+        "custody", "deadline", "it's-due",
+        Classified(Rung.L1, "2099-10-01"), overwrite=True,
+    )
+    assert run_cli(["show", "custody"]) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("refused:")
+    assert "Traceback" not in err
+    assert "it's-due" not in err
+    assert "deadline" in err          # the item type — a reference
+
+
+def test_help_says_an_id_is_a_label_never_a_name(capsys):
+    """The sentence the plan asks `--help` to carry (I-15). Asserted rather
+    than trusted: a doc line nothing reads is a doc line that quietly goes."""
+    from homestead_law.__main__ import main
+
+    assert main(["--help"]) == 0
+    assert "is a label, never a name" in capsys.readouterr().out

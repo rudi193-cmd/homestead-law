@@ -148,3 +148,46 @@ def test_records_of_refuses_a_malformed_instance(tmp_path, monkeypatch):
     store = Sidecar()
     with pytest.raises(instances.InvalidId):
         instances.records_of(store, "custody", "Not Valid")
+
+
+# ── a stored id this convention cannot read ──────────────────────────────────
+
+@pytest.mark.parametrize("stored", ["Upper", "has_underscore", "it's-due", "a.B"])
+def test_instances_of_refuses_a_stored_id_that_does_not_name_an_instance(
+    stored, tmp_path, monkeypatch
+):
+    """The audit's third attack. `homestead.keep.store.key()` is far wider than
+    `ID_PATTERN` — every id here is one the engine will hold — so the key scan
+    meets ids it cannot split. Neither silent answer is honest: *listing* it
+    invents an instance no door can address (`item_id` refuses it, so
+    `--id <that>`, `matter open` and `jurisdiction_of` all refuse the very id
+    the list just offered — which is how `show <matter>` and `/api/instances`
+    turned into an uncaught `InvalidId`), and *skipping* it hides a record from
+    the list whose whole job is to say what is on file. I-11: refuse by name.
+
+    The name is the matter and the item types involved — never the id."""
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    store = Sidecar()
+    store.put("custody", "courthouse", "primary", Classified(Rung.L1, "Dept 4"))
+    store.put("custody", "deadline", stored, Classified(Rung.L1, "2099-10-01"))
+
+    with pytest.raises(instances.UnreadableStoredId) as exc:
+        instances.instances_of(store, "custody")
+    message = str(exc.value)
+    assert "custody" in message and "deadline" in message   # references
+    assert stored not in message                            # never the id itself
+    assert exc.value.item_types == ("deadline",)
+
+
+def test_instances_of_is_clean_when_every_stored_id_is_instance_shaped(
+    tmp_path, monkeypatch
+):
+    """The positive side of the same scan, with a sub and a second instance —
+    the shape the whole convention promises."""
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    store = Sidecar()
+    store.put("custody", "courthouse", "primary", Classified(Rung.L1, "Dept 4"))
+    store.put("custody", "deadline", "primary.child-1", Classified(Rung.L1, "2099-10-01"))
+    store.put("custody", "courthouse", "oregon-2027", Classified(Rung.L1, "Dept 9"))
+
+    assert instances.instances_of(store, "custody") == ("oregon-2027", "primary")

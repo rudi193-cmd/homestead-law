@@ -202,7 +202,12 @@ def test_a_deadline_lands_on_the_queue_and_in_the_records(ui):
     assert data["items"][0]["overdue"] is False
 
     status, data = ui.json("/api/records?matter=custody")
-    assert any(r["item_type"] == "deadline" and r["item_id"] == "hearing" for r in data["rows"])
+    # `id` with no `sub` is the deadline's name under the default instance, so
+    # the stored key is instance-addressed: `primary.hearing`.
+    assert any(
+        r["item_type"] == "deadline" and r["item_id"] == "primary.hearing"
+        for r in data["rows"]
+    )
 
 
 def test_an_l4_deadline_shows_its_instruction_on_the_queue_never_its_date(ui):
@@ -501,12 +506,19 @@ def test_a_refused_body_is_drained_before_the_socket_closes():
     assert server._drain(sock) == 0
 
 
-def test_a_refused_content_length_reaches_the_drain(ui, monkeypatch):
+@pytest.mark.parametrize(
+    "path", ["/api/store", "/api/deadline", "/api/matter/open"])
+def test_a_refused_content_length_reaches_the_drain(path, ui, monkeypatch):
     """The refusal path must actually call the drain on the live connection —
     the unit test above proves what draining does, this proves it happens,
     once, after the answer is on the wire (the client read a 400).  The client
     can hold its 400 before the handler thread reaches the drain, so the check
-    waits for the call rather than asserting the instant the answer lands."""
+    waits for the call rather than asserting the instant the answer lands.
+
+    Over every POST door, including the one L2b added: they share one
+    `try`/`except _BadRequest` today, and a door added outside it would refuse
+    without draining and reset the socket — which is exactly the shape this
+    test exists to catch, so it enumerates the doors rather than one of them."""
     calls = []
     real = server._drain
 
@@ -516,7 +528,7 @@ def test_a_refused_content_length_reaches_the_drain(ui, monkeypatch):
 
     monkeypatch.setattr(server, "_drain", _spy)
     status, raw = _request(
-        ui, "POST", "/api/store", body=b"{}",
+        ui, "POST", path, body=b"{}",
         headers={"Content-Type": "application/json", "Content-Length": "abc"},
     )
     assert status == 400 and json.loads(raw)["error"]
@@ -614,23 +626,46 @@ def test_a_key_the_engine_refuses_is_a_400_on_every_door_that_builds_one(ui):
         assert data["error"]
 
 
-def test_a_stored_key_never_reaches_the_page_as_javascript(ui):
+def test_a_stored_key_never_reaches_the_page_as_javascript(ui, tmp_path):
     """The engine's `key()` refuses separators, NUL and surrounding whitespace —
     and nothing else. A quote is a legal item id, so `deadline/it's-due` is a
-    record a household can really create; the list used to splice that id into
-    `onclick="openRecord('…')"`, where an attribute value is entity-decoded
+    record that can really sit in this store; the list used to splice that id
+    into `onclick="openRecord('…')"`, where an attribute value is entity-decoded
     *before* the script is parsed. No escaping of the id survives that, so the id
     does not go there at all: the key rides in `data-` attributes and the click
-    is bound afterwards."""
+    is bound afterwards.
+
+    **The plant moved from the deadline door to the store** when L2b's audit
+    ruled that every deadline id must be instance-shaped: `/api/deadline` now
+    refuses this id (see the 400 asserted below), so posting it would no longer
+    put it on disk. That makes this regression *stronger*, not weaker — the
+    guarantee was never "the write doors are strict", it was "whatever key is
+    on disk, the page does not execute it", and a key can reach this store from
+    a database written before the instance convention, another tool, or a
+    restore. Planting through `Sidecar` is exactly that key, with no door's
+    validation standing in for the page's escaping."""
+    from homestead.keep.rungs import Classified, Rung
+    from homestead_law.store import Sidecar
+
     # A quote and nothing the key validator refuses: no separator, no NUL, no
     # surrounding whitespace.  Spliced into `openRecord('…')` this closes the
     # literal and runs.
     hostile = "x');alert(1);a='"
+
+    # The write door refuses it — an id that cannot be split is a deadline no
+    # instance can own (L2b audit, decision 2).
     status, data = ui.json(
         "/api/deadline",
         {"matter": "custody", "id": hostile, "date": "2099-10-01"})
-    assert status == 200, "a quote is a valid key component — this id is reachable"
+    assert status == 400 and data["ok"] is False
+    assert hostile not in data["error"], "a refusal never echoes what was typed"
 
+    # …and it is still on disk-reachable, so the page still has to be safe.
+    # `ui` points HOMESTEAD_HOME at tmp_path, so this is the server's own store.
+    Sidecar().put(
+        "custody", "deadline", hostile,
+        Classified(Rung.L1, "2099-10-01"), overwrite=True,
+    )
     status, data = ui.json("/api/records?matter=custody")
     assert any(r["item_id"] == hostile for r in data["rows"])
 
@@ -638,6 +673,28 @@ def test_a_stored_key_never_reaches_the_page_as_javascript(ui):
     assert 'onclick="openRecord(' not in page and "onclick='openRecord(" not in page
     assert "data-id=\"'+esc(row.item_id)+'\"" in page
     assert "addEventListener('click'" in page
+
+
+def test_a_hostile_value_reaches_the_page_only_through_esc(ui):
+    """The other half, where the XSS surface actually is now that keys are
+    shaped: a *value* is free text at any rung the pack declares, so an L1
+    field really can hold `<img src=x onerror=…>`. It must leave `/api/records`
+    unmangled (the store is not an escaper) and reach the page only through
+    `esc`, never spliced into an attribute or a script."""
+    hostile = "\"><img src=x onerror=alert(1)>"
+    status, _ = ui.json(
+        "/api/store",
+        {"matter": "custody", "field": "courthouse", "value": hostile})
+    assert status == 200
+
+    status, data = ui.json("/api/records?matter=custody")
+    row = next(r for r in data["rows"] if r["item_type"] == "courthouse")
+    assert row["text"] == hostile, "the store neither escapes nor strips"
+
+    page = ui.get("/")[1].decode()
+    # every row field the list draws goes through esc(), and esc() escapes both
+    # quotes (pinned by test_the_esc_helper_escapes_every_character_…).
+    assert "esc(row.text)" in page or "esc(r.text)" in page
 
 
 def test_the_esc_helper_escapes_every_character_that_ends_an_attribute():
@@ -798,3 +855,88 @@ def test_a_sealed_deadline_planted_by_hand_never_reaches_the_queue_json(ui, tmp_
     assert status == 200
     assert data["rendered"] is False and data["value"] is None
     assert "2099-03-04" not in json.dumps(data)
+
+
+def test_matter_open_refuses_a_replace_that_is_not_a_boolean(ui):
+    """I-9 on the JSON door. `bool("false")` is `True`, so a coerced `replace`
+    is unconsented overwrite: the operator (or the page) says the word "false"
+    and the instance's jurisdiction is rewritten anyway. `_text` already refuses
+    to coerce a string field for exactly this reason; the consent flag is held
+    to the same rule."""
+    assert ui.json(
+        "/api/matter/open",
+        {"matter": "custody", "id": "primary", "jurisdiction": "US-NM"})[0] == 200
+
+    for bogus in ("false", "no", 0, 1, [], {}):
+        status, data = ui.json(
+            "/api/matter/open",
+            {"matter": "custody", "id": "primary", "jurisdiction": "US-OR",
+             "replace": bogus},
+        )
+        assert status == 400, f"replace={bogus!r} was coerced"
+        assert data["ok"] is False and "replace" in data["error"]
+
+    # …and nothing was rewritten by any of them.
+    status, data = ui.json("/api/instances?matter=custody")
+    assert data["instances"] == [{"id": "primary", "jurisdiction": "US-NM"}]
+
+    status, data = ui.json(
+        "/api/matter/open",
+        {"matter": "custody", "id": "primary", "jurisdiction": "US-OR",
+         "replace": True})
+    assert status == 200 and data["replaced"] is True
+
+
+def test_instances_refuses_a_matter_holding_an_unaddressable_id(ui):
+    """On the branch as built this was a 500 and a dropped connection: the key
+    scan returned an id `item_id` refuses, `jurisdiction_of` raised `InvalidId`
+    through the handler, and one free-form deadline took `/api/instances` down.
+    It is a 400 naming the matter and the item type now — and never the id."""
+    from homestead.keep.rungs import Classified, Rung
+    from homestead_law.store import Sidecar
+
+    Sidecar().put(
+        "custody", "deadline", "it's-due",
+        Classified(Rung.L1, "2099-10-01"), overwrite=True,
+    )
+    status, data = ui.json("/api/instances?matter=custody")
+    assert status == 400
+    assert "deadline" in data["error"] and "it's-due" not in data["error"]
+
+
+def test_the_deadline_door_is_instance_addressed(ui):
+    """`id` with no `sub` is the deadline's *name* under the default instance,
+    so the page's existing form is unchanged and what it writes is
+    `primary.<id>`; `id` + `sub` names another instance. Either way the stored
+    key splits, which is what `/api/instances` and L3-deadline-templates'
+    `(matter, "deadline", "<inst>.<template>")` both need."""
+    assert ui.json("/api/deadline", {
+        "matter": "custody", "id": "hearing", "date": "2099-10-01"})[0] == 200
+    assert ui.json("/api/deadline", {
+        "matter": "custody", "id": "or-order", "sub": "hearing",
+        "date": "2099-11-01"})[0] == 200
+
+    status, data = ui.json("/api/records?matter=custody")
+    stored = {r["item_id"] for r in data["rows"] if r["item_type"] == "deadline"}
+    assert stored == {"primary.hearing", "or-order.hearing"}
+
+    status, data = ui.json("/api/instances?matter=custody")
+    assert {i["id"] for i in data["instances"]} == {"primary", "or-order"}
+    # neither instance has been opened, so neither has a jurisdiction (I-42)
+    assert all(i["jurisdiction"] is None for i in data["instances"])
+
+    status, data = ui.json("/api/queue")
+    assert {i["instance"] for i in data["items"]} == {"primary", "or-order"}
+
+
+@pytest.mark.parametrize("bad", ["it's-due", "Hearing", "has_underscore", "a.b"])
+def test_the_deadline_door_refuses_a_free_form_id_by_name(bad, ui):
+    """Engine-legal, instance-illegal — refused with a 400 that names the shape
+    and never repeats what was posted (I-15), and nothing stored."""
+    status, data = ui.json(
+        "/api/deadline", {"matter": "custody", "id": bad, "date": "2099-10-01"})
+    assert status == 400 and data["ok"] is False
+    assert bad not in data["error"]
+
+    status, data = ui.json("/api/records?matter=custody")
+    assert not [r for r in data["rows"] if r["item_type"] == "deadline"]
