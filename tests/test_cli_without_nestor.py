@@ -787,3 +787,26 @@ def test_deadline_compute_refuses_mail_on_a_backward_template_without_echoing_th
     err = capsys.readouterr().err
     assert err.startswith("refused:") and "objection" in err
     assert "2026-03-01" not in err and "Traceback" not in err
+
+
+def test_deadline_doors_refuse_a_broken_template_by_name_rather_than_tracebacking(
+    monkeypatch, capsys,
+):
+    """`templates_of` re-validates, so a pack reached outside the registry —
+    here, one whose `TEMPLATES` was set after import — still refuses by name
+    at the door instead of raising through it (I-11)."""
+    from homestead_law.packs import custody
+
+    monkeypatch.setattr(custody, "TEMPLATES", ({
+        "name": "broken", "anchor": "case_number", "days": 5,
+        "direction": "forward", "rule": "court_days", "mail": False,
+        "jurisdiction": None, "source": "test", "status": "VERIFIED", "note": "",
+    },), raising=False)      # case_number is L3 on custody, not L1
+
+    assert run_cli(["deadline", "templates", "custody"]) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("refused:") and "Traceback" not in err
+
+    assert run_cli(["deadline", "compute", "custody", "broken", "--id", "primary"]) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("refused:") and "Traceback" not in err

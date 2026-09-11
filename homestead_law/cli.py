@@ -362,7 +362,16 @@ def _cmd_deadline_templates(args: Sequence[str]) -> int:
 
     from homestead_law import rules
 
-    templates = rules.templates_of(mt)
+    try:
+        templates = rules.templates_of(mt)
+    except rules.InvalidTemplate as exc:
+        # Unreachable for a pack that came through the registry, which
+        # validates the same data at import — but `templates_of` re-validates
+        # precisely because a pack can be reached another way (a test that
+        # sets `TEMPLATES` on a real module), and a door that answers that
+        # with a traceback is not failing closed, it is just failing (I-11).
+        print(f"refused: {exc}", file=sys.stderr)
+        return 1
     if not templates:
         print(f"  {matter_name}: no deadline templates declared")
         return 0
@@ -436,6 +445,7 @@ def _cmd_deadline_compute(args: Sequence[str]) -> int:
         instances.InvalidId,
         JurisdictionAbsent,
         UnparseableDate,
+        rules.InvalidTemplate,
         rules.TemplateNotFound,
         rules.AmbiguousTemplate,
         rules.AnchorUnavailable,
