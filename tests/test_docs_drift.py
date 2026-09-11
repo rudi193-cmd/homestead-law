@@ -23,10 +23,18 @@ anything.
 3. **`rules.accept`'s stored instruction** hard-coded `"confirm against the
    court's notice"` for every accepted template, including `L8-venture`'s
    `election-83b` — an IRS filing window under 26 U.S.C. § 83(b), with no
-   court. Corrected to `"confirm against the source above"`, which names
+   court. Corrected to `"confirm against that source"`, which names
    what the instruction already states a sentence earlier and holds
    regardless of whether the source is a court, a trustee's rule, or the tax
-   code.
+   code. Not `"the source *above*"` (audit, second pass): "above" is true of
+   the CLI's `source:` line and the page's preview div, and false of the
+   third door — the stored string is read back on its own by `show`, the
+   queue and the pane — and several `source` texts end in a PROVENANCE
+   sentence saying "see the module-level note above", which put two
+   different "above"s in one stored line. What each real pack's accepted
+   instruction says is pinned per pack in `tests/test_rules.py`'s last
+   section; this guard holds only that the forum-specific wording does not
+   come back.
 
 **What this file is not.** Most of the known suspects from the affairs
 build-out plan's drift-inventory list ("only custody is registered", the
@@ -167,7 +175,7 @@ def test_the_l4_surfaces_promise_guard_fires_on_a_planted_regression(tmp_path):
 # ── 3. rules.accept's "confirm against the court's notice" wording ──────
 
 STALE_COURT_NOTICE_INSTRUCTION = "confirm against the court's notice"
-CORRECTED_SOURCE_INSTRUCTION = "confirm against the source above"
+CORRECTED_SOURCE_INSTRUCTION = "confirm against that source"
 
 #: `homestead_law/packs/custody.py`'s own per-template `note` for
 #: `nm-registration-contest` legitimately says "confirm against the court's

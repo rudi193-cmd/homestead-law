@@ -829,7 +829,7 @@ def accept(
 
     Writes `(matter, "deadline", instances.item_id(instance, template))` at
     `L1` with the instruction `"computed from <anchor_field> under <source>;
-    confirm against the source above"` — the same two-field shape (a date,
+    confirm against that source"` — the same two-field shape (a date,
     an instruction) the existing `deadline` command already writes, so the
     queue and the detail pane read an accepted template exactly as they read
     a hand-entered deadline; nothing downstream needs to know which door
@@ -863,9 +863,21 @@ def accept(
     # day a non-judicial template used this same writer (X7-drift audit,
     # 2026-09-11) — corrected to name what was already right there, the
     # source just stated, rather than assuming a forum that may not exist.
+    #
+    # *"That source"*, not *"the source above"* (same audit, second pass):
+    # "above" is true at two of the three doors and false at the third. The
+    # CLI prints `source:` on the line above `accepted:`, and the page shows
+    # the source div above the Accept button — but this string is also read
+    # back on its own, by `show`, the queue and the pane, where there is no
+    # "above" to point at, and several `source` texts end in a PROVENANCE
+    # sentence of their own that says "see the module-level note above",
+    # so the stored line read "... note above.; confirm against the source
+    # above" with the two "above"s meaning different things. The source is
+    # named in this same sentence; "that source" points at it from every
+    # door and assumes no layout.
     instruction = (
         f"computed from {computed.anchor_field} under {computed.source}; "
-        "confirm against the source above"
+        "confirm against that source"
     )
     item = Classified(Rung.L1, computed.result_iso, instruction)
     return store.put(computed.matter, "deadline", item_id, item, overwrite=replace)

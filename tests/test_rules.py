@@ -657,7 +657,7 @@ def test_accept_writes_the_same_two_field_shape_the_deadline_command_uses(nm_ins
     assert record.payload == computed.result_iso
     assert record.derived == (
         "computed from move_date under NMSA 40-10A-305; "
-        "confirm against the source above"
+        "confirm against that source"
     )
 
 
@@ -1322,3 +1322,117 @@ def test_the_cli_says_which_calendar_the_real_pack_counted_on(capsys):
     assert _CLAIMS_BAR_WITH_NM in out
     assert "district holidays: NM" in out
     assert "district holidays not applied" not in out
+
+
+# ── what an accepted deadline actually says, on each real pack ──────────────
+#
+# X7-drift-law audit, 2026-09-11. `accept()` writes one instruction for every
+# template every pack declares, so "is it true?" cannot be answered on a fake
+# pack: it has to be asked of the real ones. The ruling this pins is that the
+# instruction names **the template's own source and no forum at all** — the
+# word "court" appears nowhere in the wording `accept()` adds, for any pack,
+# because three of law's four template-carrying authorities are not courts
+# (FRBP is a rule set, NMSA a statute, 26 U.S.C. the tax code) and the fourth
+# is a court only for custody. The source is free to say "the court" in its
+# own quoted text; that is the source speaking, and it is quoted, not
+# asserted.
+
+_ACCEPT_PREFIX = "computed from "
+_ACCEPT_SUFFIX = "; confirm against that source"
+
+#: One template per pack that declares any, with the authority its stored
+#: instruction must name. Not the whole `source` string — those run to a
+#: paragraph of PROVENANCE — but the citation an operator would look up.
+_ACCEPT_CASES = (
+    ("bankruptcy", "primary", "claims-bar", "petition_date", "FRBP 3002(c)"),
+    ("custody", "primary", "nm-registration-contest",
+     "uccjea_registration_date", "NMSA 1978 § 40-10A-305"),
+    ("venture", "primary", "election-83b", "grant_date", "26 U.S.C. § 83(b)(2)"),
+)
+
+
+def _accept_on_the_real_pack(matter_name, instance, template, anchor_field, code):
+    """Open a real instance, put its anchor, compute and accept — and hand
+    back the stored `L1` record. No fake pack and no monkeypatching: the
+    wording under test is the one a real operator would read back."""
+    from homestead_law.registry import matter as registry_matter
+
+    store = Sidecar()
+    set_jurisdiction(store, matter_name, instance, code)
+    rung = registry_matter(matter_name).fields[anchor_field]
+    store.put(matter_name, anchor_field, instance, Classified(rung, "2026-01-15"))
+    computed = rules.compute(store, matter_name, instance, template)
+    rules.accept(store, computed, token=computed.preview_token)
+    return store.get(
+        matter_name, "deadline", instances.item_id(instance, template))
+
+
+def test_the_accepted_instruction_names_its_packs_own_source():
+    """One accepted deadline per template-carrying pack. Each stored
+    instruction opens with the anchor it counted from, names that pack's own
+    authority, and closes with the forum-neutral sentence — the same six
+    words whichever pack wrote it."""
+    jurisdictions = {"bankruptcy": "US-federal", "custody": "US-NM", "venture": "US-DE"}
+    for matter_name, instance, template, anchor_field, citation in _ACCEPT_CASES:
+        record = _accept_on_the_real_pack(
+            matter_name, instance, template, anchor_field,
+            jurisdictions[matter_name])
+        assert record.rung is Rung.L1
+        assert record.derived.startswith(f"{_ACCEPT_PREFIX}{anchor_field} under "), (
+            f"{matter_name}/{template}: the instruction must open by naming "
+            f"the anchor it counted from; got {record.derived[:80]!r}"
+        )
+        assert record.derived.endswith(_ACCEPT_SUFFIX), (
+            f"{matter_name}/{template}: the instruction must close with "
+            f"{_ACCEPT_SUFFIX!r}; got {record.derived[-60:]!r}"
+        )
+        assert citation in record.derived, (
+            f"{matter_name}/{template}: the stored instruction never names "
+            f"{citation!r}, so the operator is told to confirm against a "
+            "source the record does not identify"
+        )
+
+
+def test_accepts_own_wording_names_no_forum_for_any_pack():
+    """The other half of the same ruling, and the one that would have caught
+    the drift: "court" is dropped from `accept()`'s wording **everywhere**,
+    not swapped for a per-pack word. Checked on what `accept()` adds — the
+    record's instruction with the template's own quoted `source` removed —
+    because the sources themselves legitimately quote statutes that say "the
+    court" (FRBP 3015(f)'s "unless the court orders otherwise"), and banning
+    the word inside a quotation would be banning the quotation."""
+    jurisdictions = {"bankruptcy": "US-federal", "custody": "US-NM", "venture": "US-DE"}
+    for matter_name, instance, template, anchor_field, _ in _ACCEPT_CASES:
+        record = _accept_on_the_real_pack(
+            matter_name, instance, template, anchor_field,
+            jurisdictions[matter_name])
+        computed_source = record.derived[
+            len(f"{_ACCEPT_PREFIX}{anchor_field} under "):-len(_ACCEPT_SUFFIX)
+        ]
+        accepts_own_words = record.derived.replace(computed_source, "<source>")
+        assert accepts_own_words == (
+            f"{_ACCEPT_PREFIX}{anchor_field} under <source>{_ACCEPT_SUFFIX}"
+        )
+        assert "court" not in accepts_own_words.lower(), (
+            f"{matter_name}/{template}: accept()'s own wording names a forum "
+            "— it is shared by every pack and three of law's four authorities "
+            "are not courts"
+        )
+
+
+def test_the_instruction_stands_alone_without_the_preview_above_it():
+    """Why the sentence does not say "the source *above*". The CLI prints
+    `source:` above `accepted:` and the page shows it above the Accept
+    button, but this same string is read back on its own — and several
+    `source` texts end in a PROVENANCE sentence of their own that says "see
+    the module-level note above", so "the source above" put two different
+    "above"s in one line. Planted here as the regression: the stored
+    instruction must contain no "above" that `accept()` itself wrote."""
+    record = _accept_on_the_real_pack(
+        "bankruptcy", "primary", "claims-bar", "petition_date", "US-federal")
+    assert "above" not in record.derived[-len(_ACCEPT_SUFFIX):]
+    # and the quoted source really does carry an "above" of its own, pointing
+    # at the pack module — the collision the wording avoids, not a
+    # hypothetical. Asserted on the source half, so a reworded PROVENANCE
+    # note changes which sentence carries it and not whether the claim holds.
+    assert "above" in record.derived[:-len(_ACCEPT_SUFFIX)]
