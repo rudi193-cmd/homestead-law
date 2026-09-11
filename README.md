@@ -216,9 +216,127 @@ date it cannot stand behind, so the operator's own read of the court's notice
 is what goes on file, at the rung `deadline` was always given at (L1 by
 default).
 
+## Bankruptcy (Chapter 13)
+
+`homestead_law/packs/bankruptcy.py` is the second real pack, the first with
+`JURISDICTION`/`JURISDICTIONS` fixed to `("US-federal",)` — a Chapter 13 case
+does not move between forums the way a custody order can. 35 fields: case
+administrivia (`district`, `district_state`, `courthouse`, `chapter`,
+`case_number`, `trustee`)
+and every procedural date this case has (`petition_date` the anchor,
+`creditor_meeting_date`, `plan_filed_date`, `first_plan_payment_due`,
+`claims_bar_date`, `governmental_claims_bar_date`, `confirmation_hearing_date`,
+`objection_deadline`, `plan_confirmation_date`, `plan_completion_date`,
+`debtor_education_date`, `discharge_date`, repeatable `plan_modification`) at
+`L1`; `plan_payment_amount`/`income`/`assets` at `L3` (the same posture the
+engine's own bankruptcy pack gives `income`/`assets` — resolves to the
+debtor's finances, no further protected category); repeatable `creditor.*`
+(name/amount_scheduled/claim_amount `L3`, secured/claim_filed_date/
+claim_number `L1`, note `L4` — the per-creditor decomposition of the engine
+pack's aggregate `creditors` field, decision 2's repeatable shape); `attorney`
+`L2`; `notes` `L4`; `ssn` `L5`. `account_number` is refused as a field name at
+import (`_refuse_account_number`) — an account number is ledger content, one
+`L5` record per account instance (provisional I-43), never a law field.
+
+**`NOTICE`** — rendered by every surface that opens this matter: *"This pack
+keeps dates and references for a Chapter 13 case. It drafts nothing, files
+nothing, and does not say which chapter fits."* Provisional **I-44**
+(`tests/test_i44_no_drafting.py`) fails the build if `Purpose.DRAFTING` or
+`Purpose.FILING` is ever referenced under `homestead_law/`, and separately if
+any string literal in the tree carries an advice-shaped phrase (a filing
+command, a chapter recommendation).
+
+**`TEMPLATES`** — five deadlines, as a **tuple** of rows of data (`name`,
+`anchor`, `days`,
+`direction`, `rule`, `mail`, `jurisdiction`, `source`, `status`, `note`); the
+sibling `rules.py` bite (L3-deadline-templates) reads this table and does the
+counting — nothing here imports it or `homestead.keep.dates`. All five
+anchor on an `L1` field of this pack and are `VERIFIED` (converging secondary
+sources — see each `source`'s dated PROVENANCE sentence; every primary host
+this environment could try was refused by the egress proxy):
+
+| template | anchor | days | direction / rule | mail | citation |
+|---|---|---|---|---|---|
+| `plan-filed` | `petition_date` | 14 | forward, court days | no | FRBP 3015(b) |
+| `first-plan-payment` | `petition_date` | 30 | forward, calendar days | no | 11 U.S.C. § 1326(a)(1) |
+| `claims-bar` | `petition_date` | 70 | forward, court days | no | FRBP 3002(c) |
+| `governmental-claims-bar` | `petition_date` | 180 | forward, court days | no | FRBP 3002(c)(1) |
+| `objection` | `confirmation_hearing_date` | 7 | backward, court days | **no** | FRBP 3015(f) |
+
+A template name is stored as the sub half of `(matter, "deadline",
+"<instance>.<template>")`, so it is an **id**: lowercase, digits and hyphens,
+never an underscore.
+
+`objection` takes **no** mail days, and that is the rule rather than an
+omission. FRBP 9006(f) adds its three days to a period that runs *after
+service*, and adds them **forward**; an objection deadline runs backward from
+the confirmation hearing, so there is nothing for them to extend — and adding
+them anyway would name a date *later* than the 7-days-before cutoff the rule
+sets. Some districts lengthen the 7 days by local rule; the template encodes
+the FRBP default and its `note` says to check the district's own rules.
+`first-plan-payment` anchors on `petition_date` alone, so § 1326(a)(1)'s
+"whichever is earlier" clause is the operator's to apply — its `note` says so.
+
+`creditor_meeting_date` (the § 341 meeting) is deliberately **never
+computed** — its 21–50-day window is set administratively by the U.S.
+Trustee, not by a rule this pack can count.
+
+**`district_state` — the second calendar a forward count reads.** FRBP
+9006(a)(6)(C) makes "any other day declared a holiday by the state where the
+district court is located" a legal holiday too, for periods measured **after**
+an event. The pack is general — a Chapter 13 case is filed in whichever
+district the debtor lives in — so the district's state is an `L1` field on the
+*instance*, entered like any other, not a constant in the table and not a
+lookup from `district` (a court-name-to-state table is an enumeration, which
+I-23 keeps in a registry or a pack, and every miss in one would be a silently
+wrong calendar rather than a refusal):
+
+```bash
+homestead-law put bankruptcy district      "District of New Mexico" --id primary
+homestead-law put bankruptcy district_state NM --id primary
+```
+
+With it, the sibling `rules.py` bite counts the three `court_days` rows on
+both calendars; without it they are counted federally and every door says
+"district holidays not applied" rather than letting the operator assume state
+closures were counted. It matters: a 2026-09-18 petition puts `claims-bar`
+(70 days forward) on **2026-11-27** federally and **2026-11-30** with
+`district_state` = `NM`, because New Mexico keeps Presidents' Day on the
+Friday after Thanksgiving and its district courts are closed on a day the
+federal calendar has open. `first-plan-payment` is unaffected and its `note`
+says why — calendar days read no calendar at all.
+
+**The plan-period interaction flag** (`homestead_law.plan_period`). While a
+bankruptcy instance is confirmed (`plan_confirmation_date` on file) and not
+yet discharged (`discharge_date` absent), the presence of a
+`SIGNAL_FIELDS` record — `award_amount`, `disbursement`, `safe`,
+`equity_grant`, `revenue_start` — in *any other* registered matter (Wave 8's
+still-unbuilt `grant`/`venture` packs) yields one reference line:
+
+> `bankruptcy/<instance>: income or assets arising during the plan: confirm
+> with your attorney (11 U.S.C. §§ 541(a)(7), 1306(a), 1329; disclosure
+> duties under the plan and local rules)`
+
+Never a value, never a number, and it never blocks a `put`, a `deadline`, or
+anything else — a flag, not a refusal. `queue.notices(store)` is the one
+queue hook: a tuple of such lines, alongside — not inside — the dated
+`QueueItem` list, since a reference line has no date to sort or gap-check.
+`homestead-law queue` prints each one after the items (and prints them even
+when nothing is due — a notice has no date, so it neither expires nor waits
+its turn), and `GET /api/queue` carries them in a `notices` array beside
+`items`. Rendering them on the browser pane is L4-surfaces' work.
+
+Only a value that actually **renders** counts as on file: a
+`plan_confirmation_date` hand-stored at the wrong rung derives rather than
+renders, and a derived form is not a date anything read, so it is treated as
+absent (no line) — the same reading the sibling `rules.py` gives an anchor it
+cannot see. The line itself is computed on every read and never logged: it is
+a reference derived from records that were logged when they were written, not
+an event of its own.
+
 ## Workers' comp
 
-A second registered matter, `workers_comp` — an active New Mexico WCA claim
+A third registered matter, `workers_comp` — an active New Mexico WCA claim
 that stays an NM claim after the household's move to Oregon (unlike custody,
 `JURISDICTIONS = ("US-NM",)`: the forum does not move, only where treatment
 happens does). Registering it touched exactly one line in `registry.py`

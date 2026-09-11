@@ -628,46 +628,62 @@ def test_the_advice_scan_fires_on_a_planted_sentence():
 
 
 README = Path(__file__).resolve().parent.parent / "README.md"
+#: The README heading this pack's own prose lives under, and the shape that
+#: ends it. Scoped deliberately: the whole-file version of this scan is the
+#: package-wide one (`tests/test_i44_no_drafting.py`, which also carries the
+#: carve-out for the sanctioned disclaimer sentence). This test owns the
+#: section this pack wrote, and re-implements nothing.
+_SECTION = "## Workers' comp"
 
 
-def test_the_readme_does_not_spell_the_phrases_it_says_are_banned():
+def _workers_comp_section(text: str) -> str:
+    """This pack's own README section, heading to the next one."""
+    start = text.index(_SECTION)
+    rest = text.index("\n## ", start + len(_SECTION))
+    return text[start:rest]
+
+
+def test_the_readme_section_does_not_spell_the_phrases_it_says_are_banned():
     """Prose *about* the ban is still prose the ban reads.
 
     The paragraph describing this pack's advice guard used to quote its own
     phrase list — "you should"/"file by"/"which chapter" in the README's
     running text. That is indistinguishable, to a substring scan, from the
-    advice it was disclaiming: the sibling bite's I-44 guard reads `README.md`
-    as well as the package (a phrase ban binds what the operator reads, not
-    only what the interpreter parses), and it fired here. The fix is to
-    *describe* the guard rather than spell it — the phrase list lives in this
-    file, which is out of the scan's reach, and the README points at it.
+    advice it was disclaiming: the sibling bankruptcy bite's I-44 guard reads
+    `README.md` as well as the package (a phrase ban binds what the operator
+    reads, not only what the interpreter parses), and it fired here. The fix
+    is to *describe* the guard rather than spell it — the phrase list lives in
+    this file, which is out of the scan's reach, and the README points at it.
 
-    So this test holds the README to the same list the schema text is held to
-    above. It is the check that would have caught the quoting, kept next to
-    the paragraph's own claim rather than only in the scan that found it.
+    So this test holds this pack's README section to the same list its schema
+    text is held to above. It is the check that would have caught the quoting,
+    kept next to the paragraph's own claim rather than only in the
+    package-wide scan that found it.
     """
-    lowered = README.read_text("utf-8").lower()
+    lowered = _workers_comp_section(README.read_text("utf-8")).lower()
     offenders = [phrase for phrase in _ADVICE if phrase in lowered]
     assert not offenders, (
-        f"README.md contains advice-shaped phrases {offenders}. Decision 8: "
-        "this face models a case and never instructs — including where it is "
-        "explaining that it never instructs. Describe the phrase shape "
-        "instead of quoting it."
+        f"the README's {_SECTION!r} section contains advice-shaped phrases "
+        f"{offenders}. Decision 8: this face models a case and never "
+        "instructs — including where it is explaining that it never "
+        "instructs. Describe the phrase shape instead of quoting it."
     )
 
 
-def test_the_readme_scan_fires_on_a_planted_paragraph(tmp_path):
+def test_the_readme_section_scan_fires_on_a_planted_paragraph():
     """A scan that has never fired has not been shown to check anything —
-    so plant the exact defect that was here, in a copy, and watch it fire."""
-    planted = tmp_path / "README.md"
-    planted.write_text(
-        README.read_text("utf-8")
-        + '\n\nheld against "you should"/"file by"/"which chapter" language.\n',
-        "utf-8",
+    so plant the exact defect that was here, in a copy of the file, and watch
+    it fire. Planted *inside* the section, which also proves the slice is the
+    part of the README this test is reading."""
+    text = README.read_text("utf-8")
+    planted = text.replace(
+        _SECTION,
+        _SECTION + '\n\nheld against "you should"/"file by" language.',
+        1,
     )
-    lowered = planted.read_text("utf-8").lower()
+    lowered = _workers_comp_section(planted).lower()
     offenders = [phrase for phrase in _ADVICE if phrase in lowered]
-    assert offenders, "the README phrase scan did not fire on a planted quote"
+    assert offenders, "the README section phrase scan did not fire on a planted quote"
 
 
 # ── I-23: the registry scan stays green with this pack on disk ──────────────

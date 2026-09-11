@@ -42,18 +42,24 @@ instead of rummaging a module's namespace for whatever it happens to expose.
 `jurisdictions` is every jurisdiction it may be filed in (decision 1); the
 guard below holds the first inside the second.
 
-## ~~Only custody is built~~ custody and workers_comp are built (wave 3)
+## What is built
 
-~~Custody is the one pack in v1 — "one pack proves the seam; three prove
-nothing that one does not." Bankruptcy and workers' comp are the two other
-types the model discusses (a case number is L1 in a bankruptcy, L3 in a family
-matter), and they are Phase 5, not built.~~ (struck 2026-09-11, L3-workers-comp)
-`homestead_law.packs.workers_comp` is now registered — an active New Mexico
-WCA claim, decision 7's "workers' comp is a law pack; medical content stays in
-health." Bankruptcy remains the one other type the model discusses and is not
-yet in this registry (its own parallel wave-3 bite); inventing a stub for it
-would still be the hand-kept phantom this invariant forbids — a matter name in
-a list with no pack behind it, the missing half of BUG-6.
+~~Custody is the one pack in v1 — *"one pack proves the seam; three prove
+nothing that one does not."* Bankruptcy and workers' comp are the two other
+types the model discusses (a case number is `L1` in a bankruptcy, `L3` in a
+family matter), and they are **Phase 5, not built**.~~ (struck 2026-09-11/12,
+across the two wave-3 bites that landed them: `packs/workers_comp.py` with
+L3-workers-comp — an active New Mexico WCA claim, decision 7's "workers' comp
+is a law pack; medical content stays in health" — and `packs/bankruptcy.py`
+with L3-bankruptcy-ch13. All three types the model discusses now have a pack
+behind them. `case_number` `L1`-in-bankruptcy/`L3`-in-custody is a check two
+real packs pass rather than a contrast this docstring describes:
+`tests/test_bankruptcy_pack.py::test_case_number_is_l1_here_and_l3_in_custody_the_worked_example`.)
+The rule the struck sentence was really stating stands unchanged, and is now
+the only thing it says: a matter is registered **only** when a pack backs it,
+and inventing a stub for one that has none would be the hand-kept phantom this
+invariant forbids — a matter name in a list with no pack behind it, which is
+the missing half of BUG-6.
 
 ## What it does not hold
 
@@ -73,7 +79,7 @@ from typing import Any, Mapping
 
 from homestead_law import packs
 from homestead.keep.rungs import Rung
-from homestead_law.packs import custody, workers_comp
+from homestead_law.packs import bankruptcy, custody, workers_comp
 
 __all__ = ["MatterType", "REGISTRY", "all_matters", "matter"]
 
@@ -145,10 +151,11 @@ def _entry(pack: ModuleType) -> MatterType:
 #: The one enumeration (I-23). Keyed by matter name → its `MatterType`. Authored
 #: here, the way `surfaces.FACTS` is authored — add a pack by importing it and
 #: adding a line, and everything that iterates `all_matters()` picks it up with
-#: no other change. `custody` and `workers_comp` are built; bankruptcy is the
-#: remaining type the model discusses and is not yet in this registry.
+#: no other change. Custody, bankruptcy and workers' comp are all built (wave
+#: 3); every matter type the model discusses has a pack behind it.
 REGISTRY: dict[str, MatterType] = {
     custody.MATTER: _entry(custody),
+    bankruptcy.MATTER: _entry(bankruptcy),
     workers_comp.MATTER: _entry(workers_comp),
 }
 
@@ -339,8 +346,8 @@ def _validate(registry: Mapping[str, Any], on_disk: Mapping[str, ModuleType]) ->
         raise RuntimeError(
             f"registry entries with no pack: {phantom}. A matter name in the "
             "enumeration with no pack behind it is the hand-kept phantom I-23 "
-            "forbids — enumerate only what is built (custody; bankruptcy and "
-            "workers' comp are Phase 5)."
+            "forbids — enumerate only what is built (custody, bankruptcy "
+            "and workers' comp, each with a pack on disk behind it)."
         )
 
 

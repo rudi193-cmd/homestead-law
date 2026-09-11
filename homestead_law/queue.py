@@ -35,7 +35,7 @@ from homestead_law.app.cover import cover_counts
 from homestead_law.registry import all_matters
 from homestead_law.store import Due, Ref, Sidecar
 
-__all__ = ["QueueItem", "queue", "counts", "cover"]
+__all__ = ["QueueItem", "queue", "counts", "cover", "notices"]
 
 
 @dataclass(frozen=True)
@@ -152,3 +152,20 @@ def cover(store: Sidecar, *, today: str, soon_days: int = 14) -> dict[str, int]:
     return cover_counts(
         open_matters, **counts(store, today=today, soon_days=soon_days)
     )
+
+
+def notices(store: Sidecar) -> tuple[str, ...]:
+    """Reference lines from every consumer that flags a cross-matter
+    interaction rather than a deadline — today, only
+    `homestead_law.plan_period.flag` (L3-bankruptcy-ch13's plan-period
+    interaction flag; Wave 8 wires the producers). A line here is never a
+    `QueueItem`: it carries no date, so it cannot be sorted by urgency or
+    dropped by the gap/sealed rules above without inventing a date it does
+    not have — a tuple of strings the CLI and the app print after the queue
+    instead, the smallest change that shows them on the queue without
+    stretching `QueueItem`'s own contract to a shape it was not built for.
+    Imported lazily so a module with no cross-matter consumer of its own pays
+    nothing to import this one."""
+    from homestead_law import plan_period
+
+    return plan_period.flag(store)

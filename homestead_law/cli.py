@@ -751,11 +751,16 @@ def _cmd_queue(args: Sequence[str]) -> int:
     from homestead_law import queue as queue_mod
 
     items = queue_mod.queue(sidecar, today=today)
+    # Reference lines (`queue.notices`) print after the items and are printed
+    # even when nothing is due: a cross-matter interaction has no date, so it
+    # neither expires nor waits its turn, and "nothing due" would otherwise
+    # swallow it. One line each, no rung marker and no urgency — it is not a
+    # deadline and must not read like one.
+    notices = queue_mod.notices(sidecar)
     if not items:
         print("  nothing due")
-        return 0
-
-    print(f"  as of {today}:")
+    else:
+        print(f"  as of {today}:")
     for item in items:
         if item.gap:
             mark = "date unreadable"
@@ -766,6 +771,8 @@ def _cmd_queue(args: Sequence[str]) -> int:
         # Named by matter and instance (a reference — I-15), not by the raw
         # item id, which may carry a sub the operator never asked to see here.
         print(f"  [{item.rung.value}]  {item.matter}/{item.instance}  {item.shown}  ·  {mark}")
+    for line in notices:
+        print(f"  note: {line}")
     return 0
 
 
