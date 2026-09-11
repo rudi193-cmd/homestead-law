@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.2.0](https://github.com/homestead-affairs/homestead-law/compare/v0.1.1...v0.2.0) (2026-09-11)
+
+
+### Added
+
+* jurisdiction and derived forms on the custody pack (decisions 1, 3) ([945a44a](https://github.com/homestead-affairs/homestead-law/commit/945a44a0c1aeb4702e46bd66b26cc8c230f88913))
+* let a household enter and read its own records without the entity extra ([86817fa](https://github.com/homestead-affairs/homestead-law/commit/86817fa5026ce16621cbcb51df68e60a01c3701d))
+
+
+### Fixed
+
+* rest the cover on the matters a household has, not the packs it ships ([4741d7e](https://github.com/homestead-affairs/homestead-law/commit/4741d7e0452b712bdcf74e185023d001a0694dd7))
+* require a derived form at import and scan the registry for tables too ([72cbb56](https://github.com/homestead-affairs/homestead-law/commit/72cbb56a9c4f9774b2c4787aa7df1bb13694c72d))
+* drain a refused request body before the socket closes ([add4f68](https://github.com/homestead-affairs/homestead-law/commit/add4f6856696b358fd0a642657cd1c41871afbc1))
+* draw one cover button and one queue pane per registered matter ([ed8df14](https://github.com/homestead-affairs/homestead-law/commit/ed8df143887db63c188777a956b03a62badd11cc))
+* refuse a missing matter, parse the CLI's dates, and smoke every module ([ec23c0b](https://github.com/homestead-affairs/homestead-law/commit/ec23c0b64d69819d26c6e1f785fba9b151b70a1c))
+
 ## [0.1.1](https://github.com/homestead-affairs/homestead-law/compare/v0.1.0...v0.1.1) (2026-08-24)
 
 

@@ -18,10 +18,32 @@ import json
 import sys
 import threading
 import time
+import types
 
 import pytest
 
+from homestead.keep.rungs import Rung
 from homestead_law import nestor_seam, server
+from homestead_law import registry as registry_mod
+
+
+def _register_second_matter(monkeypatch, name: str = "_fake_second") -> None:
+    """Add a second matter to the registry — a real module, keyed by its own
+    `MATTER`, injected for the test. `"_fake_second"`, never a real future pack
+    name (bankruptcy/workers' comp land in Wave 3), so this stays a fake second
+    matter even after they are registered for real. `monkeypatch.setitem`
+    removes it again at teardown, so the registry a later test reads is the real
+    one no matter what order the suite runs in. It declares `JURISDICTIONS`
+    alongside `JURISDICTION` — the pack contract decision 1 settles — so this
+    fake stays a stand-in for a real pack once the registry validates that
+    tuple."""
+    fake = types.ModuleType(f"homestead_law.packs.{name}")
+    fake.MATTER = name
+    fake.JURISDICTION = "US-NM"
+    fake.JURISDICTIONS = ("US-NM",)
+    fake.FIELDS = {"case_number": Rung.L1}
+    fake.SCHEMA = {"case_number": {"rung": Rung.L1, "matter": name, "why": "fake"}}
+    monkeypatch.setitem(registry_mod.REGISTRY, name, registry_mod._entry(fake))
 
 
 @pytest.fixture
@@ -80,6 +102,23 @@ def test_matters_lists_every_registered_field_with_its_declared_rung(ui):
     assert fields["child_name"] == "L4"
     assert fields["ssn"] == "L5"
     assert all(f["why"] for f in custody["fields"])
+
+
+@pytest.mark.parametrize("with_second_matter", [False, True])
+def test_matters_lists_every_registered_matter(with_second_matter, ui, monkeypatch):
+    """`/api/matters` reads the registry live (I-23), not a hand-kept list of
+    one. Custody is real and stays named by hand; the `with_second_matter` case
+    injects a fake one and checks `/api/matters` lists both, so this test does
+    not quietly stop proving the loop once a second matter is real."""
+    if with_second_matter:
+        _register_second_matter(monkeypatch)
+
+    status, data = ui.json("/api/matters")
+    assert status == 200
+    names = {m["name"] for m in data["matters"]}
+    assert "custody" in names
+    if with_second_matter:
+        assert "_fake_second" in names
 
 
 def test_matters_reports_the_supported_jurisdictions(ui):
