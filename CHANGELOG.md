@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.9.0](https://github.com/homestead-affairs/homestead-law/compare/v0.8.0...v0.9.0) (2026-09-11)
+
+
+### Added
+
+* grant and venture panes; the plan-period line from the two new producers ([32c9804](https://github.com/homestead-affairs/homestead-law/commit/32c9804f1d092da0c54e52e1004176fbb63e9982))
+* grant and venture panes; the plan-period line from the two new producers ([80eed5c](https://github.com/homestead-affairs/homestead-law/commit/80eed5c084ae6f530b725f34aad2c7958b8469b6))
+
+
+### Fixed
+
+* a pane composes what the gate served it, and judges only what it shows ([d1969a9](https://github.com/homestead-affairs/homestead-law/commit/d1969a9a3ad61650db95d9ea769ad06142181c0c))
+
 ## [0.8.0](https://github.com/homestead-affairs/homestead-law/compare/v0.7.0...v0.8.0) (2026-09-11)
 
 
