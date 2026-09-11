@@ -458,9 +458,17 @@ def test_the_registry_still_validates_with_the_grown_schema():
     """`_validate` (`registry.py`, untouched by this bite) still accepts the
     grown custody pack — every new L3/L4 field carries a `derived` sentence,
     `REPEATABLE` names only real fields, and `JURISDICTION`/`JURISDICTIONS`
-    are unchanged."""
+    are unchanged.
+
+    Registry-relative, not `== {"custody"}` (audit, 2026-09-11, after a
+    scratch-merge with the three sibling wave-3 law bites turned that literal
+    red): L2c made this suite's rule that a test asserts *custody is
+    registered*, never *only custody is* — the second sentence is a matter-name
+    enumeration by another route, and it is the one line in this bite that
+    would have failed the moment a second pack landed."""
     registry_mod._validate(registry_mod.REGISTRY, registry_mod._discover_packs())
-    assert set(registry_mod.all_matters()) == {"custody"}
+    assert custody.MATTER in registry_mod.all_matters()
+    assert registry_mod.matter(custody.MATTER).pack is custody
 
 
 def test_i23_scan_is_still_clean_against_the_grown_pack():
