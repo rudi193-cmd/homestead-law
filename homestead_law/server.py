@@ -579,7 +579,7 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
     import urllib.parse
 
     from homestead.keep import paths
-    from homestead.keep.rungs import Disposition
+    from homestead.keep.rungs import Disposition, derived_of
     from homestead.keep.store import InvalidKey
     from homestead_law import nestor_seam
     from homestead_law import queue as queue_mod
@@ -597,18 +597,6 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
     nestor_ok = nestor_seam.bind(root) is not None
 
     sidecar = Sidecar()
-
-    def _derived(field: str, value: str) -> str:
-        table = {
-            "case_number": "A case number is on file",
-            "docket": "A docket entry is on file",
-            "opposing_party": "The other parent is named",
-            "parenting_time": "A parenting-time obligation is on file",
-            "child_name": "A minor child is named in this matter",
-            "diagnosis": "A medical category is on file for a person",
-            "notes": "An operator note is on file",
-        }
-        return table.get(field, f"A {field.replace('_', ' ')} is on file")
 
     class _H(http.server.BaseHTTPRequestHandler):
 
@@ -699,6 +687,8 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
                 mt = matter(name)
                 out.append({
                     "name": name,
+                    "jurisdiction": mt.jurisdiction,
+                    "jurisdictions": list(mt.jurisdictions),
                     "fields": [
                         {"name": f, "rung": rung.value, "why": mt.schema[f].get("why", "")}
                         for f, rung in mt.fields.items()
@@ -857,7 +847,9 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
                 return self._json({"ok": False, "error": "a value is required"}, 400)
 
             rung = mt.fields[field]
-            derived = _derived(field, value) if rung.value in ("L3", "L4") else None
+            # The pack's own declaration (decision 3), not a second table — see
+            # cli.py's `_cmd_put`, which reads the same function on the same pack.
+            derived = derived_of(mt.schema, field) if rung.value in ("L3", "L4") else None
             item = Classified(rung, value, derived)
             try:
                 replaced = sidecar.put(matter_name, field, "primary", item, overwrite=True)

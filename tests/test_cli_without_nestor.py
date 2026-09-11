@@ -45,6 +45,25 @@ def test_put_stores_without_nestor(capsys):
     assert "stored: custody/courthouse/primary" in out and "L1" in out
 
 
+def test_put_uses_the_packs_derived_form(capsys):
+    """Decision 3: the derived sentence `show` lists for an L3/L4 field is the
+    pack's own `SCHEMA[field]["derived"]`, read through `derived_of` — not a
+    second table the CLI used to keep (`_default_derived`, deleted by this
+    bite). Held by comparison to the pack, not by retyping the sentence, so a
+    future edit to the pack is what this test tracks."""
+    from homestead.keep.rungs import derived_of
+    from homestead_law.packs import custody
+
+    assert run_cli(["put", "custody", "child_name", "X"]) == 0
+    capsys.readouterr()
+
+    assert run_cli(["show", "custody"]) == 0
+    out = capsys.readouterr().out
+    sentence = derived_of(custody.SCHEMA, "child_name")
+    assert sentence in out
+    assert "X" not in out, "the L4 payload must not appear on the list, only its derived form"
+
+
 def test_put_a_party_name_stores_and_skips_the_resolver_quietly(capsys):
     assert run_cli(["put", "custody", "opposing_party", "Jordan Rivera"]) == 0
     captured = capsys.readouterr()

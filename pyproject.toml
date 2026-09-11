@@ -46,8 +46,10 @@ classifiers = [
 # vendoring). The engine ships as the distribution **homestead-affairs** (the bare
 # `homestead` name on PyPI is an unrelated abandoned package), while the import is
 # still `import homestead` — the scikit-learn/sklearn split. The floor is the
-# first version this module actually needs (0.1.0, where the shared
-# `homestead.app.theme` landed and this view began drawing from it). The `<1.0`
+# first version this module actually needs (0.3.0, the release that ships
+# `homestead.keep.rungs.derived_of` and `MatterType.jurisdictions` in the
+# engine's own registry — decisions 1 and 3 of the build-out plan — which this
+# module's custody pack and registry read starting with this bite). The `<1.0`
 # cap means "every compatible version": the engine's release config
 # (bump-minor-pre-major false) bumps the minor for a feat — so 0.2, 0.3, … all
 # resolve under `<1.0` with no re-pin — and reserves 1.0.0 for the first
@@ -58,7 +60,7 @@ classifiers = [
 #
 # sqlite3 is stdlib — no dependency line for the store. holidays arrives through
 # homestead.keep (its deadline arithmetic), declared there, not re-declared here.
-dependencies = ["homestead-affairs>=0.1.0,<1.0"]
+dependencies = ["homestead-affairs>=0.3.0,<1.0"]
 
 [project.optional-dependencies]
 # `pyyaml` and `tomli` are for tests/test_invariants_release.py, which reads the
