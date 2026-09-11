@@ -10,10 +10,11 @@ a trustee may seek to modify the plan on account of them (§ 1329); the plan's
 own terms and local rules commonly impose disclosure duties of their own.
 None of that is a judgement this app may make. `flag()` reads two dates on
 each confirmed-but-undischarged bankruptcy instance and scans every *other*
-registered matter for a record of `SIGNAL_FIELDS` — none of which exist yet
-(Wave 8's `grant`/`venture` packs are the producers) — and yields exactly one
-reference line per such instance when at least one exists, cross-matter,
-never through `.payload`, never carrying a value.
+registered matter for a record of `SIGNAL_FIELDS` — `homestead_law.packs.
+grant` (L8-grant) is the first producer built; the venture side of Wave 8 is
+not yet built — and yields exactly one reference line per such instance when
+at least one exists, cross-matter, never through `.payload`, never carrying
+a value.
 
 **A flag, not a refusal.** Nothing here blocks a `put`, a `deadline`, or
 anything else; `flag()` is read-only over the store and has no write path at
@@ -59,6 +60,13 @@ __all__ = ["SIGNAL_FIELDS", "flag"]
 #: So each group contributes the member that actually carries money or its
 #: arrival, and nothing else: a scheduling date or a ledger reference is
 #: neither new income nor an asset.
+#:
+#: `grant.disbursement` contributes `disbursement.amount` (a tranche's
+#: amount) and `disbursement.received` (the date a tranche actually landed,
+#: which alone marks an asset having arrived even on a record silent about
+#: the amount); `disbursement.expected` and `disbursement.account_label` are
+#: scheduling and a ledger reference. `venture.safe`/`venture.equity_grant`
+#: contribute their `.amount` each.
 #:
 #: **One entry per line, sorted.** Two Wave 8 bites add producers to this one
 #: literal in parallel; a packed line is a merge conflict inside a line,
