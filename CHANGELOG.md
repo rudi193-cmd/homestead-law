@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.10.0](https://github.com/homestead-affairs/homestead-law/compare/v0.9.1...v0.10.0) (2026-09-11)
+
+
+### Added
+
+* retire the singular child_name — child.name under a sub-id is the one name ([8ab9f03](https://github.com/homestead-affairs/homestead-law/commit/8ab9f03cbde5f1662a00badbab056cc83075d881))
+* retire the singular child_name field for the repeatable child.name ([d37cce4](https://github.com/homestead-affairs/homestead-law/commit/d37cce42e48781516effb6ea784b5a97221490d5))
+
+
+### Fixed
+
+* sync the intake card's sub-id box to the pack on first paint ([1111467](https://github.com/homestead-affairs/homestead-law/commit/1111467f3fdc4100bb77158db469e692547226f9))
+
 ## [0.9.1](https://github.com/homestead-affairs/homestead-law/compare/v0.9.0...v0.9.1) (2026-09-11)
 
 
