@@ -76,12 +76,12 @@ def test_put_uses_the_packs_derived_form(capsys):
     from homestead.keep.rungs import derived_of
     from homestead_law.packs import custody
 
-    assert run_cli(["put", "custody", "child_name", "X"]) == 0
+    assert run_cli(["put", "custody", "child.name", "X", "--sub", "c1"]) == 0
     capsys.readouterr()
 
     assert run_cli(["show", "custody", "--id", "primary"]) == 0
     out = capsys.readouterr().out
-    sentence = derived_of(custody.SCHEMA, "child_name")
+    sentence = derived_of(custody.SCHEMA, "child.name")
     assert sentence in out
     assert "X" not in out, "the L4 payload must not appear on the list, only its derived form"
 
@@ -143,7 +143,7 @@ def test_put_a_party_name_stores_and_skips_the_resolver_quietly(capsys):
 
 
 def test_deadline_show_and_queue_round_trip(capsys):
-    assert run_cli(["put", "custody", "child_name", "A. Rivera"]) == 0
+    assert run_cli(["put", "custody", "child.name", "A. Rivera", "--sub", "c1"]) == 0
     assert run_cli(["put", "custody", "ssn", "123-45-6789"]) == 0
     assert run_cli(["deadline", "custody", "hearing", "2099-10-01", "Custody hearing"]) == 0
     capsys.readouterr()
@@ -152,10 +152,11 @@ def test_deadline_show_and_queue_round_trip(capsys):
     assert "custody: 3 record(s)" in capsys.readouterr().out
 
     # `--id primary` lists that instance's fields, in the pre-instances flat
-    # form — `child_name`/`ssn` were `put` under the default instance.
+    # form — `ssn` was `put` under the default instance, `child.name` under
+    # its sub-id (`--sub c1`), still `primary`'s instance.
     assert run_cli(["show", "custody", "--id", "primary"]) == 0
     out = capsys.readouterr().out
-    assert "[L4]  child_name: A minor child is named in this matter" in out
+    assert "[L4]  child.name/c1: A child's name is on file" in out
     assert "ssn" not in out and "123-45-6789" not in out      # L5: no row, no trace
     assert "A. Rivera" not in out                             # L4 payload never on the list
 
@@ -170,7 +171,7 @@ def test_deadline_show_and_queue_round_trip(capsys):
     assert run_cli(["show", "custody"]) == 0
     assert "primary" in capsys.readouterr().out
 
-    assert run_cli(["show", "custody", "child_name"]) == 0
+    assert run_cli(["show", "custody", "child.name", "primary.c1"]) == 0
     assert "A. Rivera" in capsys.readouterr().out             # …but renders in the detail
 
     assert run_cli(["show", "custody", "ssn"]) == 0
@@ -417,8 +418,8 @@ def test_ui_refuses_a_port_that_is_not_a_port(capsys):
 
 
 def test_a_party_name_is_never_echoed_back_to_stdout(capsys, monkeypatch):
-    """`put custody child_name …` printed "proposed to party resolver: <value>".
-    `child_name` is L4 and `opposing_party` L3; the gate decides where either may
+    """`put custody child.name …` printed "proposed to party resolver: <value>".
+    `child.name` is L4 and `opposing_party` L3; the gate decides where either may
     be rendered, and a confirmation line printed straight from `argv` is a second
     door onto the same datum that scored nothing (I-16). The line names the
     field — a reference (I-15)."""
@@ -434,11 +435,11 @@ def test_a_party_name_is_never_echoed_back_to_stdout(capsys, monkeypatch):
     monkeypatch.setattr(nestor_seam, "resolver_for", lambda domain, store: _Resolver())
     monkeypatch.setattr("homestead_law.cli.get_store", lambda *a, **k: object())
 
-    assert run_cli(["put", "custody", "child_name", "A. Rivera"]) == 0
+    assert run_cli(["put", "custody", "child.name", "A. Rivera", "--sub", "c1"]) == 0
     out = capsys.readouterr().out
 
     assert proposed == [("A. Rivera", "A. Rivera")], "the proposal itself still happens"
-    assert "proposed to party resolver: child_name" in out
+    assert "proposed to party resolver: child.name" in out
     assert "A. Rivera" not in out, "an L4 payload was printed by the write door"
 
 

@@ -49,7 +49,7 @@ PLANTED_L5 = Classified(Rung.L5, "xxx-xx-1234")
 
 COURTHOUSE_REF = ("custody", "courthouse", "main")
 CASE_REF = ("custody", "case_number", "fl-2026-00123")
-CHILD_REF = ("custody", "child_name", "ar")
+CHILD_REF = ("custody", "child.name", "ar")
 PLANTED_L5_REF = ("custody", "ssn", "primary")
 
 MATTER = [

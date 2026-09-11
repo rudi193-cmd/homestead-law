@@ -63,11 +63,11 @@ pip install -e .
 
 homestead-law ui                                   # entry forms, intake and dashboard, on localhost
 homestead-law put custody courthouse "Dept 4, Second Judicial District Court, Bernalillo County"
-homestead-law put custody child_name "A. Rivera"   # stored at the pack's rung (L4) — no rung is chosen here
+homestead-law put custody child.name "A. Rivera" --sub c1   # REPEATABLE (below): stored at the pack's rung (L4)
 homestead-law deadline custody hearing 2026-10-01 "Custody hearing"
 homestead-law deadline custody evaluation 2026-08-12 --rung L4 "A submission is due"
 homestead-law show custody                         # the list pane: L1–L3 shown, L4 derived, L5 absent
-homestead-law show custody child_name              # the detail pane: L4 renders, L5 still refused
+homestead-law show custody child.name primary.c1   # the detail pane: L4 renders, L5 still refused
 homestead-law queue                                # what's due
 python -m homestead_law                            # the window, on these records (the demo only if empty)
 ```
@@ -153,7 +153,9 @@ A pack may also declare `REPEATABLE` — field names that accept a `--sub`
 (a repeatable sub-record, e.g. a child of a custody matter). Custody declares
 three — `child.name`, `child.dob`, `child.school` — one record per child per
 field, so a second child does not overwrite the first the way the older,
-singular `child_name` field always could:
+singular ~~`child_name`~~ field always could (`child_name` retired by
+`L9-child-name`, 2026-09-11 — dropped from the pack's `SCHEMA`/`FIELDS`; see
+`homestead_law/packs/custody.py`'s module docstring):
 
 ```bash
 homestead-law put custody child.name "Alex Rivera" --id primary --sub c1
@@ -183,8 +185,9 @@ today they always write the `primary` instance, exactly as before this one.
 ## The custody matter — fields, and what a deadline needs
 
 Beyond the original set (`courthouse`, `hearing_date`, `jurisdiction`,
-`case_number`, `docket`, `opposing_party`, `parenting_time`, `child_name`
-— kept, struck through, see `homestead_law/packs/custody.py`'s module
+`case_number`, `docket`, `opposing_party`, `parenting_time`, ~~`child_name`~~
+— retired by `L9-child-name`, 2026-09-11, in favor of the repeatable
+`child.name` below; see `homestead_law/packs/custody.py`'s module
 docstring — `diagnosis`, `notes`, `ssn`), the relocation bite (wave 3) adds:
 
 | field | rung | what it is |

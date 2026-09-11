@@ -235,6 +235,32 @@ consumer) and `G2b` (`homestead-ledger`, not this repo).
    two names address one thing, not that either has stopped working — which
    is exactly why retiring it is a rewrite of three doors and a schema
    change, not a deletion.
+
+   **`L9-child-name` is built, on branch `claude/law-child-name`, 2026-09-11**
+   (no PR and no release yet — this bullet stays unstruck; the orchestrator
+   strikes it once a PR and a release both carry it, per this document's own
+   evidence rule for every other bite above). What the branch does: drops
+   `child_name` from `packs/custody.py`'s `SCHEMA`/`FIELDS`, moving the
+   retirement story its `why` string carried into the module docstring as
+   struck, dated prose; rewrites `cli.py`'s `party_fields` and
+   `_maybe_propose_party`'s docstring onto `child.name`; rewrites
+   `server.py`'s intake `<option>` and its Nestor hook onto `child.name`,
+   and adds the per-item sub-id box the intake form needed and did not have
+   (the "Enter a record" form already had one, from `L2b-instances`/
+   `L3-custody-relocation`; the Intake tab's extraction cards did not);
+   rewrites `app/demo.py`'s seeded `child_name` record onto `child.name` at
+   sub-id `"ar"` (`primary.ar`), so the demo's `S1_DETAIL` line now opens and
+   names `child.name`; and changes
+   `tests/test_packs.py::test_child_name_and_child_dot_name_both_exist_
+   until_l4_surfaces_retires_it` deliberately, into an assertion that
+   `child_name` is absent from `SCHEMA`/`FIELDS` and that `child.name` is
+   the one name, exactly as this item said it would. A household with a
+   pre-bite `("custody", "child_name", "primary")` record already on disk
+   still lists and opens it — `homestead_law.store` reads a record's rung
+   off the row itself (`rungs._read_rung`), never off the pack's current
+   `SCHEMA`, so a record classified before a field's declaration is removed
+   is unaffected by the removal; only a fresh `put custody child_name …` is
+   now refused, by name, naming `child.name` as the successor.
 2. **`rules.accept`'s instruction wording was fixed by this bite.** It
    hard-coded `"confirm against the court's notice"` for every accepted
    template, including `L8-venture`'s `election-83b` (an IRS filing window

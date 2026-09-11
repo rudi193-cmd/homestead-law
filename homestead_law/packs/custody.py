@@ -61,11 +61,29 @@ this household has two. A household with more than one minor could not tell
 `show custody child_name` which child it meant, and a second `put` silently
 overwrote the first — the exact single-slot failure `instances.py`'s
 `item_id(instance, sub)` exists to fix, one level down from matter instances,
-at *sub-records within one instance*. `child_name` is **kept, not deleted**
+at *sub-records within one instance*. ~~`child_name` is **kept, not deleted**
 (house style: struck through, never removed) — every doorway that already
 names it (`cli.py`'s `party_fields`, `server.py`'s intake form, the existing
 regression tests) is real, in-scope code and coverage this bite does not touch,
-and retiring the field out from under them is a separate, cross-file bite.
+and retiring the field out from under them is a separate, cross-file bite.~~
+**Retired by `L9-child-name`, 2026-09-11** (struck above, dated here — the
+retirement story this field's own `SCHEMA`/`FIELDS` entry and `why` string
+used to carry, moved to this docstring now that both are dropped):
+`L4-surfaces` (wave 4) was once promised as the bite that would retire
+`child_name`, and landed (release 0.5.0) without doing so — the promise was
+false the moment that bite shipped without keeping it (`X7-drift-law`
+audit, 2026-09-11, corrected the false promise in this docstring and in
+`tests/test_packs.py`, and opened `L9-child-name` in
+`docs/PLAN-affairs-face.md` as the bite that would actually do it).
+`L9-child-name` is that bite, landed on this branch: `child_name` is dropped
+from `SCHEMA` and `FIELDS` below; `child.name` under a sub-id (`--sub c1`,
+`--sub c2`, …) is the one name a child's name is stored under from here on.
+`cli.py`'s `party_fields`, `server.py`'s intake form and Nestor hook, and
+`app/demo.py` all now address `child.name` instead of the retired singular;
+`tests/test_packs.py::test_child_name_and_child_dot_name_both_exist_until_
+l4_surfaces_retires_it` — the test that used to hold both names on file — is
+renamed and now asserts `child_name`'s absence from `SCHEMA`/`FIELDS`
+instead.
 What is new: `child.name`, `child.dob` and `child.school` — one record per
 child per field, addressed by a sub-id (`--sub c1`, `--sub c2`, …) the operator
 composes freely (I-15: a sub-id is a label, never a name) — declared
@@ -214,26 +232,6 @@ SCHEMA: dict[str, dict[str, Any]] = {
         "names the co-parent — a person — with no protected category attached to "
         "the name itself (step 2 yes, step 3 no).",
         derived="The other parent is named",
-    ),
-    "child_name": _field(
-        Rung.L4,
-        "names a person who is a minor. A minor is a category the law follows "
-        "(step 3 yes), and the whole model turns on not rendering it by "
-        "default. ~~Superseded 2026-09-11 by the repeatable `child.name`~~ "
-        "— struck, never deleted, and still a real classified field: "
-        "`cli.py`'s `party_fields`, `server.py`'s intake form and "
-        "`app/demo.py` all still address it. ~~**L4-surfaces (wave 4) is the "
-        "bite that retires it**, because that is the bite that already "
-        "rewrites every door naming it~~ (struck, X7-drift audit, "
-        "2026-09-11: L4-surfaces landed and left every door named above "
-        "unchanged — retiring `child_name` is a separate, still-open bite, "
-        "named `L9-child-name` and tracked in "
-        "`docs/PLAN-affairs-face.md`); until it lands, "
-        "`tests/test_packs.py::test_child_name_and_child_dot_name_both_exist"
-        "_until_l4_surfaces_retires_it` holds both on file so the retirement "
-        "is a visible, failing-by-design change rather than a silent one "
-        "(step 3 is unchanged by any of this).",
-        derived="A minor child is named in this matter",
     ),
     "parenting_time": _field(
         Rung.L3,

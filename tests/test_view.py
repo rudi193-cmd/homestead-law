@@ -48,11 +48,12 @@ def test_the_pipeline_composes_the_surfaces(tmp_path, monkeypatch):
     # L1 and L3 payloads render on the list.
     assert "Dept 4" in out
     assert "FL-2026-00123" in out
-    # the L4 child_name shows its derived form on the list.
-    assert "A minor child is named in this matter" in out
+    # the L4 child.name shows its derived form on the list (L9-child-name:
+    # the demo's child record moved off the retired singular child_name).
+    assert "A child's name is on file" in out
 
-    # the L4 child_name payload appears only in the detail line, never on the list.
-    list_section, detail_section = out.split("detail child_name", 1)
+    # the L4 child.name payload appears only in the detail line, never on the list.
+    list_section, detail_section = out.split("detail child.name", 1)
     assert "A. Rivera, age 8" not in list_section
     assert "A. Rivera, age 8" in detail_section
 
@@ -71,7 +72,7 @@ def test_open_matter_lists_everything_but_the_sealed_field(tmp_path, monkeypatch
 
     refs = {row.ref for row in window.rows}
     assert ("custody", "ssn", "primary") not in refs          # L5 dropped, no trace
-    assert ("custody", "child_name", "primary") in refs       # L4 shown as derived
+    assert ("custody", "child.name", "primary.ar") in refs    # L4 shown as derived
     assert ("custody", "courthouse", "primary") in refs       # L1 shown
     assert all("123-45-6789" not in row.text for row in window.rows)
 

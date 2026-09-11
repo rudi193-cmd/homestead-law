@@ -61,7 +61,6 @@ def test_the_pack_spans_the_ladder_with_defensible_rungs():
         "docket": Rung.L3,           # same posture as a case number in a family matter
         "opposing_party": Rung.L3,   # names a person; no protected category
         "parenting_time": Rung.L3,   # resolves to the child (doc § Custody: L3)
-        "child_name": Rung.L4,       # names a person who is a minor — a category the law follows
         "diagnosis": Rung.L4,        # a medical category attached to a person
         "notes": Rung.L4,            # free operator text; routinely carries a protected category (F-4)
         "ssn": Rung.L5,              # sealed / key material — L5 has no override
@@ -85,7 +84,7 @@ def test_the_dangerous_rungs_are_where_they_must_be():
     """Spot-checks that would be catastrophic to get wrong, stated on their own
     so a change to them fails by name."""
     assert custody.FIELDS["ssn"] is Rung.L5, "an SSN is L5 — L5 has no override"
-    assert custody.FIELDS["child_name"] is Rung.L4, "a minor's name identifies a minor"
+    assert custody.FIELDS["child.name"] is Rung.L4, "a minor's name identifies a minor"
     assert custody.FIELDS["diagnosis"] is Rung.L4, "a diagnosis is a category the law follows"
 
 
@@ -151,10 +150,11 @@ def test_every_l3_l4_custody_field_declares_its_derived_form_in_the_pack():
                 "sentence in the pack"
             )
             checked += 1
-    assert checked == 7 + 6, (
-        "expected custody's seven L3 + six L4 fields (L3-custody-relocation "
+    assert checked == 7 + 5, (
+        "expected custody's seven L3 + five L4 fields (L3-custody-relocation "
         "added custody_type/move_date/relocation_notice_date at L3 and "
-        "child.name/child.dob/child.school at L4)"
+        "child.name/child.dob/child.school at L4; L9-child-name then retired "
+        "the sixth, singular child_name)"
     )
 
 
@@ -163,11 +163,16 @@ def test_derived_forms_match_the_engine_pack_where_the_field_exists():
     `case_number`, `docket`, `opposing_party`, `parenting_time`, `child_name`,
     `diagnosis` and `notes`. Copying the sentence by hand invites the two packs
     to drift the instant one is edited and the other is not — so this compares
-    them, field by field, rather than merely promising they match."""
+    them, field by field, rather than merely promising they match.
+
+    Six shared fields, not seven, since L9-child-name (2026-09-11) dropped
+    `child_name` from this pack's own `SCHEMA` — the engine's pack, a
+    separate repo this bite does not touch, still carries it, so it no
+    longer lands in the *shared* set at all."""
     from homestead.packs import custody as engine_custody
 
     shared = sorted(set(custody.SCHEMA) & set(engine_custody.SCHEMA))
-    assert len(shared) >= 7, "expected at least the seven shared L3/L4 fields"
+    assert len(shared) >= 6, "expected at least the six shared L3/L4 fields"
     checked = 0
     for field in shared:
         ours = custody.SCHEMA[field].get("derived")
@@ -179,7 +184,7 @@ def test_derived_forms_match_the_engine_pack_where_the_field_exists():
             f"pack: {ours!r} != {theirs!r}"
         )
         checked += 1
-    assert checked >= 7, "expected all seven shared L3/L4 fields to be compared"
+    assert checked >= 6, "expected all six shared L3/L4 fields to be compared"
 
 
 def test_every_why_names_a_step():
@@ -276,47 +281,40 @@ def test_repeatable_names_the_three_child_subfields():
 
 
 def test_child_name_is_struck_through_never_deleted():
-    """House style: struck through, never deleted. The old flat `child_name`
-    field is documented as superseded in the module docstring (dated
-    2026-09-11) but stays a real, classified field — `cli.py`'s
-    `party_fields`, `server.py`'s intake form and the existing regression
-    suite all still address it, and this bite does not touch any of those
-    files (out of scope; see the docstring's own account of why)."""
-    assert "child_name" in custody.SCHEMA
-    assert custody.FIELDS["child_name"] is Rung.L4
+    """House style: struck through, never deleted. `child_name` is gone from
+    `SCHEMA`/`FIELDS` (L9-child-name, 2026-09-11 — see the test below), but
+    its retirement is documented in the module docstring, dated, rather than
+    silently erased — the docstring assertion holds regardless of what the
+    live schema does or does not declare."""
     assert "~~`child_name`~~" in custody.__doc__
     assert "2026-09-11" in custody.__doc__
 
 
-def test_child_name_and_child_dot_name_both_exist_until_l4_surfaces_retires_it():
-    """The retirement of `child_name` is a *visible, tested* change, not a
-    quiet one (audit, 2026-09-11).
+def test_child_name_is_retired_from_schema_and_fields():
+    """`L9-child-name`'s own exit criterion, deliberately changed from this
+    test's former shape (audit, 2026-09-11 named the retirement;
+    `L9-child-name` carries it out here).
 
-    `child_name` is superseded by the repeatable `child.name` and struck
-    through in the pack's prose, but it is still live: `cli.py`'s
-    `party_fields`, `server.py`'s intake form and `app/demo.py` all address
-    it. This test holds **both** on file at L4 for as long as that is true.
-
-    Corrected (X7-drift audit, 2026-09-11): this docstring used to say
-    "the bite that retires the field is L4-surfaces (wave 4)" as a forward
-    promise. L4-surfaces has since landed, in this same wave sequence, and
-    did not retire it — every door named above is unchanged, exactly the
-    drift a stale forward promise invites once the bite it names has already
-    passed. Retiring `child_name` is now a separate, still-open bite, tracked
-    unstruck in `docs/PLAN-affairs-face.md`; whichever bite actually does it
-    will have to come here and change this assertion deliberately, rather
-    than discovering afterwards that a door went quiet.
+    This test used to be
+    `test_child_name_and_child_dot_name_both_exist_until_l4_surfaces_retires_
+    it` and held **both** `child_name` and `child.name` on file at L4, because
+    `cli.py`'s `party_fields`, `server.py`'s intake form and `app/demo.py`
+    all still addressed the singular field. `L9-child-name` rewrote all
+    three onto `child.name` (see `docs/PLAN-affairs-face.md`'s open item 1
+    for the rewrite's own account), so nothing addresses `child_name` any
+    more and this test now asserts its absence instead of its coexistence —
+    the visible, tested change the old docstring promised whichever bite did
+    this would have to make.
     """
-    assert custody.FIELDS["child_name"] is Rung.L4
+    assert "child_name" not in custody.SCHEMA
+    assert "child_name" not in custody.FIELDS
+
     assert custody.FIELDS["child.name"] is Rung.L4
-    assert custody.SCHEMA["child_name"]["derived"] == "A minor child is named in this matter"
     assert custody.SCHEMA["child.name"]["derived"] == "A child's name is on file"
-    # `child_name` is NOT repeatable: it is the singular field being retired,
-    # so it keeps taking no `--sub` right up until it goes.
-    assert "child_name" not in custody.REPEATABLE
     assert "child.name" in custody.REPEATABLE
 
-    # the strike-through names the still-open retirement and is dated.
-    why = custody.SCHEMA["child_name"]["why"]
-    assert "~~Superseded 2026-09-11 by the repeatable `child.name`~~" in why
-    assert "docs/PLAN-affairs-face.md" in why
+    # the module docstring still carries the strike-through history, dated —
+    # struck, never deleted, even though the field itself is gone.
+    assert "~~`child_name`~~" in custody.__doc__
+    assert "2026-09-11" in custody.__doc__
+    assert "L9-child-name" in custody.__doc__

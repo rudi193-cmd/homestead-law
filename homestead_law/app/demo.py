@@ -10,6 +10,14 @@ The values are invented; the rungs are the custody pack's, so what renders where
 is the real crossing, not a mock. `courthouse`/`hearing_date` (L1) and `ssn` (L5)
 carry no derived form; the L3/L4 fields carry one, because that is the human
 re-identification judgement `Classified` requires and a pack does not author.
+
+**`child.name`, not `child_name` (L9-child-name, 2026-09-11).** The demo used
+to seed the retired singular field alongside every other `_DEMO` entry, at the
+instance's single slot. `child_name` is gone from the pack's own `SCHEMA`/
+`FIELDS` now, so `seed()` writes the child's name separately, the way a real
+household would: under a sub-id (`"ar"`, Rivera's initials — a label, never a
+name, I-15), giving the stored key `custody/child.name/primary.ar`. The list
+and detail composition below is otherwise unchanged.
 """
 from __future__ import annotations
 
@@ -39,7 +47,6 @@ _DEMO: dict[str, tuple[str, str | None]] = {
         "Tue/Thu 3-7pm, alternating weekends — minor A.R.",
         "A recurring parenting-time obligation on Tue/Thu",
     ),
-    "child_name": ("A. Rivera, age 8", "A minor child is named in this matter"),
     "diagnosis": ("ADHD (per IEP, 2026-03)", "A medical category is on file for a person"),
     "notes": (
         "Late to pickup twice this month; smelled of alcohol on the 3rd.",
@@ -47,6 +54,14 @@ _DEMO: dict[str, tuple[str, str | None]] = {
     ),
     "ssn": ("123-45-6789", None),
 }
+
+#: The one `_DEMO` field that moved off the single instance slot: `child.name`
+#: is REPEATABLE (L9-child-name), so it is seeded at a sub-id rather than
+#: folded into the loop above, which writes every other field at `"primary"`.
+_CHILD_FIELD = "child.name"
+_CHILD_SUB = "ar"
+_CHILD_PAYLOAD = "A. Rivera, age 8"
+_CHILD_DERIVED = "A child's name is on file"
 
 
 #: deadline id → (rung, ISO date, instruction). A deadline's payload is the date;
@@ -62,11 +77,17 @@ _DEADLINES: dict[str, tuple[Rung, str, str]] = {
 
 def seed(store: Sidecar) -> None:
     """Write the synthetic matter into the store, replacing any prior demo. Each
-    field becomes one record keyed `(custody, <field>, primary)`, classified at
-    the pack's rung."""
+    `_DEMO` field becomes one record keyed `(custody, <field>, primary)`,
+    classified at the pack's rung — plus `child.name`, REPEATABLE, keyed at a
+    sub-id instead (see the module docstring)."""
     for field, (payload, derived) in _DEMO.items():
         rung = custody.FIELDS[field]
         store.put(MATTER, field, "primary", Classified(rung, payload, derived), overwrite=True)
+    store.put(
+        MATTER, _CHILD_FIELD, instances.item_id(instances.DEFAULT_INSTANCE, _CHILD_SUB),
+        Classified(custody.FIELDS[_CHILD_FIELD], _CHILD_PAYLOAD, _CHILD_DERIVED),
+        overwrite=True,
+    )
 
 
 def seed_deadlines(store: Sidecar) -> None:
@@ -101,8 +122,9 @@ def compose_demo(store: Sidecar) -> str:
     returning the text a view would draw so it can be read without a display.
 
     It shows the list (L1-L3 payloads, L4 as its derived form, no L5), then opens
-    the `child_name` detail — where the L4 payload the list withheld now renders —
-    and finally opens the sealed `ssn`, which the detail still denies."""
+    the `child.name` detail (at its sub-id — see the module docstring) — where
+    the L4 payload the list withheld now renders — and finally opens the sealed
+    `ssn`, which the detail still denies."""
     seed(store)
     window = open_matter(store)
 
@@ -110,9 +132,10 @@ def compose_demo(store: Sidecar) -> str:
     for row in window.rows:
         lines.append(f"  [{row.rung.value}] {row.text}")
 
-    served = window.open_detail(_ref("child_name"))
+    child_ref = (MATTER, _CHILD_FIELD, instances.item_id(instances.DEFAULT_INSTANCE, _CHILD_SUB))
+    served = window.open_detail(child_ref)
     shown = served.value if served.disposition is Disposition.RENDER else "(withheld)"
-    lines.append(f"detail child_name (S1_DETAIL): [{served.rung.value}] {shown}")
+    lines.append(f"detail {_CHILD_FIELD} (S1_DETAIL): [{served.rung.value}] {shown}")
 
     sealed = window.open_detail(_ref("ssn"))
     lines.append(

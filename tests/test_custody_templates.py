@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from homestead.keep.rungs import Disposition, Rung, Surface, derived_of, serve
+from homestead.keep.rungs import Classified, Disposition, Rung, Surface, derived_of, serve
 from homestead_law import registry as registry_mod
 from homestead_law.app.window import Window
 from homestead_law.cli import run_cli
@@ -72,9 +72,9 @@ def test_a_child_subfield_is_put_by_cli_and_reads_back_through_the_gate(capsys):
 def test_two_children_do_not_collide_on_the_same_field(capsys):
     """The whole point of the sub-id: `child.dob` for two different children,
     same instance, same matter — one record per (field, sub), not one shared
-    slot the second `put` would silently overwrite (the exact failure
-    `child_name` — kept, singular — has always had for a two-child
-    household; see the module docstring)."""
+    slot the second `put` would silently overwrite (the exact failure the
+    retired, singular `child_name` always had for a two-child household; see
+    the module docstring)."""
     assert run_cli([
         "put", "custody", "child.dob", "2016-03-02", "--id", "primary", "--sub", "c1",
     ]) == 0
@@ -143,6 +143,52 @@ def test_every_repeatable_field_refuses_a_put_without_a_sub(capsys):
         assert run_cli(["put", "custody", field, "a value", "--id", "primary"]) == 1
         err = capsys.readouterr().err
         assert field in err and "--sub" in err, field
+    assert list(Sidecar().records("custody")) == []
+
+
+# ── L9-child-name: a household's pre-bite data survives the retirement ──────
+
+def test_a_pre_bite_child_name_record_still_lists_and_opens(capsys):
+    """L9-child-name's own migration guarantee, decided from what
+    `homestead.keep.store` actually does, not assumed: `Reader.get`/
+    `.records` call `_hydrate`, which reads a row's rung, payload and
+    derived form off the row itself (`_read_rung`) — never re-derived from
+    the pack's *current* `SCHEMA` — so a household with a
+    `("custody", "child_name", "primary")` record already on disk from
+    before this bite is unaffected by `child_name`'s removal from
+    `SCHEMA`/`FIELDS`: it still lists (as its stored derived text) and still
+    opens on S1_DETAIL. Planted straight into the sidecar — `put` refuses to
+    write one any more (below), so this is the only way such a record
+    reaches this test."""
+    store = Sidecar()
+    store.put(
+        "custody", "child_name", "primary",
+        Classified(Rung.L4, "A. Rivera, age 8", "A minor child is named in this matter"),
+        overwrite=True,
+    )
+
+    assert run_cli(["show", "custody", "--id", "primary"]) == 0
+    out = capsys.readouterr().out
+    assert "[L4]  child_name: A minor child is named in this matter" in out
+    assert "A. Rivera, age 8" not in out, "the L4 payload must not appear on the list"
+
+    assert run_cli(["show", "custody", "child_name"]) == 0
+    out = capsys.readouterr().out
+    assert "A. Rivera, age 8" in out, "the pre-bite record must still render on S1_DETAIL"
+
+
+def test_put_child_name_is_now_refused_by_name_naming_the_successor(capsys):
+    """The write door's other half of the migration: `child_name` is no
+    longer a field this pack declares, so `put` refuses it — by name, and
+    the refusal's own field list names `child.name` among what the pack does
+    declare (never a `KeyError`, and never echoing the value, I-15)."""
+    assert run_cli(["put", "custody", "child_name", "A. Rivera"]) == 1
+    err = capsys.readouterr().err
+    assert "unknown field 'child_name'" in err
+    assert "child.name" in err
+    assert "A. Rivera" not in err
+    assert "Traceback" not in err
+
     assert list(Sidecar().records("custody")) == []
 
 
@@ -423,9 +469,10 @@ def test_no_derived_form_in_this_pack_carries_a_digit_a_month_or_a_state():
         low = f" {sentence.lower()} "
         named = sorted(st for st in _STATE_WORDS if st in low)
         assert not named, (field, sentence, named)
-    assert checked == 13, (
-        "expected a derived sentence on each of custody's seven L3 and six L4 "
-        f"fields, found {checked}"
+    assert checked == 12, (
+        "expected a derived sentence on each of custody's seven L3 and five "
+        "L4 fields (L9-child-name retired the sixth, singular `child_name`), "
+        f"found {checked}"
     )
 
 
@@ -532,7 +579,9 @@ def test_the_demo_still_composes_unchanged():
     assert "Bernalillo County" in text
     assert demo._DEMO["courthouse"][0] == "Dept 4, Second Judicial District Court, Bernalillo County"
     assert "list (S1_LIST)" in text
-    assert "detail child_name (S1_DETAIL)" in text
+    # L9-child-name: the demo's child record moved to `child.name` at a
+    # sub-id, so the detail line it opens now names that field instead.
+    assert "detail child.name (S1_DETAIL)" in text
 
     queue_store = Sidecar()
     queue_text = demo.compose_queue(queue_store)

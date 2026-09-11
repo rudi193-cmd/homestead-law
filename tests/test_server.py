@@ -124,7 +124,7 @@ def test_matters_lists_every_registered_field_with_its_declared_rung(ui):
     custody = next(m for m in data["matters"] if m["name"] == "custody")
     fields = {f["name"]: f["rung"] for f in custody["fields"]}
     assert fields["courthouse"] == "L1"
-    assert fields["child_name"] == "L4"
+    assert fields["child.name"] == "L4"
     assert fields["ssn"] == "L5"
     assert all(f["why"] for f in custody["fields"])
 
@@ -163,7 +163,8 @@ def test_matters_reports_the_supported_jurisdictions(ui):
 def test_store_then_records_round_trips_through_the_gate(ui):
     status, data = ui.json("/api/store", {"matter": "custody", "field": "courthouse", "value": "Dept 4"})
     assert status == 200 and data == {"ok": True, "rung": "L1", "replaced": False}
-    status, data = ui.json("/api/store", {"matter": "custody", "field": "child_name", "value": "A. Rivera"})
+    status, data = ui.json(
+        "/api/store", {"matter": "custody", "field": "child.name", "value": "A. Rivera", "sub": "c1"})
     assert data["rung"] == "L4"
     status, data = ui.json("/api/store", {"matter": "custody", "field": "ssn", "value": "123-45-6789"})
     assert data["rung"] == "L5"
@@ -171,7 +172,7 @@ def test_store_then_records_round_trips_through_the_gate(ui):
     status, data = ui.json("/api/records?matter=custody")
     rows = {r["item_type"]: r for r in data["rows"]}
     assert rows["courthouse"]["text"] == "Dept 4"
-    assert rows["child_name"]["text"] == "A minor child is named in this matter"  # L4 derived
+    assert rows["child.name"]["text"] == "A child's name is on file"  # L4 derived
     assert "ssn" not in rows                                                       # L5, no row
     assert "123-45-6789" not in json.dumps(data)
     assert "A. Rivera" not in json.dumps(data)
@@ -186,10 +187,10 @@ def test_a_second_store_reports_the_replacement(ui):
 
 
 def test_the_detail_renders_the_l4_and_refuses_the_l5(ui):
-    ui.json("/api/store", {"matter": "custody", "field": "child_name", "value": "A. Rivera"})
+    ui.json("/api/store", {"matter": "custody", "field": "child.name", "value": "A. Rivera", "sub": "c1"})
     ui.json("/api/store", {"matter": "custody", "field": "ssn", "value": "123-45-6789"})
 
-    status, data = ui.json("/api/record?matter=custody&item_type=child_name")
+    status, data = ui.json("/api/record?matter=custody&item_type=child.name&item_id=primary.c1")
     assert status == 200
     assert data["rendered"] is True and data["value"] == "A. Rivera" and data["rung"] == "L4"
 
@@ -301,7 +302,7 @@ def test_instances_never_carries_l3_or_higher_content(ui):
     """The endpoint's own contract: codes only. A field entered under the
     instance must not leak into `/api/instances`, whatever its rung."""
     ui.json("/api/matter/open", {"matter": "custody", "id": "primary", "jurisdiction": "US-NM"})
-    ui.json("/api/store", {"matter": "custody", "field": "child_name", "value": "A. Rivera"})
+    ui.json("/api/store", {"matter": "custody", "field": "child.name", "value": "A. Rivera", "sub": "c1"})
 
     status, data = ui.json("/api/instances?matter=custody")
     assert status == 200
@@ -839,9 +840,9 @@ def test_a_replacement_never_carries_the_previous_value(ui):
     displaced `Classified` — payload and all. The response says *that* something
     was replaced and never what: reaching `replaced.previous` here would put an
     L4 payload into a JSON body that scored nothing."""
-    ui.json("/api/store", {"matter": "custody", "field": "child_name", "value": "A. Rivera"})
+    ui.json("/api/store", {"matter": "custody", "field": "child.name", "value": "A. Rivera", "sub": "c1"})
     status, data = ui.json(
-        "/api/store", {"matter": "custody", "field": "child_name", "value": "B. Okafor"})
+        "/api/store", {"matter": "custody", "field": "child.name", "value": "B. Okafor", "sub": "c1"})
 
     assert status == 200 and data == {"ok": True, "rung": "L4", "replaced": True}
     assert "A. Rivera" not in json.dumps(data)
@@ -1210,7 +1211,10 @@ def test_api_matters_says_which_fields_take_a_sub_id(ui):
     assert flags["child.dob"] is True
     assert flags["child.school"] is True
     assert flags["courthouse"] is False
-    assert flags["child_name"] is False       # the singular field being retired
+    # `child_name` is retired (L9-child-name, 2026-09-11): it is not a field
+    # this pack declares any more, so it does not appear in the field list
+    # at all — not `False`, simply absent.
+    assert "child_name" not in flags
     assert "id=\"rsub\"" in ui.get("/")[1].decode()
 
 
