@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.7.0](https://github.com/homestead-affairs/homestead-law/compare/v0.6.0...v0.7.0) (2026-09-11)
+
+
+### Added
+
+* grant pack — the funder's dates and references, entered never computed ([4441ea9](https://github.com/homestead-affairs/homestead-law/commit/4441ea9d2568e75dec8b2d1394cd70452de243bb))
+
+
+### Fixed
+
+* a grant's entered dates are household content, not public record ([f7ffead](https://github.com/homestead-affairs/homestead-law/commit/f7ffeadb6ad6aa95751ede2dc8f3b4ba9c8aa361))
+
 ## [0.6.0](https://github.com/homestead-affairs/homestead-law/compare/v0.5.0...v0.6.0) (2026-09-11)
 
 
