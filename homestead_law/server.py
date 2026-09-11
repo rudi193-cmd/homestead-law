@@ -630,6 +630,13 @@ function renderItems() {
       +'</div></div>';
   });
   div.innerHTML=html;
+  // Sync every card's sub box to the pack *now*, not only on the operator's
+  // first `change`: which option a select lands on by default is an accident
+  // of the order they were written above, and a box whose visibility waits
+  // for an event the operator may never fire is hidden (or shown) by that
+  // accident rather than by `repeatable`. The Records tab's own box has
+  // always been synced on paint the same way (`showRung()` at boot).
+  _items.forEach(function(_item,i){toggleItemSub(i)});
 }
 
 // Shows the per-item sub id box only for a field the current matter's pack
