@@ -53,14 +53,16 @@ def test_i23_the_registry_is_the_only_enumeration():
 
 # ── what the registry holds ──────────────────────────────────────────────────
 
-def test_custody_is_registered_and_is_the_only_built_pack():
-    """One pack in v1 — *"one pack proves the seam; three prove nothing that one
-    does not."* Bankruptcy and workers' comp are Phase 5 and are deliberately
-    **not** here: a matter name with no pack behind it is the hand-kept phantom
-    I-23 forbids, the missing half of BUG-6."""
-    assert set(all_matters()) == {"custody"}
-    assert "bankruptcy" not in REGISTRY, "Phase 5, not built — no phantom entry"
-    assert "workers_comp" not in REGISTRY, "Phase 5, not built — no phantom entry"
+def test_every_registered_matter_has_a_pack_on_disk_and_no_phantom():
+    """Registry-relative, not a literal set: every matter `all_matters()` names
+    is a `REGISTRY` key, and every `REGISTRY` key is a pack `_discover_packs()`
+    finds on disk — the same three-way equality `_validate` enforces at import,
+    held here as a behavioural assertion so it stays true no matter how many
+    packs are built. A literal `{"custody"}` here would be exactly the kind of
+    hand-kept assumption that breaks the moment a second pack (bankruptcy,
+    workers' comp — Phase 5) is registered, which is the failure this whole
+    bite exists to keep from happening."""
+    assert set(all_matters()) == set(REGISTRY) == set(registry_mod._discover_packs())
 
 
 def test_all_matters_iterates_the_registry_and_nothing_else():
@@ -99,20 +101,29 @@ def test_the_registry_does_not_hardcode_the_field_list_it_reads_it():
 def test_matter_is_strict_about_an_unknown_name():
     """Like `surfaces.facts`: a caller holding a name that is not registered has
     skipped a step, and a `KeyError` here is cheaper than the missing schema read
-    it would otherwise have caused downstream."""
-    with pytest.raises(KeyError):
-        matter("bankruptcy")
+    it would otherwise have caused downstream.
+
+    `"not_a_matter"` rather than `"bankruptcy"`: bankruptcy is a real future
+    pack (Wave 3), and a test that asserts it is *unregistered* would itself
+    become the thing that breaks the moment it is built — the exact test
+    rewrite this bite exists to make unnecessary."""
     with pytest.raises(KeyError):
         matter("not_a_matter")
 
 
 # ── the import-time guard fires — BUG-6's shape, from each side ───────────────
 
-def _fake_pack(name: str, *, jurisdiction: str = "US-CA") -> types.ModuleType:
+def _fake_pack(name: str = "_fake_second", *, jurisdiction: str = "US-CA") -> types.ModuleType:
     """A stand-in pack with the attributes `_entry`/`_validate` read. Built for
     the guard tests the way `test_invariants_surfaces` builds fake modules for
-    the schema scan — a real module object, not a mock."""
-    mod = types.ModuleType(f"homestead_law.packs._fake_{name}")
+    the schema scan — a real module object, not a mock.
+
+    Defaults to `"_fake_second"`, never a real future pack name: bankruptcy and
+    workers' comp are Phase 5 and become real registry entries in Wave 3, and a
+    guard-fire plant named after either would itself start failing (or, worse,
+    silently stop exercising the guard) the day that pack lands. `"_fake_second"`
+    can never collide with a pack this repo actually ships."""
+    mod = types.ModuleType(f"homestead_law.packs.{name}")
     mod.MATTER = name
     mod.JURISDICTION = jurisdiction
     mod.FIELDS = {"case_number": Rung.L3}
@@ -124,24 +135,24 @@ def test_a_pack_on_disk_with_no_entry_fails_the_build():
     """BUG-6 exactly: a matter type that exists and is not enumerated. The guard
     is run here against a registry that omits a discovered pack, so it is shown
     to fire and not merely asserted to exist."""
-    bankruptcy = _fake_pack("bankruptcy")
-    on_disk = {"custody": custody, "bankruptcy": bankruptcy}
+    fake_second = _fake_pack()
+    on_disk = {"custody": custody, "_fake_second": fake_second}
     with pytest.raises(RuntimeError) as exc:
         registry_mod._validate(dict(REGISTRY), on_disk)
-    assert "bankruptcy" in str(exc.value)
+    assert "_fake_second" in str(exc.value)
     # and it names the failure it is, not a bare "invalid"
     assert "no registry entry" in str(exc.value)
 
 
 def test_a_registry_entry_with_no_pack_is_a_phantom_and_fails_the_build():
     """The other half of BUG-6: a name in the enumeration with nothing behind it.
-    Inventing a `bankruptcy` entry before its pack exists is the exact thing that
-    would let `all_matters()` advertise a type no pack can serve."""
-    phantom = registry_mod._entry(_fake_pack("bankruptcy"))
-    broken = {**REGISTRY, "bankruptcy": phantom}
+    Inventing an entry before its pack exists is the exact thing that would let
+    `all_matters()` advertise a type no pack can serve."""
+    phantom = registry_mod._entry(_fake_pack())
+    broken = {**REGISTRY, "_fake_second": phantom}
     with pytest.raises(RuntimeError) as exc:
         registry_mod._validate(broken, {"custody": custody})
-    assert "bankruptcy" in str(exc.value)
+    assert "_fake_second" in str(exc.value)
     assert "no pack" in str(exc.value)
 
 
@@ -183,13 +194,14 @@ def test_adding_a_pack_to_the_registry_needs_no_other_code_change(monkeypatch):
     else edited. Demonstrated by injecting a second entry into the registry and
     reading it back out of `all_matters()` — the function reads `REGISTRY` at
     call time, so the addition is reflected with no change to the function and no
-    second list to keep in step."""
-    bankruptcy = registry_mod._entry(_fake_pack("bankruptcy"))
-    monkeypatch.setitem(registry_mod.REGISTRY, "bankruptcy", bankruptcy)
+    second list to keep in step. Registry-relative (`set(registry_mod.REGISTRY)`),
+    not a literal `{"custody", "bankruptcy"}` — this test must keep passing
+    unchanged the day a real second pack is registered."""
+    fake_second = registry_mod._entry(_fake_pack())
+    monkeypatch.setitem(registry_mod.REGISTRY, "_fake_second", fake_second)
 
-    assert set(all_matters()) == {"custody", "bankruptcy"}
     assert set(all_matters()) == set(registry_mod.REGISTRY)
-    assert matter("bankruptcy").fields == {"case_number": Rung.L3}
+    assert matter("_fake_second").fields == {"case_number": Rung.L3}
 
 
 # ── the structural guard: the registry is the ONLY enumeration ───────────────
@@ -295,3 +307,40 @@ def test_the_guard_would_catch_the_registry_itself_if_it_were_not_exempt():
     assert PKG / "registry.py" in MATTER_ENUM_ALLOWED
     assert _is_pack(PKG / "packs" / "custody.py")
     assert not _is_pack(PKG / "store.py")
+
+
+# ── the Wave-3 exit criterion: registering a second matter breaks no test ────
+
+
+def test_registering_a_second_matter_breaks_no_test(monkeypatch):
+    """L2c's own *"done when"*, held as a test: with a second matter injected
+    into the registry, every registry-relative assertion in this file still
+    holds, computed fresh against the two-matter registry rather than reasserted
+    by hand. This is what makes the other tests in this module — rewritten
+    above to read `set(REGISTRY)`/`set(_discover_packs())` instead of a literal
+    `{"custody"}` — actually registry-relative rather than merely renamed."""
+    fake_second = _fake_pack()
+    monkeypatch.setitem(registry_mod.REGISTRY, "_fake_second", registry_mod._entry(fake_second))
+
+    # test_every_registered_matter_has_a_pack_on_disk_and_no_phantom's rule,
+    # against the two-matter registry — the discovered pack is a real module
+    # on disk (`_fake_second` is not; `_discover_packs()` cannot see it, so it
+    # is passed alongside what is actually on disk, standing in for a real
+    # Wave-3 pack file the way the guard tests above do).
+    on_disk = {**registry_mod._discover_packs(), "_fake_second": fake_second}
+    assert set(all_matters()) == set(REGISTRY) == set(on_disk)
+
+    # test_matter_is_strict_about_an_unknown_name's rule: an unregistered name
+    # still raises, and the newly registered one no longer does.
+    with pytest.raises(KeyError):
+        matter("not_a_matter")
+    assert matter("_fake_second").fields == {"case_number": Rung.L3}
+
+    # test_the_registry_does_not_hardcode_the_field_list_it_reads_it's rule,
+    # for both matters — identity, not a copy, for each.
+    assert matter("custody").fields is custody.FIELDS
+    assert matter("_fake_second").fields is fake_second.FIELDS
+
+    # the import-time guard itself still passes, held against the augmented
+    # on-disk set standing in for `_fake_second`'s pack file.
+    registry_mod._validate(dict(REGISTRY), on_disk)

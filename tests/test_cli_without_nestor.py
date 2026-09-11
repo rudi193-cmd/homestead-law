@@ -14,10 +14,13 @@ import so it runs the *absent* branch on every checkout, installed or not:
 from __future__ import annotations
 
 import sys
+import types
 
 import pytest
 
+from homestead.keep.rungs import Rung
 from homestead_law import nestor_seam
+from homestead_law import registry as registry_mod
 from homestead_law.cli import run_cli
 
 
@@ -30,6 +33,19 @@ def _no_nestor(tmp_path, monkeypatch):
     monkeypatch.setattr(nestor_seam, "_bound", False)
     monkeypatch.setattr(nestor_seam, "_ledger_path", None)
     yield
+
+
+def _register_second_matter(monkeypatch, name: str = "_fake_second") -> None:
+    """Add a second matter to the registry — a real module, keyed by its own
+    `MATTER`, injected for the test. `"_fake_second"`, never a real future pack
+    name (bankruptcy/workers' comp land in Wave 3), so this stays a fake second
+    matter even after they are registered for real."""
+    fake = types.ModuleType(f"homestead_law.packs.{name}")
+    fake.MATTER = name
+    fake.JURISDICTION = "US-CA"
+    fake.FIELDS = {"case_number": Rung.L1}
+    fake.SCHEMA = {"case_number": {"rung": Rung.L1, "matter": name}}
+    monkeypatch.setitem(registry_mod.REGISTRY, name, registry_mod._entry(fake))
 
 
 def test_available_is_false_and_bind_degrades_to_nothing_bound(tmp_path):
@@ -78,6 +94,26 @@ def test_deadline_show_and_queue_round_trip(capsys):
 
     assert run_cli(["queue", "--today", "2099-09-25"]) == 0
     assert "2099-10-01" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("with_second_matter", [False, True])
+def test_show_with_no_args_lists_every_registered_matter(with_second_matter, capsys, monkeypatch):
+    """`show` with no args iterates `all_matters()` (I-23), not a hand-kept list
+    of one. Custody is real and stays named by hand; the `with_second_matter`
+    case injects a fake one and checks it appears too, so this test does not
+    quietly stop proving the loop once a second matter is real."""
+    if with_second_matter:
+        _register_second_matter(monkeypatch)
+        assert run_cli(["put", "_fake_second", "case_number", "BK-1"]) == 0
+
+    assert run_cli(["put", "custody", "courthouse", "Dept 4"]) == 0
+    capsys.readouterr()
+
+    assert run_cli(["show"]) == 0
+    out = capsys.readouterr().out
+    assert "custody: 1 record(s)" in out
+    if with_second_matter:
+        assert "_fake_second: 1 record(s)" in out
 
 
 def test_show_an_empty_matter_points_at_put(capsys):
