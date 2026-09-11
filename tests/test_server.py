@@ -30,10 +30,16 @@ def _register_second_matter(monkeypatch, name: str = "_fake_second") -> None:
     """Add a second matter to the registry — a real module, keyed by its own
     `MATTER`, injected for the test. `"_fake_second"`, never a real future pack
     name (bankruptcy/workers' comp land in Wave 3), so this stays a fake second
-    matter even after they are registered for real."""
+    matter even after they are registered for real. `monkeypatch.setitem`
+    removes it again at teardown, so the registry a later test reads is the real
+    one no matter what order the suite runs in. It declares `JURISDICTIONS`
+    alongside `JURISDICTION` — the pack contract decision 1 settles — so this
+    fake stays a stand-in for a real pack once the registry validates that
+    tuple."""
     fake = types.ModuleType(f"homestead_law.packs.{name}")
     fake.MATTER = name
-    fake.JURISDICTION = "US-CA"
+    fake.JURISDICTION = "US-NM"
+    fake.JURISDICTIONS = ("US-NM",)
     fake.FIELDS = {"case_number": Rung.L1}
     fake.SCHEMA = {"case_number": {"rung": Rung.L1, "matter": name, "why": "fake"}}
     monkeypatch.setitem(registry_mod.REGISTRY, name, registry_mod._entry(fake))

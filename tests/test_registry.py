@@ -113,7 +113,12 @@ def test_matter_is_strict_about_an_unknown_name():
 
 # ── the import-time guard fires — BUG-6's shape, from each side ───────────────
 
-def _fake_pack(name: str = "_fake_second", *, jurisdiction: str = "US-CA") -> types.ModuleType:
+def _fake_pack(
+    name: str = "_fake_second",
+    *,
+    jurisdiction: str = "US-NM",
+    jurisdictions: tuple[str, ...] | None = None,
+) -> types.ModuleType:
     """A stand-in pack with the attributes `_entry`/`_validate` read. Built for
     the guard tests the way `test_invariants_surfaces` builds fake modules for
     the schema scan — a real module object, not a mock.
@@ -122,10 +127,19 @@ def _fake_pack(name: str = "_fake_second", *, jurisdiction: str = "US-CA") -> ty
     workers' comp are Phase 5 and become real registry entries in Wave 3, and a
     guard-fire plant named after either would itself start failing (or, worse,
     silently stop exercising the guard) the day that pack lands. `"_fake_second"`
-    can never collide with a pack this repo actually ships."""
+    can never collide with a pack this repo actually ships.
+
+    It declares `JURISDICTIONS` (defaulting to a tuple holding just
+    `jurisdiction`) even though *this* branch's `_validate` does not read it:
+    a fake pack is a pack, and the moment the pack contract requires the tuple
+    (decision 1, the parallel L2a bite) a fake without one stops being a stand-in
+    for a real pack and starts failing `_validate` for a reason the test that
+    built it never meant to assert. Declaring it here costs one line and keeps
+    every `_validate` plant below testing the thing it names."""
     mod = types.ModuleType(f"homestead_law.packs.{name}")
     mod.MATTER = name
     mod.JURISDICTION = jurisdiction
+    mod.JURISDICTIONS = jurisdictions if jurisdictions is not None else (jurisdiction,)
     mod.FIELDS = {"case_number": Rung.L3}
     mod.SCHEMA = {"case_number": {"rung": Rung.L3, "matter": name}}
     return mod
