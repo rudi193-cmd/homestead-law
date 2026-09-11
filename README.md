@@ -137,13 +137,88 @@ to make it (they are a later bite).
 
 A pack may also declare `REPEATABLE` — field names that accept a `--sub`
 (a repeatable sub-record, e.g. a child of a custody matter). Custody declares
-none yet; `--sub` on any of its fields is refused by name.
+none yet; `--sub` on any of its fields is refused by name. Workers' comp
+declares one: `ime` (below).
 
 `GET /api/instances?matter=` and `POST /api/matter/open` are the browser UI's
 doors onto the same two functions; `/api/store` and `/api/deadline` accept
 `id`/`sub` alongside the existing fields. The page's own forms do not yet
 offer an instance picker — that UI wiring is left to a later (surfaces) bite;
 today they always write the `primary` instance, exactly as before this one.
+
+## Workers' comp
+
+A second registered matter, `workers_comp` — an active New Mexico WCA claim
+that stays an NM claim after the household's move to Oregon (unlike custody,
+`JURISDICTIONS = ("US-NM",)`: the forum does not move, only where treatment
+happens does). Registering it touched exactly one line in `registry.py`
+(I-23) — no change to `cli.py`, `server.py`, `queue.py`, or the view.
+
+```bash
+homestead-law matter open workers_comp --id primary --jurisdiction US-NM
+homestead-law put workers_comp employer "Acme Distribution"
+homestead-law put workers_comp wca_case_number "WCA-2026-00456"
+homestead-law put workers_comp diagnosis "Rotator cuff strain"   # L4 — never on the list
+homestead-law put workers_comp ime "2026-10-05 -- Dr. R. Chen -- no permanent restrictions" --sub 2026-10
+homestead-law show workers_comp --id primary
+```
+
+### What computes vs. what is entered
+
+`homestead_law.packs.workers_comp.TEMPLATES` is **data**, not arithmetic — the
+counting itself belongs to the parallel `L3-deadline-templates` bite
+(`rules.py`, not imported by this pack). Two candidate templates exist, and
+both ship `status: "UNCERTAIN"` — a template in that state refuses to compute
+rather than guess (I-2's rule, applied to a counting rule instead of a date):
+
+| template | anchor (must be `L1`) | days | citation | status |
+|---|---|---|---|---|
+| `hcp_selection` | `hcp_selection_date` | 60, calendar | NMSA 1978 § 52-1-49(B)-(C) | UNCERTAIN — no reachable PROVENANCE (below) |
+| `hcp_change_objection` | `hcp_change_notice_date` | 3, calendar | NMSA 1978 § 52-1-49 area | UNCERTAIN — counting rule unverified |
+
+A third rule the plan names — the 15-day notice-of-accident window (§ 52-1-29)
+— is **not** a template at all: it would anchor on `date_of_injury`, which is
+`L4`, and a computed template's anchor must render at `L1`. It is entered by
+the household directly (`notice_of_accident_date`, `L3`), never derived.
+
+Every other date on this pack — `mediation_date`, `hearing_date`,
+`complaint_date`, `hcp_change_objection_deadline`, and the notice/selection
+dates once they are actually known — is likewise entered, through the same
+`put`/`deadline` doors every other field uses. Nothing here files or drafts
+anything (decision 8's guard is a sibling bite's job over the whole package;
+this pack's own `why` text and derived forms are checked against
+"you should"/"file by" language in `tests/test_workers_comp.py`).
+
+**PROVENANCE attempted, both unreachable.** `https://law.justia.com/codes/new-mexico/2021/chapter-52/article-1/section-52-1-49/`
+returned `EGRESS_BLOCKED`; `https://www.wca.state.nm.us/` failed DNS
+resolution. Three further tries — the 2025-edition Justia page, the official
+compiler at `nmonesource.com`, and a `web.archive.org` snapshot of the first —
+were each blocked the same way. A general web search corroborates the 60-day
+figure in prose but is not a dated, quoted fetch of the statute, so both
+templates ship `UNCERTAIN` rather than `VERIFIED`.
+
+### The health boundary (decision 7)
+
+*"Workers' comp is a law pack; medical content stays in health."* Every field
+that touches the claimant's medical facts (`date_of_injury`, `body_part`,
+`diagnosis`, `impairment_rating`, `mmi_date`, `treating_physician`, `ime`,
+`oos_provider_affidavit_date`) holds only a **date or a short reference** —
+the clinical narrative belongs in `homestead-health`'s own packs. A pack-level
+cap, `MAX_L4_CHARS = 200`, and `validate_value(field, value)` are the
+structural fence: a value over the cap on an `L4` field is refused by field
+name, naming `homestead-health` as where the longer content belongs, and
+never echoing what was typed (I-15).
+
+**`validate_value` is not yet called by either door.** Neither `cli.py`'s
+`_cmd_put` nor `server.py`'s `/api/store` has a per-pack validation hook today
+— checked before writing this function, and none exists. `L4-surfaces` (wave
+4) is the bite that wires it in; `tests/test_workers_comp.py` documents the
+gap with a test that fails, by design, the day that wiring lands.
+
+`ime` is the one `REPEATABLE` field: one composed record per independent
+medical exam, addressed by `--sub` (e.g. `--sub 2026-10`), each carrying a
+short reference — date, examiner, a one-line note — never the underlying
+report.
 
 ## What is enforced here today
 
