@@ -896,6 +896,10 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
                     return self._post_store(body)
                 if p == "/api/deadline":
                     return self._post_deadline(body)
+                if p == "/api/deadline/compute":
+                    return self._post_deadline_compute(body)
+                if p == "/api/deadline/accept":
+                    return self._post_deadline_accept(body)
                 if p == "/api/matter/open":
                     return self._post_matter_open(body)
             except _BadRequest as exc:
@@ -1049,6 +1053,142 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
             except InvalidKey as exc:
                 return self._json({"ok": False, "error": str(exc)}, 400)
             self._json({"ok": True, "rung": rung.value})
+
+        def _post_deadline_compute(self, body):
+            """`POST /api/deadline/compute` `{matter, id, template, mail?}` —
+            L3-deadline-templates' preview door. **Stores nothing**; `id`
+            names the instance, the same field `_post_deadline` already uses
+            that way. On success, `rules.Computed`'s own fields plus the
+            preview token; on refusal, a 400 naming what failed (I-15 — every
+            refusal `rules.compute` raises names a field, never an anchor
+            value above L1 or a jurisdiction planted outside the gate)."""
+            from homestead.keep.dates import UnparseableDate
+            from homestead_law import rules
+            from homestead_law.jurisdiction import JurisdictionAbsent
+
+            matter_name = _text(body, "matter").strip()
+            id_value = _text(body, "id").strip()
+            template_name = _text(body, "template").strip()
+            mail = body.get("mail", False)
+            if not isinstance(mail, bool):
+                raise _BadRequest("mail must be true or false")
+
+            if not matter_name:
+                return self._json({"ok": False, "error": "a matter is required"}, 400)
+            try:
+                matter(matter_name)
+            except KeyError:
+                return self._json(
+                    {"ok": False, "error": f"unknown matter {matter_name!r}"}, 400)
+            if not id_value:
+                return self._json({"ok": False, "error": "an id is required"}, 400)
+            if not template_name:
+                return self._json({"ok": False, "error": "a template is required"}, 400)
+
+            try:
+                computed = rules.compute(
+                    sidecar, matter_name, id_value, template_name, mail=mail)
+            except (
+                instances.InvalidId,
+                JurisdictionAbsent,
+                UnparseableDate,
+                rules.InvalidTemplate,
+                rules.TemplateNotFound,
+                rules.AmbiguousTemplate,
+                rules.AnchorUnavailable,
+                rules.TemplateJurisdictionMismatch,
+                rules.UncertainTemplate,
+                rules.MailUnsupported,
+            ) as exc:
+                return self._json({"ok": False, "error": str(exc)}, 400)
+
+            self._json({
+                "ok": True,
+                "matter": computed.matter,
+                "instance": computed.instance,
+                "template": computed.template,
+                "anchor_field": computed.anchor_field,
+                "anchor_iso": computed.anchor_iso,
+                "result_iso": computed.result_iso,
+                "source": computed.source,
+                "jurisdiction": computed.jurisdiction,
+                "mail": computed.mail,
+                # `null` when 9006(a)(6)(C)'s second calendar was not
+                # applied — part of the answer and part of the token, so the
+                # pane shows it rather than letting the operator assume the
+                # district's state holidays were counted.
+                "district_state": computed.district_state,
+                "token": computed.preview_token,
+            })
+
+        def _post_deadline_accept(self, body):
+            """`POST /api/deadline/accept` `{matter, id, template, token,
+            mail?, replace?}` — recomputes fresh (the same `mail` the preview
+            was shown with) and compares `token` against *that*
+            computation's own `preview_token`, so a token minted against an
+            anchor or a jurisdiction that has since changed is refused by
+            name (`rules.StaleToken`) rather than accepted against content
+            the browser never actually saw."""
+            from homestead.keep.dates import UnparseableDate
+            from homestead_law import rules
+            from homestead_law.jurisdiction import JurisdictionAbsent
+            from homestead_law.store import RecordExists
+
+            matter_name = _text(body, "matter").strip()
+            id_value = _text(body, "id").strip()
+            template_name = _text(body, "template").strip()
+            token = _text(body, "token").strip()
+            mail = body.get("mail", False)
+            if not isinstance(mail, bool):
+                raise _BadRequest("mail must be true or false")
+            replace = body.get("replace", False)
+            if not isinstance(replace, bool):
+                raise _BadRequest("replace must be true or false")
+
+            if not matter_name:
+                return self._json({"ok": False, "error": "a matter is required"}, 400)
+            try:
+                matter(matter_name)
+            except KeyError:
+                return self._json(
+                    {"ok": False, "error": f"unknown matter {matter_name!r}"}, 400)
+            if not id_value:
+                return self._json({"ok": False, "error": "an id is required"}, 400)
+            if not template_name:
+                return self._json({"ok": False, "error": "a template is required"}, 400)
+            if not token:
+                return self._json({"ok": False, "error": "a token is required"}, 400)
+
+            try:
+                computed = rules.compute(
+                    sidecar, matter_name, id_value, template_name, mail=mail)
+            except (
+                instances.InvalidId,
+                JurisdictionAbsent,
+                UnparseableDate,
+                rules.InvalidTemplate,
+                rules.TemplateNotFound,
+                rules.AmbiguousTemplate,
+                rules.AnchorUnavailable,
+                rules.TemplateJurisdictionMismatch,
+                rules.UncertainTemplate,
+                rules.MailUnsupported,
+            ) as exc:
+                return self._json({"ok": False, "error": str(exc)}, 400)
+
+            try:
+                replaced = rules.accept(
+                    sidecar, computed, token=token, replace=replace)
+            except rules.StaleToken as exc:
+                return self._json({"ok": False, "error": str(exc)}, 400)
+            except RecordExists:
+                return self._json(
+                    {"ok": False,
+                     "error": f"{matter_name}/{id_value}.{template_name} is "
+                              "already on file — pass replace to overwrite it"},
+                    409,
+                )
+            self._json({"ok": True, "replaced": replaced is not None})
 
         def _post_matter_open(self, body):
             """`POST /api/matter/open` `{matter, id, jurisdiction, replace?}` —

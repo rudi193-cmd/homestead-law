@@ -942,6 +942,225 @@ def test_the_deadline_door_refuses_a_free_form_id_by_name(bad, ui):
     assert not [r for r in data["rows"] if r["item_type"] == "deadline"]
 
 
+# ── /api/deadline/compute and /api/deadline/accept (L3-deadline-templates) ──
+#
+# These monkeypatch a template onto the real custody pack, same as the CLI's
+# own tests for the same two doors — setting `TEMPLATES` rather than adding
+# to it, so whatever the sibling custody bite declares in parallel cannot
+# change what a door test here asserts.
+
+_NOTICE_TEMPLATE = {
+    "name": "notice", "anchor": "hearing_date", "days": 20,
+    "direction": "forward", "rule": "court_days", "mail": False,
+    "jurisdiction": "US-NM", "source": "NMSA 40-10A-305",
+    "status": "VERIFIED", "note": "",
+}
+
+
+def _with_notice_template(monkeypatch):
+    from homestead_law.packs import custody
+
+    monkeypatch.setattr(custody, "TEMPLATES", (_NOTICE_TEMPLATE,), raising=False)
+
+
+def test_deadline_compute_returns_the_preview_and_stores_nothing(ui, monkeypatch):
+    _with_notice_template(monkeypatch)
+    ui.json("/api/matter/open", {"matter": "custody", "id": "primary", "jurisdiction": "US-NM"})
+    ui.json("/api/store", {"matter": "custody", "field": "hearing_date", "value": "2026-01-01"})
+
+    status, data = ui.json(
+        "/api/deadline/compute",
+        {"matter": "custody", "id": "primary", "template": "notice"},
+    )
+    assert status == 200 and data["ok"] is True
+    assert data["anchor_field"] == "hearing_date"
+    assert data["anchor_iso"] == "2026-01-01"
+    assert data["result_iso"] == "2026-01-21"
+    assert data["jurisdiction"] == "US-NM"
+    assert data["mail"] is False
+    assert isinstance(data["token"], str) and data["token"]
+
+    status, data = ui.json("/api/records?matter=custody")
+    assert status == 200
+    assert not any(r["item_type"] == "deadline" for r in data["rows"])
+
+
+def test_deadline_compute_refuses_a_missing_matter_id_or_template(ui, monkeypatch):
+    _with_notice_template(monkeypatch)
+    for payload in (
+        {"id": "primary", "template": "notice"},
+        {"matter": "custody", "template": "notice"},
+        {"matter": "custody", "id": "primary"},
+    ):
+        status, data = ui.json("/api/deadline/compute", payload)
+        assert status == 400, f"{payload!r} was accepted"
+        assert data["ok"] is False
+
+
+def test_deadline_compute_refuses_a_mail_that_is_not_a_boolean(ui, monkeypatch):
+    _with_notice_template(monkeypatch)
+    status, data = ui.json(
+        "/api/deadline/compute",
+        {"matter": "custody", "id": "primary", "template": "notice", "mail": "true"},
+    )
+    assert status == 400 and "mail" in data["error"]
+
+
+def test_deadline_compute_refuses_an_uncertain_template(ui, monkeypatch):
+    from homestead_law.packs import custody
+
+    monkeypatch.setattr(custody, "TEMPLATES", ({
+        "name": "guess", "anchor": "hearing_date", "days": 5,
+        "direction": "forward", "rule": "court_days", "mail": False,
+        "jurisdiction": None, "source": "unclear rule",
+        "status": "UNCERTAIN", "note": "",
+    },), raising=False)
+    ui.json("/api/matter/open", {"matter": "custody", "id": "primary", "jurisdiction": "US-NM"})
+    ui.json("/api/store", {"matter": "custody", "field": "hearing_date", "value": "2026-01-01"})
+
+    status, data = ui.json(
+        "/api/deadline/compute", {"matter": "custody", "id": "primary", "template": "guess"})
+    assert status == 400 and data["error"] == "UNCERTAIN: unclear rule"
+
+
+def test_deadline_accept_stores_at_l1_with_the_instruction_and_the_queue_shows_it(ui, monkeypatch):
+    _with_notice_template(monkeypatch)
+    ui.json("/api/matter/open", {"matter": "custody", "id": "primary", "jurisdiction": "US-NM"})
+    ui.json("/api/store", {"matter": "custody", "field": "hearing_date", "value": "2026-01-01"})
+    _, computed = ui.json(
+        "/api/deadline/compute",
+        {"matter": "custody", "id": "primary", "template": "notice"},
+    )
+
+    status, data = ui.json(
+        "/api/deadline/accept",
+        {"matter": "custody", "id": "primary", "template": "notice", "token": computed["token"]},
+    )
+    assert status == 200 and data == {"ok": True, "replaced": False}
+
+    status, data = ui.json("/api/queue")
+    assert status == 200
+    matching = [i for i in data["items"] if i["matter"] == "custody" and i["instance"] == "primary"]
+    assert any(i["shown"] == "2026-01-21" for i in matching)
+
+
+def test_deadline_accept_refuses_a_stale_token_and_stores_nothing(ui, monkeypatch):
+    _with_notice_template(monkeypatch)
+    ui.json("/api/matter/open", {"matter": "custody", "id": "primary", "jurisdiction": "US-NM"})
+    ui.json("/api/store", {"matter": "custody", "field": "hearing_date", "value": "2026-01-01"})
+
+    status, data = ui.json(
+        "/api/deadline/accept",
+        {"matter": "custody", "id": "primary", "template": "notice", "token": "not-the-real-token"},
+    )
+    assert status == 400 and data["ok"] is False
+
+    status, data = ui.json("/api/records?matter=custody")
+    assert not any(r["item_type"] == "deadline" for r in data["rows"])
+
+
+def test_deadline_accept_a_second_time_refuses_without_replace(ui, monkeypatch):
+    _with_notice_template(monkeypatch)
+    ui.json("/api/matter/open", {"matter": "custody", "id": "primary", "jurisdiction": "US-NM"})
+    ui.json("/api/store", {"matter": "custody", "field": "hearing_date", "value": "2026-01-01"})
+    _, computed = ui.json(
+        "/api/deadline/compute",
+        {"matter": "custody", "id": "primary", "template": "notice"},
+    )
+    ui.json(
+        "/api/deadline/accept",
+        {"matter": "custody", "id": "primary", "template": "notice", "token": computed["token"]},
+    )
+
+    status, data = ui.json(
+        "/api/deadline/accept",
+        {"matter": "custody", "id": "primary", "template": "notice", "token": computed["token"]},
+    )
+    assert status == 409 and data["ok"] is False
+
+
+def test_deadline_accept_refuses_a_replace_that_is_not_a_boolean(ui, monkeypatch):
+    _with_notice_template(monkeypatch)
+    ui.json("/api/matter/open", {"matter": "custody", "id": "primary", "jurisdiction": "US-NM"})
+    ui.json("/api/store", {"matter": "custody", "field": "hearing_date", "value": "2026-01-01"})
+
+    status, data = ui.json(
+        "/api/deadline/accept",
+        {"matter": "custody", "id": "primary", "template": "notice", "token": "x",
+         "replace": "yes"},
+    )
+    assert status == 400 and "replace" in data["error"]
+
+
+def test_deadline_compute_names_the_district_calendar_it_did_not_apply(ui, monkeypatch):
+    """FRBP 9006(a)(6)(C)'s second calendar is part of the answer, so the
+    preview says which one was used — `null` when none was, rather than
+    letting the pane imply the district's state holidays were counted."""
+    _with_notice_template(monkeypatch)
+    ui.json("/api/matter/open", {"matter": "custody", "id": "primary", "jurisdiction": "US-NM"})
+    ui.json("/api/store", {"matter": "custody", "field": "hearing_date", "value": "2026-01-01"})
+
+    status, data = ui.json(
+        "/api/deadline/compute",
+        {"matter": "custody", "id": "primary", "template": "notice"},
+    )
+    assert status == 200
+    assert "district_state" in data and data["district_state"] is None
+
+
+def test_deadline_accept_recomputes_and_refuses_a_token_the_store_moved_under(
+    ui, monkeypatch,
+):
+    """The client's own `result_iso` is never trusted: accept recomputes from
+    the store and compares the token against *that*. Here the anchor is
+    edited between the preview and the accept, so the honest answer is a
+    refusal — not the date the browser is still holding."""
+    _with_notice_template(monkeypatch)
+    ui.json("/api/matter/open", {"matter": "custody", "id": "primary", "jurisdiction": "US-NM"})
+    ui.json("/api/store", {"matter": "custody", "field": "hearing_date", "value": "2026-01-01"})
+
+    status, preview = ui.json(
+        "/api/deadline/compute",
+        {"matter": "custody", "id": "primary", "template": "notice"},
+    )
+    assert status == 200 and preview["result_iso"] == "2026-01-21"
+
+    # the hearing moves after the operator was shown the preview
+    ui.json("/api/store", {"matter": "custody", "field": "hearing_date",
+                           "value": "2026-03-01", "replace": True})
+
+    status, data = ui.json("/api/deadline/accept", {
+        "matter": "custody", "id": "primary", "template": "notice",
+        "token": preview["token"],
+    })
+    assert status == 400 and data["ok"] is False
+    assert "preview token does not match" in data["error"]
+
+    status, records = ui.json("/api/records?matter=custody")
+    assert not any(r["item_type"] == "deadline" for r in records["rows"])
+
+
+def test_deadline_compute_refuses_mail_on_a_backward_template_by_name(ui, monkeypatch):
+    """The `--mail` door's server half: a backward template has no period
+    running from service to extend, and the refusal says so without echoing
+    the anchor's value."""
+    from homestead_law.packs import custody
+
+    monkeypatch.setattr(custody, "TEMPLATES", ({
+        "name": "objection", "anchor": "hearing_date", "days": 7,
+        "direction": "backward", "rule": "court_days_before", "mail": False,
+        "jurisdiction": "US-NM", "source": "FRBP 3015(f)",
+        "status": "VERIFIED", "note": "",
+    },), raising=False)
+    ui.json("/api/matter/open", {"matter": "custody", "id": "primary", "jurisdiction": "US-NM"})
+    ui.json("/api/store", {"matter": "custody", "field": "hearing_date", "value": "2026-03-01"})
+
+    status, data = ui.json("/api/deadline/compute", {
+        "matter": "custody", "id": "primary", "template": "objection", "mail": True,
+    })
+    assert status == 400 and data["ok"] is False
+    assert "objection" in data["error"] and "2026-03-01" not in data["error"]
+
 # ── L3-custody-relocation: repeatable fields at the browser door ─────────────
 
 def test_api_matters_says_which_fields_take_a_sub_id(ui):

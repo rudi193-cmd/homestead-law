@@ -581,6 +581,261 @@ def test_deadline_refuses_an_option_it_does_not_take(capsys):
     assert "no such record" in capsys.readouterr().err
 
 
+# ── deadline compute / deadline templates (L3-deadline-templates) ───────────
+#
+# These tests monkeypatch a template onto the real custody pack rather than
+# building a fake matter, so the CLI wiring is proven against the same pack
+# every other test in this file already uses — and they set `TEMPLATES`
+# rather than adding to it, so what the sibling custody bite declares in
+# parallel never changes what a door test here is asserting about.
+
+_NOTICE_TEMPLATE = {
+    "name": "notice", "anchor": "hearing_date", "days": 20,
+    "direction": "forward", "rule": "court_days", "mail": False,
+    "jurisdiction": "US-NM", "source": "NMSA 40-10A-305",
+    "status": "VERIFIED", "note": "",
+}
+
+
+def test_deadline_templates_lists_nothing_for_a_pack_with_none(monkeypatch, capsys):
+    """The empty case. Custody's own `TEMPLATES` is emptied for the duration
+    rather than assumed empty: the sibling custody bite fills it in in
+    parallel, and a test that reads "the listing is empty" as "this pack
+    declares none" would start failing the day it lands — which is a test
+    about the merge order, not about the door."""
+    from homestead_law.packs import custody
+
+    monkeypatch.setattr(custody, "TEMPLATES", (), raising=False)
+    assert run_cli(["deadline", "templates", "custody"]) == 0
+    assert "no deadline templates declared" in capsys.readouterr().out
+
+
+def test_deadline_templates_lists_a_packs_declared_templates(monkeypatch, capsys):
+    from homestead_law.packs import custody
+
+    monkeypatch.setattr(custody, "TEMPLATES", (_NOTICE_TEMPLATE,), raising=False)
+    assert run_cli(["deadline", "templates", "custody"]) == 0
+    out = capsys.readouterr().out
+    assert "notice" in out and "VERIFIED" in out and "court_days" in out
+
+
+def test_deadline_compute_prints_the_preview_and_stores_nothing(monkeypatch, capsys):
+    from homestead_law.packs import custody
+    from homestead_law.store import Sidecar
+
+    monkeypatch.setattr(custody, "TEMPLATES", (_NOTICE_TEMPLATE,), raising=False)
+    assert run_cli(["matter", "open", "custody", "--id", "primary", "--jurisdiction", "US-NM"]) == 0
+    capsys.readouterr()
+    assert run_cli(["put", "custody", "hearing_date", "2026-01-01"]) == 0
+    capsys.readouterr()
+
+    assert run_cli(["deadline", "compute", "custody", "notice", "--id", "primary"]) == 0
+    out = capsys.readouterr().out
+    assert "anchor:  hearing_date = 2026-01-01" in out
+    assert "result:  2026-01-21" in out
+    assert "token:" in out
+
+    assert not Sidecar().has("custody", "deadline", "primary.notice")
+
+
+def test_deadline_compute_accept_stores_and_a_second_accept_refuses(monkeypatch, capsys):
+    from homestead_law.packs import custody
+    from homestead_law.store import Sidecar
+
+    monkeypatch.setattr(custody, "TEMPLATES", (_NOTICE_TEMPLATE,), raising=False)
+    assert run_cli(["matter", "open", "custody", "--id", "primary", "--jurisdiction", "US-NM"]) == 0
+    capsys.readouterr()
+    assert run_cli(["put", "custody", "hearing_date", "2026-01-01"]) == 0
+    capsys.readouterr()
+
+    assert run_cli(["deadline", "compute", "custody", "notice", "--id", "primary", "--accept"]) == 0
+    out = capsys.readouterr().out
+    assert "accepted: custody/deadline/primary.notice" in out
+
+    record = Sidecar().get("custody", "deadline", "primary.notice")
+    assert record.payload == "2026-01-21"
+    assert "confirm against the court's notice" in record.derived
+
+    assert run_cli(["deadline", "compute", "custody", "notice", "--id", "primary", "--accept"]) == 1
+    err = capsys.readouterr().err
+    assert "already on file" in err and "--replace" in err
+
+
+def test_deadline_compute_refuses_an_uncertain_template_naming_the_source(monkeypatch, capsys):
+    from homestead_law.packs import custody
+
+    monkeypatch.setattr(custody, "TEMPLATES", ({
+        "name": "guess", "anchor": "hearing_date", "days": 5,
+        "direction": "forward", "rule": "court_days", "mail": False,
+        "jurisdiction": None, "source": "unclear rule",
+        "status": "UNCERTAIN", "note": "",
+    },), raising=False)
+    assert run_cli(["matter", "open", "custody", "--id", "primary", "--jurisdiction", "US-NM"]) == 0
+    capsys.readouterr()
+    assert run_cli(["put", "custody", "hearing_date", "2026-01-01"]) == 0
+    capsys.readouterr()
+
+    assert run_cli(["deadline", "compute", "custody", "guess", "--id", "primary"]) == 1
+    err = capsys.readouterr().err
+    assert "UNCERTAIN: unclear rule" in err
+
+
+def test_deadline_compute_says_whether_mail_and_district_days_were_applied(
+    monkeypatch, capsys,
+):
+    """Both are part of the answer, so the preview prints both — including
+    the "not applied" case, which is the one an operator would otherwise
+    assume in their own favour."""
+    from homestead_law.packs import custody
+
+    monkeypatch.setattr(custody, "TEMPLATES", (_NOTICE_TEMPLATE,), raising=False)
+    assert run_cli(["matter", "open", "custody", "--id", "primary", "--jurisdiction", "US-NM"]) == 0
+    assert run_cli(["put", "custody", "hearing_date", "2026-01-01"]) == 0
+    capsys.readouterr()
+
+    assert run_cli(["deadline", "compute", "custody", "notice", "--id", "primary"]) == 0
+    out = capsys.readouterr().out
+    assert "forum:   US-NM" in out
+    assert "mail:    no" in out
+    # US-NM is a state court: FRBP 9006(a)(6)(C) has no application at all
+    # there, so the line is absent rather than saying a calendar that never
+    # existed was "not applied".
+    assert "district holidays" not in out
+
+
+def test_a_federal_forum_says_when_no_district_calendar_was_applied(
+    monkeypatch, capsys,
+):
+    """The case the line is for: a federal count *could* have carried a
+    district's state holidays and did not."""
+    from homestead_law.packs import custody
+
+    monkeypatch.setattr(custody, "TEMPLATES", (
+        dict(_NOTICE_TEMPLATE, jurisdiction="US-federal"),), raising=False)
+    monkeypatch.setattr(
+        custody, "JURISDICTIONS", ("US-NM", "US-OR", "US-federal"))
+    assert run_cli([
+        "matter", "open", "custody", "--id", "primary",
+        "--jurisdiction", "US-federal",
+    ]) == 0
+    assert run_cli(["put", "custody", "hearing_date", "2026-01-01"]) == 0
+    capsys.readouterr()
+
+    assert run_cli(["deadline", "compute", "custody", "notice", "--id", "primary"]) == 0
+    assert "district holidays not applied" in capsys.readouterr().out
+
+
+def test_deadline_compute_counts_a_federal_template_under_its_district_state(
+    monkeypatch, capsys,
+):
+    """The pinned case: 2026-11-27 is a working day on the federal calendar
+    and a legal holiday in New Mexico, so a 70-day claims bar from a
+    2026-09-18 petition is 2026-11-27 without the district's state and
+    2026-11-30 with it. The CLI names which one it used."""
+    from homestead_law.packs import custody
+
+    monkeypatch.setattr(custody, "TEMPLATES", ({
+        "name": "claims-bar", "anchor": "hearing_date", "days": 70,
+        "direction": "forward", "rule": "court_days", "mail": False,
+        "jurisdiction": None, "source": "FRBP 3002(c)",
+        "status": "VERIFIED", "note": "", "district_state": "NM",
+    },), raising=False)
+    # Custody's own tuple is NM/OR; a *federal* forum is what 9006(a)(6)(C)
+    # is about, so this test widens the pack's published set for its own
+    # duration rather than reaching past `set_jurisdiction`'s closed check.
+    monkeypatch.setattr(
+        custody, "JURISDICTIONS", ("US-NM", "US-OR", "US-federal"))
+    assert run_cli([
+        "matter", "open", "custody", "--id", "primary",
+        "--jurisdiction", "US-federal",
+    ]) == 0
+    assert run_cli(["put", "custody", "hearing_date", "2026-09-18"]) == 0
+    capsys.readouterr()
+
+    assert run_cli(["deadline", "compute", "custody", "claims-bar", "--id", "primary"]) == 0
+    out = capsys.readouterr().out
+    assert "result:  2026-11-30" in out
+    assert "district holidays: NM" in out
+
+
+def test_deadline_compute_picks_the_template_written_for_this_instances_forum(
+    monkeypatch, capsys,
+):
+    """One name, two forums — the custody shape, through the CLI door."""
+    from homestead_law.packs import custody
+
+    monkeypatch.setattr(custody, "TEMPLATES", (
+        {"name": "contest", "anchor": "hearing_date", "days": 20,
+         "direction": "forward", "rule": "court_days", "mail": False,
+         "jurisdiction": "US-NM", "source": "NMSA 40-10A-305",
+         "status": "VERIFIED", "note": ""},
+        {"name": "contest", "anchor": "hearing_date", "days": 21,
+         "direction": "forward", "rule": "court_days", "mail": False,
+         "jurisdiction": "US-OR", "source": "ORS 109.787",
+         "status": "VERIFIED", "note": ""},
+    ), raising=False)
+
+    assert run_cli(["matter", "open", "custody", "--id", "nm-order", "--jurisdiction", "US-NM"]) == 0
+    assert run_cli(["matter", "open", "custody", "--id", "or-order", "--jurisdiction", "US-OR"]) == 0
+    assert run_cli(["put", "custody", "hearing_date", "2026-01-01", "--id", "nm-order"]) == 0
+    assert run_cli(["put", "custody", "hearing_date", "2026-01-01", "--id", "or-order"]) == 0
+    capsys.readouterr()
+
+    assert run_cli(["deadline", "compute", "custody", "contest", "--id", "nm-order"]) == 0
+    nm = capsys.readouterr().out
+    assert run_cli(["deadline", "compute", "custody", "contest", "--id", "or-order"]) == 0
+    orr = capsys.readouterr().out
+
+    assert "NMSA 40-10A-305" in nm and "ORS 109.787" in orr
+    assert "result:  2026-01-21" in nm         # 20 court days, NM
+    assert "result:  2026-01-22" in orr        # 21 court days, OR
+
+
+def test_deadline_compute_refuses_mail_on_a_backward_template_without_echoing_the_anchor(
+    monkeypatch, capsys,
+):
+    from homestead_law.packs import custody
+
+    monkeypatch.setattr(custody, "TEMPLATES", ({
+        "name": "objection", "anchor": "hearing_date", "days": 7,
+        "direction": "backward", "rule": "court_days_before", "mail": False,
+        "jurisdiction": "US-NM", "source": "FRBP 3015(f)",
+        "status": "VERIFIED", "note": "",
+    },), raising=False)
+    assert run_cli(["matter", "open", "custody", "--id", "primary", "--jurisdiction", "US-NM"]) == 0
+    assert run_cli(["put", "custody", "hearing_date", "2026-03-01"]) == 0
+    capsys.readouterr()
+
+    assert run_cli([
+        "deadline", "compute", "custody", "objection", "--id", "primary", "--mail",
+    ]) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("refused:") and "objection" in err
+    assert "2026-03-01" not in err and "Traceback" not in err
+
+
+def test_deadline_doors_refuse_a_broken_template_by_name_rather_than_tracebacking(
+    monkeypatch, capsys,
+):
+    """`templates_of` re-validates, so a pack reached outside the registry —
+    here, one whose `TEMPLATES` was set after import — still refuses by name
+    at the door instead of raising through it (I-11)."""
+    from homestead_law.packs import custody
+
+    monkeypatch.setattr(custody, "TEMPLATES", ({
+        "name": "broken", "anchor": "case_number", "days": 5,
+        "direction": "forward", "rule": "court_days", "mail": False,
+        "jurisdiction": None, "source": "test", "status": "VERIFIED", "note": "",
+    },), raising=False)      # case_number is L3 on custody, not L1
+
+    assert run_cli(["deadline", "templates", "custody"]) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("refused:") and "Traceback" not in err
+
+    assert run_cli(["deadline", "compute", "custody", "broken", "--id", "primary"]) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("refused:") and "Traceback" not in err
+
 # ── the queue prints the plan-period reference lines (audit, 2026-09-12) ────
 
 def _signal_pack(monkeypatch, name: str = "_fake_signal") -> None:

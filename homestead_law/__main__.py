@@ -40,6 +40,8 @@ commands (real data, in the household root — $HOMESTEAD_HOME or ~/.homestead):
   deadline     deadline <matter> <id> <date> [--rung L1|L3|L4] [--sub sub] [instruction]
                (<id> names the deadline inside the `primary` instance; with --sub,
                 <id> is the instance and --sub the deadline — always "<inst>.<name>")
+               deadline compute <matter> <template> --id inst [--mail] [--accept] [--replace]
+               deadline templates <matter> — list a matter's declared templates
   show         show [matter] [item [id]] [--id inst] [--sub sub] — read records back, through the gate
   matter       matter open <matter> --id inst --jurisdiction code [--replace] — open an instance
   queue        queue [--today YYYY-MM-DD] — what's due
@@ -87,6 +89,7 @@ def main(argv: list[str] | None = None) -> int:
             plan_period,
             queue,
             registry,
+            rules,
             server,
             store,
         )

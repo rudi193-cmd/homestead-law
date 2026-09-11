@@ -80,6 +80,7 @@ from typing import Any, Mapping
 from homestead_law import packs
 from homestead.keep.rungs import Rung
 from homestead_law.packs import bankruptcy, custody, workers_comp
+from homestead_law import rules
 
 __all__ = ["MatterType", "REGISTRY", "all_matters", "matter"]
 
@@ -214,7 +215,12 @@ def _validate(registry: Mapping[str, Any], on_disk: Mapping[str, ModuleType]) ->
       `Classified(rung, value, None)` raises `UnclassifiedField`, and neither
       door builds that `Classified` inside its `try`, so the CLI tracebacks and
       the browser's POST dies on the socket. A build failure naming the field
-      is the refusal this module gives every other kind of absence (I-11).
+      is the refusal this module gives every other kind of absence (I-11);
+    * a pack whose optional `TEMPLATES` (decision 4, `homestead_law.rules`)
+      holds an entry violating the template contract — see
+      `rules.validate_templates`. A pack with no `TEMPLATES` at all, or with
+      an empty one (workers' comp, whose every candidate rule anchors above
+      `L1`), validates clean; templates are optional pack data.
     """
     # The rungs a stored record may be *served as a stand-in for*, which is
     # therefore the set that must carry one. Stated here rather than imported:
@@ -331,6 +337,18 @@ def _validate(registry: Mapping[str, Any], on_disk: Mapping[str, ModuleType]) ->
                     "that cannot be written at all, and would say so only at "
                     "the first `put`. Add SCHEMA[field]['derived']."
                 )
+
+        # L3-deadline-templates' one addition: a pack's optional TEMPLATES
+        # tuple (decision 4) is data, not code, and a bad entry — a missing
+        # key, an anchor that is not this pack's own L1 field, a backward
+        # direction on a rule that is not court_days_before — is BUG-6's
+        # shape one level down: a template nothing can ever compute rather
+        # than a matter nothing can ever reach. `rules.validate_templates`
+        # raises `rules.InvalidTemplate`, naming the pack and the template,
+        # and is not caught here — a bad template is a build failure exactly
+        # like an unclassified SCHEMA field, not a value this function
+        # reports and moves past.
+        rules.validate_templates(entry.pack)
 
     unregistered = sorted(set(on_disk) - set(registry))
     if unregistered:
