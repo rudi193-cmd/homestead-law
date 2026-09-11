@@ -21,6 +21,23 @@ operator (or the browser) saw, so `accept` cannot be pointed at a stale
 preview by name-confusion or a slow client — `server.py`'s accept endpoint
 recomputes and compares before it ever calls this module's `accept`.
 
+**A template name is a label, not a sentence, and it is also half of a
+stored key.** `accept()` files a computed deadline under
+`instances.item_id(instance, template)`, so a template's `name` must match
+`instances.ID_PATTERN` — lowercase letters, digits and hyphens, no
+underscore, no dot. `registration-contest`, not `registration_contest`: a
+pack whose template names are snake_case like its *field* names refuses at
+import rather than at the first `--accept`, which is the difference between
+a build failure and a deadline that computes and then cannot be filed.
+
+**One name may be declared more than once — for different jurisdictions.**
+That is not a duplicate; it is the ordinary shape of a rule that differs by
+forum, and custody's `registration-contest` (20 court days under `US-NM`,
+21 under `US-OR`) is exactly it. `compute()` picks by the *instance's* own
+jurisdiction, and `validate_templates` refuses only the repeats it could not
+pick between: the same name twice for the same jurisdiction, or one name
+declared both for a particular jurisdiction and for all of them.
+
 **Validation lives at registry time, not at first use.** `validate_templates`
 is `registry._validate`'s one addition for this bite: a pack whose `TEMPLATES`
 violates its own contract — a key missing, an anchor that is not one of the
@@ -55,6 +72,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING, Mapping
@@ -72,6 +90,7 @@ __all__ = [
     "Computed",
     "InvalidTemplate",
     "TemplateNotFound",
+    "AmbiguousTemplate",
     "AnchorUnavailable",
     "TemplateJurisdictionMismatch",
     "UncertainTemplate",
@@ -91,6 +110,26 @@ _KEYS = frozenset(
     {"name", "anchor", "days", "direction", "rule", "mail",
      "jurisdiction", "source", "status", "note"}
 )
+#: Keys an entry *may* carry and usually does not. `district_state` is the
+#: USPS code of the state a **federal** district court sits in — FRBP
+#: 9006(a)(6)(C)'s second calendar, forward periods only. It is optional
+#: because only a federal template in a district whose state the pack knows
+#: can honestly name one; a template that omits it computes on the federal
+#: calendar alone and `Computed.district_state` is `None`, which every door
+#: says out loud rather than leaving the operator to assume state closures
+#: were counted. See `_district_state_for`.
+_OPTIONAL_KEYS = frozenset({"district_state"})
+#: Two upper-case ASCII letters — the *shape* of a USPS code, not the list.
+#: Which codes actually exist is `homestead.keep.dates`' own question (it
+#: refuses one `holidays` does not recognize, by name); this check only stops
+#: a pack typo at build time instead of at the operator's first compute.
+_DISTRICT_STATE = re.compile(r"^[A-Z]{2}$")
+#: The one counting rule the engine accepts a `district_state` for:
+#: `court_days` (and `add_mail_days` over its result). `court_days_before`
+#: takes none at all — a state holiday must never reach a backward count —
+#: `business_days` has no such parameter, and `calendar_days` reads no
+#: calendar whatsoever.
+_DISTRICT_STATE_RULE = "court_days"
 _DIRECTIONS = frozenset({"forward", "backward"})
 _RULES = frozenset({"court_days", "court_days_before", "business_days", "calendar_days"})
 _STATUSES = frozenset({"VERIFIED", "UNCERTAIN"})
@@ -120,6 +159,15 @@ class Template:
     source: str
     status: str
     note: str
+    #: Optional, and defaulted so the ten required keys keep building a
+    #: `Template` unchanged: the USPS code of the state a federal district
+    #: court sits in (FRBP 9006(a)(6)(C)). `None` — the ordinary case — means
+    #: no second calendar was named, and `compute` then falls back to the
+    #: instance's own `district_state` record if (and only if) the pack
+    #: declares such an `L1` field. Never guessed from a district's *name*:
+    #: "District of New Mexico" → `"NM"` is a table of court names this
+    #: package does not own and I-23 would not let it keep.
+    district_state: str | None = None
 
 
 @dataclass(frozen=True)
@@ -138,16 +186,23 @@ class Computed:
     source: str
     jurisdiction: str
     mail: bool
+    #: The second holiday calendar this count actually used, or `None` for
+    #: "district holidays were not applied" — part of the answer, so part of
+    #: the token: the same anchor under the same rule gives a different date
+    #: with and without it (2026-11-27 is a federal working day and an
+    #: `US-NM` closure), and a preview that did not say which was shown is a
+    #: preview an `accept` could quietly disagree with.
+    district_state: str | None
 
     @property
     def preview_token(self) -> str:
-        """`sha256` of the canonical JSON of exactly the nine fields above.
+        """`sha256` of the canonical JSON of exactly the ten fields above.
 
         Built by hand — `matter`, `instance`, … named one at a time — rather
         than `dataclasses.asdict(self)`: this module is a surface (it calls
         `serve()`), and `tests/test_chokepoint.py` bans `asdict` anywhere in a
         surface file, the same way it bans `getattr`. Sorted keys and compact
-        separators so the same nine values always hash to the same string,
+        separators so the same ten values always hash to the same string,
         regardless of how this dict happens to be built.
         """
         payload = {
@@ -160,6 +215,7 @@ class Computed:
             "source": self.source,
             "jurisdiction": self.jurisdiction,
             "mail": self.mail,
+            "district_state": self.district_state,
         }
         canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
@@ -195,6 +251,30 @@ class TemplateNotFound(LookupError):
         self.template = template_name
 
 
+class AmbiguousTemplate(LookupError):
+    """More than one template of this name fits this instance's jurisdiction.
+
+    `validate_templates` makes this unreachable for a pack that came through
+    the registry — a name may repeat only across *different* jurisdictions,
+    and a name declared once with `jurisdiction=None` may not also be
+    declared for a specific one — so this is the runtime half of that rule,
+    for a `MatterType` built by hand that never passed through it. Refusing
+    is the only honest answer: picking the first match would file a deadline
+    counted under a rule the operator never chose."""
+
+    def __init__(
+        self, matter_name: str, instance: str, template_name: str, code: str,
+    ) -> None:
+        super().__init__(
+            f"{matter_name}/{instance}/{template_name}: more than one template "
+            f"of this name fits {code} — the pack declares an ambiguous set "
+            "and no date can be counted from it"
+        )
+        self.matter = matter_name
+        self.instance = instance
+        self.template = template_name
+
+
 class AnchorUnavailable(LookupError):
     """The template's anchor field is not on file at a rung the gate renders.
 
@@ -224,11 +304,13 @@ class TemplateJurisdictionMismatch(ValueError):
 
     def __init__(
         self, matter_name: str, instance: str, template_name: str,
-        expected: str, actual: str,
+        expected: tuple[str, ...] | str, actual: str,
     ) -> None:
+        declared = (expected,) if isinstance(expected, str) else tuple(expected)
+        for_what = declared[0] if len(declared) == 1 else f"{list(declared)}"
         super().__init__(
             f"{matter_name}/{instance}/{template_name}: this template is for "
-            f"{expected}; the instance is {actual}"
+            f"{for_what}; the instance is {actual}"
         )
         self.matter = matter_name
         self.instance = instance
@@ -307,7 +389,14 @@ def validate_templates(pack: object) -> None:
     fields = pack.FIELDS if hasattr(pack, "FIELDS") else {}
     jurisdictions = pack.JURISDICTIONS if hasattr(pack, "JURISDICTIONS") else ()
 
-    seen: set[str] = set()
+    #: name → every jurisdiction it is declared for, in declaration order.
+    #: Checked after the loop, once each entry's own `jurisdiction` has been
+    #: validated against the pack's tuple: *one name may repeat across
+    #: different jurisdictions* (custody's `registration-contest` is a
+    #: 20-day NM rule and a 21-day OR one, and `compute` picks by the
+    #: instance's own forum), and only a repeat that `compute` could not
+    #: resolve is a build failure.
+    by_name: dict[str, list[str | None]] = {}
     for entry in templates:
         if not isinstance(entry, Mapping):
             raise InvalidTemplate(
@@ -315,12 +404,13 @@ def validate_templates(pack: object) -> None:
                 f"{type(entry).__name__}"
             )
         keys = set(entry)
-        if keys != _KEYS:
+        if not _KEYS <= keys or not keys <= (_KEYS | _OPTIONAL_KEYS):
             raise InvalidTemplate(
                 f"{matter_name}: a TEMPLATES entry has the wrong keys — "
                 f"missing {sorted(_KEYS - keys)}, unexpected "
-                f"{sorted(keys - _KEYS)}. Every entry needs exactly "
-                f"{sorted(_KEYS)}."
+                f"{sorted(keys - _KEYS - _OPTIONAL_KEYS)}. Every entry needs "
+                f"exactly {sorted(_KEYS)}, and may add "
+                f"{sorted(_OPTIONAL_KEYS)}."
             )
 
         name = entry["name"]
@@ -334,11 +424,6 @@ def validate_templates(pack: object) -> None:
                 f"{matter_name}/{name}: a template name is stored as a "
                 f"repeatable sub-id and must match {instances.ID_PATTERN.pattern}"
             )
-        if name in seen:
-            raise InvalidTemplate(
-                f"{matter_name}: template name {name!r} is declared more than once"
-            )
-        seen.add(name)
 
         anchor = entry["anchor"]
         if not isinstance(anchor, str) or anchor not in fields:
@@ -386,10 +471,28 @@ def validate_templates(pack: object) -> None:
             raise InvalidTemplate(
                 f"{matter_name}/{name}: mail must be a bool, not {mail!r}"
             )
-        if rule == "calendar_days" and mail:
+        if mail and rule == "calendar_days":
             raise InvalidTemplate(
                 f"{matter_name}/{name}: calendar_days has no jurisdiction "
                 "rule to add mail days under — mail must be false"
+            )
+        if mail and direction == "backward":
+            # The rule dates-a states and this module only re-states: the
+            # three added days of FRBP 9006(f)/FRCP 6(d) extend a period
+            # that *runs from service* — the served party gets the time the
+            # post took. A period counted **backward** from a hearing runs
+            # from the hearing, not from anything served, so there is no
+            # such period to extend and nothing to add the days to; adding
+            # them anyway would move an objection deadline three days
+            # *later*, i.e. past the point the rule was protecting. A pack
+            # that wants a mailed-service allowance on a backward period is
+            # describing a different rule, and must cite it.
+            raise InvalidTemplate(
+                f"{matter_name}/{name}: mail must be false on a backward "
+                f"({rule!r}) template — the three mail days of FRBP "
+                "9006(f)/FRCP 6(d) extend a period that runs from service, "
+                "and a period counted backward from an event does not run "
+                "from service at all"
             )
 
         jurisdiction = entry["jurisdiction"]
@@ -419,6 +522,51 @@ def validate_templates(pack: object) -> None:
                 f"{type(note).__name__}"
             )
 
+        if "district_state" in entry and entry["district_state"] is not None:
+            district_state = entry["district_state"]
+            if not isinstance(district_state, str) or not _DISTRICT_STATE.match(
+                district_state
+            ):
+                raise InvalidTemplate(
+                    f"{matter_name}/{name}: district_state must be a two-letter "
+                    f"upper-case USPS code, not {district_state!r}"
+                )
+            if rule != _DISTRICT_STATE_RULE:
+                raise InvalidTemplate(
+                    f"{matter_name}/{name}: district_state is only counted by "
+                    f"{_DISTRICT_STATE_RULE!r} — 9006(a)(6)(C) adds the "
+                    "district's state holidays to a period measured *after* "
+                    "an event, and court_days_before, business_days and "
+                    "calendar_days each take none"
+                )
+            if jurisdiction not in (None, "US-federal"):
+                raise InvalidTemplate(
+                    f"{matter_name}/{name}: district_state names the state a "
+                    "*federal* district court sits in; a template already "
+                    f"scoped to {jurisdiction!r} is a state court's own "
+                    "counting rule and reads its own state's holidays alone"
+                )
+
+        by_name.setdefault(name, []).append(jurisdiction)
+
+    for name, declared in by_name.items():
+        if len(declared) == 1:
+            continue
+        if len(set(declared)) != len(declared):
+            raise InvalidTemplate(
+                f"{matter_name}: template name {name!r} is declared more than "
+                f"once for the same jurisdiction ({sorted(set(declared), key=str)}) "
+                "— one name may repeat only across different jurisdictions"
+            )
+        if None in declared:
+            raise InvalidTemplate(
+                f"{matter_name}: template name {name!r} is declared both for "
+                "every jurisdiction (jurisdiction=None) and for a particular "
+                f"one ({sorted(c for c in declared if c is not None)}) — "
+                "`compute` would have two rules to count under and no way to "
+                "choose between them"
+            )
+
 
 # ── reading templates ────────────────────────────────────────────────────
 
@@ -437,12 +585,78 @@ def templates_of(mt: "MatterType") -> tuple[Template, ...]:
     return tuple(Template(**entry) for entry in templates)
 
 
-def _template_named(mt: "MatterType", name: str) -> Template:
+def _named(mt: "MatterType", name: str) -> tuple[Template, ...]:
+    """Every template of this name — *plural*, because a name is unique only
+    within one jurisdiction (see `validate_templates`). Refuses by name when
+    the pack declares none, listing what it does declare (labels a pack
+    author published, never stored content)."""
     found = templates_of(mt)
-    for template in found:
-        if template.name == name:
-            return template
-    raise TemplateNotFound(mt.name, name, tuple(t.name for t in found))
+    matching = tuple(t for t in found if t.name == name)
+    if not matching:
+        raise TemplateNotFound(mt.name, name, tuple(dict.fromkeys(t.name for t in found)))
+    return matching
+
+
+def _for_jurisdiction(
+    mt: "MatterType", instance: str, name: str, code: str,
+) -> Template:
+    """The one template of this name that fits `code`.
+
+    A template naming a jurisdiction fits only that one; a template naming
+    `None` fits any. An exact match wins over the catch-all, so a pack may
+    (in principle) publish a general rule and one state's variant — though
+    `validate_templates` refuses that combination outright, because the two
+    would not be a rule and an exception so much as two rules the operator
+    never chose between. None fitting refuses by name with the jurisdictions
+    the pack *does* declare this template for; more than one fitting refuses
+    rather than picking the first (`AmbiguousTemplate`)."""
+    matching = _named(mt, name)
+    exact = tuple(t for t in matching if t.jurisdiction == code)
+    chosen = exact or tuple(t for t in matching if t.jurisdiction is None)
+    if not chosen:
+        raise TemplateJurisdictionMismatch(
+            mt.name, instance, name,
+            tuple(str(t.jurisdiction) for t in matching), code,
+        )
+    if len(chosen) > 1:
+        raise AmbiguousTemplate(mt.name, instance, name, code)
+    return chosen[0]
+
+
+def _district_state_for(
+    store: Sidecar, mt: "MatterType", instance: str, template: Template,
+) -> str | None:
+    """The state whose holidays 9006(a)(6)(C) adds, or `None`.
+
+    Two sources, in order, and **no third**:
+
+    1. the template's own optional `district_state` — a pack that knows its
+       matter is filed in one district says so in the row;
+    2. an `L1` `district_state` field on the *instance*, if the pack declares
+       one — read through the gate on `S1_LIST` like every other value this
+       module reads, and only when the pack declares it at `L1` (a pack that
+       files the code lower has said it is not public in this forum, and a
+       counting rule may not reach past that).
+
+    What this deliberately does not do is read the pack's `district` field
+    and map "District of New Mexico" to `"NM"`. That table is a list of court
+    names — the enumeration I-23 says lives in a registry or a pack, not in a
+    counting module — and every miss in it would be a silently *wrong*
+    calendar rather than a refusal. Absent both sources the answer is `None`
+    and `Computed.district_state` says so, which the CLI prints as "district
+    holidays not applied" and the browser shows in the preview.
+    """
+    if template.district_state is not None:
+        return template.district_state
+    fields = mt.pack.FIELDS if hasattr(mt.pack, "FIELDS") else {}
+    if fields.get("district_state") is not Rung.L1:
+        return None
+    if not store.has(mt.name, "district_state", instance):
+        return None
+    served = serve(store.get(mt.name, "district_state", instance), Surface.S1_LIST)
+    if served.disposition is not Disposition.RENDER:
+        return None
+    return str(served.value)
 
 
 def _read_anchor(store: Sidecar, matter_name: str, instance: str, field: str) -> str:
@@ -477,17 +691,33 @@ def compute(
 
     In order, each refusing by name before the next step runs:
 
-    1. the anchor, read through the gate on `S1_LIST` (`AnchorUnavailable`
-       for absent or ungated — a derived `L4`, a sealed `L5`);
+    1. the template name against the pack (`TemplateNotFound`) — a pack
+       question, answered before the store is opened at all;
     2. the instance's jurisdiction (`jurisdiction_of` — provisional I-42,
        propagated unchanged);
-    3. the template's own `jurisdiction`, if it names one, against the
-       instance's (`TemplateJurisdictionMismatch`);
+    3. **which** template of that name counts here: the one whose
+       `jurisdiction` is the instance's, or the one that names none. A name
+       is unique only within a jurisdiction — custody declares
+       `registration-contest` twice, 20 court days under `US-NM` and 21
+       under `US-OR` — so this is a choice, not a lookup. None fitting is
+       `TemplateJurisdictionMismatch`; more than one is `AmbiguousTemplate`
+       (unreachable through the registry, which refuses such a pack);
     4. `status == "UNCERTAIN"` (`UncertainTemplate`, `"UNCERTAIN: <source>"`,
-       *before any arithmetic* — the counting functions below are never
-       reached for such a template);
+       *before any arithmetic and before the anchor is even read* — the
+       counting functions below are never reached for such a template);
     5. `mail=True` against a rule with nothing forward-rolled to add days to
-       (`MailUnsupported` — `court_days_before`, `calendar_days`).
+       (`MailUnsupported` — `court_days_before`, `calendar_days`);
+    6. the anchor, read through the gate on `S1_LIST` (`AnchorUnavailable`
+       for absent or ungated — a derived `L4`, a sealed `L5`).
+
+    Then the district's state, if there is one to have (`_district_state_for`
+    — the template's own optional `district_state`, else an `L1`
+    `district_state` record on the instance, else `None`), for `court_days`
+    and nothing else: FRBP 9006(a)(6)(C) adds the legal holidays of the state
+    a federal district court sits in to a period measured *after* an event.
+    `None` is carried into `Computed` and said out loud by every door —
+    "district holidays not applied" — rather than passed off as a complete
+    answer.
 
     Then `homestead.keep.dates`, by `template.rule`:
 
@@ -515,22 +745,32 @@ def compute(
 
     mt = matter(matter_name)
     instance_id = instances.item_id(instance)
-    template = _template_named(mt, template_name)
-
-    anchor_text = _read_anchor(store, matter_name, instance_id, template.anchor)
+    # The name is checked against the pack before anything is read from the
+    # store: a typo'd template is the caller's, not the household's, and
+    # answering it with "no such template" beats answering it with whatever
+    # happens to be missing from this instance.
+    _named(mt, template_name)
 
     code = jurisdiction_of(store, matter_name, instance_id)
-
-    if template.jurisdiction is not None and template.jurisdiction != code:
-        raise TemplateJurisdictionMismatch(
-            matter_name, instance_id, template_name, template.jurisdiction, code,
-        )
+    template = _for_jurisdiction(mt, instance_id, template_name, code)
 
     if template.status == "UNCERTAIN":
         raise UncertainTemplate(matter_name, template_name, template.source)
 
     if mail and template.rule in (_BACKWARD_RULE, "calendar_days"):
         raise MailUnsupported(matter_name, template_name, template.rule)
+
+    anchor_text = _read_anchor(store, matter_name, instance_id, template.anchor)
+    # Resolved only for the one rule that can count under it, so
+    # `Computed.district_state` means "the second calendar this count used"
+    # and never "a code was on file somewhere" — a token that claimed the
+    # latter would say a backward count had applied NM's holidays when
+    # 9006(a)(6)(C) forbids exactly that.
+    district_state = (
+        _district_state_for(store, mt, instance_id, template)
+        if template.rule == _DISTRICT_STATE_RULE
+        else None
+    )
 
     from homestead.keep.dates import (
         Deadline,
@@ -544,8 +784,16 @@ def compute(
     anchor_deadline = parse_deadline(anchor_text, today)
 
     if template.rule == "court_days":
-        result = court_days(anchor_deadline, template.days, jurisdiction=code)
+        result = court_days(
+            anchor_deadline, template.days, jurisdiction=code,
+            district_state=district_state,
+        )
     elif template.rule == _BACKWARD_RULE:
+        # No `district_state` here, and not because this module forgot: a
+        # state's holidays may not reach a backward count (9006(a)(6)(C) is
+        # "after an event" only), and `court_days_before` takes no such
+        # argument at all — which is why it is resolved to `None` above for
+        # every rule but `court_days`.
         result = court_days_before(anchor_deadline, template.days, jurisdiction=code)
     elif template.rule == "business_days":
         result = business_days(anchor_deadline, template.days, jurisdiction=code)
@@ -556,7 +804,7 @@ def compute(
         )
 
     if mail:
-        result = add_mail_days(result, jurisdiction=code)
+        result = add_mail_days(result, jurisdiction=code, district_state=district_state)
 
     return Computed(
         matter=matter_name,
@@ -568,6 +816,7 @@ def compute(
         source=template.source,
         jurisdiction=code,
         mail=mail,
+        district_state=district_state,
     )
 
 

@@ -1059,6 +1059,7 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
                 JurisdictionAbsent,
                 UnparseableDate,
                 rules.TemplateNotFound,
+                rules.AmbiguousTemplate,
                 rules.AnchorUnavailable,
                 rules.TemplateJurisdictionMismatch,
                 rules.UncertainTemplate,
@@ -1077,6 +1078,11 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
                 "source": computed.source,
                 "jurisdiction": computed.jurisdiction,
                 "mail": computed.mail,
+                # `null` when 9006(a)(6)(C)'s second calendar was not
+                # applied — part of the answer and part of the token, so the
+                # pane shows it rather than letting the operator assume the
+                # district's state holidays were counted.
+                "district_state": computed.district_state,
                 "token": computed.preview_token,
             })
 
@@ -1126,6 +1132,7 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
                 JurisdictionAbsent,
                 UnparseableDate,
                 rules.TemplateNotFound,
+                rules.AmbiguousTemplate,
                 rules.AnchorUnavailable,
                 rules.TemplateJurisdictionMismatch,
                 rules.UncertainTemplate,

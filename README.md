@@ -155,7 +155,8 @@ a counting rule (`court_days`, `court_days_before`, `business_days` or
 behind it, and a `VERIFIED`/`UNCERTAIN` status. `homestead_law.rules` is the
 one place that reads that data, checks it against the pack's own fields at
 **registry time** (a bad template — a missing key, an anchor that is not the
-pack's own `L1` field, `calendar_days` asking for mail — is a build failure
+pack's own `L1` field, a backward or `calendar_days` row asking for mail — is
+a build failure
 naming the pack and the template, exactly like an unclassified schema field),
 and turns it into a computed date at runtime, through `homestead.keep.dates`.
 
@@ -190,6 +191,44 @@ count, the added mail days) is itself unverified for that jurisdiction, the
 engine's own refusal propagates unchanged. Either way nothing is guessed —
 confirm the actual date against the court's own notice regardless of what
 this prints, which is exactly what the accepted instruction says.
+
+**A template name is a label and also half of a stored key.** An accepted
+deadline is filed under `"<instance>.<template>"`, so a name matches the same
+alphabet every other id does — lowercase letters, digits and hyphens, no
+underscore, no dot. `registration-contest`, not `registration_contest`: a
+pack whose template names are snake_case like its *field* names refuses at
+import rather than at the first `--accept`.
+
+**One name may be declared more than once, for different jurisdictions**, and
+that is the ordinary shape of a rule that differs by forum rather than a
+duplicate: custody declares `registration-contest` twice, 20 court days under
+`US-NM` and 21 under `US-OR`. `compute` picks the row written for the
+*instance's* own jurisdiction, falling back to a row that names none; a name
+that fits no declared forum is refused, listing the ones it does declare.
+What is refused at import is only the repeat nothing could choose between —
+the same name twice for one jurisdiction, or one name declared both for a
+particular forum and for all of them.
+
+**Mail days extend a period that runs from service.** The three days of FRBP
+9006(f)/FRCP 6(d) are added to the rolled end of a *forward* count; a period
+counted backward from a hearing does not run from service at all, and
+`calendar_days` has no jurisdiction rule to add them under. `mail: True` on
+either is a build failure, and `--mail` against either is refused by name at
+the door.
+
+**A federal district court also reads the holidays of the state it sits in**
+(FRBP 9006(a)(6)(C)), forward periods only. A template may name that state
+with an optional `"district_state": "NM"`; failing that, a pack that declares
+an `L1` `district_state` field lets each instance say which district it is
+in. Nothing maps a district's *name* to a state — "District of New Mexico" →
+`NM` is a table of court names this package does not keep, and every miss in
+it would be a silently wrong calendar rather than a refusal. When neither
+source names one, the count runs on the federal calendar alone and every door
+says so out loud (`district holidays not applied`, `"district_state": null`)
+rather than letting the operator assume the state's closures were counted.
+It matters: the Friday after Thanksgiving is a working day federally and a
+legal holiday in New Mexico, so a 70-day claims bar from a 2026-09-18
+petition is 2026-11-27 without it and 2026-11-30 with it.
 
 `calendar_days` is the one rule this package computes itself rather than
 asking the engine for: a plain count of days with **no roll off a weekend or

@@ -369,7 +369,9 @@ def _cmd_deadline_templates(args: Sequence[str]) -> int:
     print(f"  {matter_name} templates:")
     for t in templates:
         scope = t.jurisdiction or "the instance's own jurisdiction"
-        print(f"  {t.name}  [{t.status}]  {t.rule} {t.days}d {t.direction}  ({scope})")
+        district = f" +{t.district_state} holidays" if t.district_state else ""
+        print(f"  {t.name}  [{t.status}]  {t.rule} {t.days}d {t.direction}"
+              f"{district}  ({scope})")
     return 0
 
 
@@ -435,6 +437,7 @@ def _cmd_deadline_compute(args: Sequence[str]) -> int:
         JurisdictionAbsent,
         UnparseableDate,
         rules.TemplateNotFound,
+        rules.AmbiguousTemplate,
         rules.AnchorUnavailable,
         rules.TemplateJurisdictionMismatch,
         rules.UncertainTemplate,
@@ -443,9 +446,22 @@ def _cmd_deadline_compute(args: Sequence[str]) -> int:
         print(f"refused: {exc}", file=sys.stderr)
         return 1
 
-    print(f"  {matter_name}/{id_opt}/{template_name}")
+    print(f"  {matter_name}/{computed.instance}/{template_name}")
     print(f"  anchor:  {computed.anchor_field} = {computed.anchor_iso}")
     print(f"  result:  {computed.result_iso}")
+    print(f"  forum:   {computed.jurisdiction}")
+    # Both of these are *part of the answer*, not decoration: the same anchor
+    # under the same rule is a different date with and without three mail
+    # days, and again with and without the district's state holidays. A
+    # preview that showed neither would let an operator accept a token whose
+    # date they could not reproduce — so the `None` case is printed too, in
+    # the words the plan asks for, rather than left blank.
+    print(f"  mail:    {'+3 days (FRBP 9006(f)/FRCP 6(d))' if computed.mail else 'no'}")
+    if computed.district_state is None:
+        print("  district holidays not applied")
+    else:
+        print(f"  district holidays: {computed.district_state} "
+              "(FRBP 9006(a)(6)(C))")
     print(f"  source:  {computed.source}")
     print(f"  token:   {computed.preview_token}")
 

@@ -60,6 +60,7 @@ def _fake_pack(
     jurisdictions: tuple[str, ...] = ("US-NM", "US-OR", "US-federal"),
     anchor: str = "move_date",
     templates: tuple[dict, ...] = (),
+    extra_fields: dict | None = None,
 ) -> types.ModuleType:
     """A stand-in pack with one `L1` anchor field and whatever `TEMPLATES`
     the caller wants — never a real future pack name (bankruptcy and workers'
@@ -75,6 +76,16 @@ def _fake_pack(
         "jurisdiction": {"rung": Rung.L1, "matter": name, "why": "test"},
         "notes": {"rung": Rung.L4, "matter": name, "why": "test", "derived": "A note is on file"},
     }
+    # A pack that declares its own `district_state` field (the second of the
+    # two sources `rules._district_state_for` reads, and the only one a pack
+    # rather than a template can offer) opts in here, at whatever rung the
+    # test wants to plant.
+    for extra, rung in (extra_fields or {}).items():
+        mod.FIELDS[extra] = rung
+        decl = {"rung": rung, "matter": name, "why": "test"}
+        if rung in (Rung.L3, Rung.L4):
+            decl["derived"] = "On file"
+        mod.SCHEMA[extra] = decl
     mod.TEMPLATES = templates
     return mod
 
@@ -702,3 +713,498 @@ def test_preview_token_is_stable_for_the_same_fields_and_changes_when_one_does(n
     store.put(mt.name, "move_date", "primary", Classified(Rung.L1, "2026-02-01"), overwrite=True)
     c = rules.compute(store, mt.name, "primary", "notice")
     assert c.preview_token != a.preview_token    # the anchor moved
+
+
+# ── one name, two jurisdictions (the custody shape) ──────────────────────
+#
+# The audit finding this section pins: `validate_templates` refused *any*
+# repeated template name, and `compute` took the first row whose name
+# matched, ignoring which forum it was written for. The custody pack
+# declares `registration-contest` twice — 20 court days under NMSA
+# 40-10A-305 for `US-NM`, 21 under the OR reading — so the first behaviour
+# made that pack unimportable and the second would have counted an OR
+# instance's contest window under New Mexico's statute.
+
+def _two_forum_pack(**over):
+    """The custody shape, as a fake pack: one name, two jurisdictions,
+    different periods. Never the real pack — that lands in a parallel bite."""
+    return _fake_pack(
+        templates=(
+            _template(name="contest", days=20, jurisdiction="US-NM",
+                      source="NMSA 40-10A-305"),
+            _template(name="contest", days=21, jurisdiction="US-OR",
+                      source="ORS 109.787", **over),
+        ),
+    )
+
+
+def test_one_name_declared_for_two_jurisdictions_validates():
+    """Not a duplicate — the ordinary shape of a rule that differs by forum."""
+    rules.validate_templates(_two_forum_pack())
+    names = [t.name for t in rules.templates_of(_mt(_two_forum_pack()))]
+    assert names == ["contest", "contest"]
+
+
+def test_compute_picks_the_template_for_the_instances_own_jurisdiction():
+    """The whole point of allowing the repeat: an OR instance is counted
+    under the OR row's 21 days, an NM instance under the NM row's 20 — and
+    `source` follows, so the stored instruction cites the right statute."""
+    pack = _two_forum_pack()
+    mt = _mt(pack)
+    with _registered(mt):
+        store = Sidecar()
+        store.put(mt.name, "move_date", "primary", Classified(Rung.L1, "2026-01-01"))
+
+        set_jurisdiction(store, mt.name, "primary", "US-NM")
+        nm = rules.compute(store, mt.name, "primary", "contest")
+        assert nm.result_iso == court_days("2026-01-01", 20, jurisdiction="US-NM").iso
+        assert nm.source == "NMSA 40-10A-305"
+
+        set_jurisdiction(store, mt.name, "primary", "US-OR", replace=True)
+        orr = rules.compute(store, mt.name, "primary", "contest")
+        assert orr.result_iso == court_days("2026-01-01", 21, jurisdiction="US-OR").iso
+        assert orr.source == "ORS 109.787"
+
+        assert nm.result_iso != orr.result_iso
+        assert nm.preview_token != orr.preview_token
+
+
+def test_the_same_name_twice_for_the_same_jurisdiction_is_still_refused():
+    """The repeat that is a genuine duplicate: `compute` would have two rules
+    for one forum and no way to choose."""
+    pack = _fake_pack(templates=(_template(name="contest"), _template(name="contest")))
+    with pytest.raises(rules.InvalidTemplate) as exc:
+        rules.validate_templates(pack)
+    assert "more than once for the same jurisdiction" in str(exc.value)
+
+
+def test_a_name_declared_both_for_all_forums_and_for_one_is_refused():
+    """`jurisdiction=None` fits every instance, so pairing it with a specific
+    row makes every NM instance ambiguous. Refused at import, not at the
+    operator's first compute."""
+    pack = _fake_pack(templates=(
+        _template(name="contest", jurisdiction=None),
+        _template(name="contest", jurisdiction="US-NM"),
+    ))
+    with pytest.raises(rules.InvalidTemplate) as exc:
+        rules.validate_templates(pack)
+    assert "jurisdiction=None" in str(exc.value)
+
+
+def test_a_name_that_fits_no_declared_forum_refuses_naming_the_ones_it_does():
+    """Two rows, neither for `US-federal`: the refusal lists both codes the
+    pack does declare — published labels, never stored content (I-15)."""
+    pack = _two_forum_pack()
+    mt = _mt(pack)
+    with _registered(mt):
+        store = Sidecar()
+        set_jurisdiction(store, mt.name, "primary", "US-federal")
+        store.put(mt.name, "move_date", "primary", Classified(Rung.L1, "2026-01-01"))
+        with pytest.raises(rules.TemplateJurisdictionMismatch) as exc:
+            rules.compute(store, mt.name, "primary", "contest")
+        message = str(exc.value)
+        assert "US-NM" in message and "US-OR" in message
+        assert "the instance is US-federal" in message
+
+
+def test_two_templates_fitting_one_forum_refuse_rather_than_pick(monkeypatch):
+    """`AmbiguousTemplate` — the runtime half of the validation rule above,
+    planted by handing `compute` a template list `validate_templates` would
+    never have passed (the only way to reach it, which is the point)."""
+    pack = _fake_pack(templates=(_template(name="contest"),))
+    mt = _mt(pack)
+    doubled = (
+        rules.Template(**_template(name="contest", days=20)),
+        rules.Template(**_template(name="contest", days=99)),
+    )
+    monkeypatch.setattr(rules, "templates_of", lambda _mt: doubled)
+    with _registered(mt):
+        store = Sidecar()
+        set_jurisdiction(store, mt.name, "primary", "US-NM")
+        store.put(mt.name, "move_date", "primary", Classified(Rung.L1, "2026-01-01"))
+        with pytest.raises(rules.AmbiguousTemplate) as exc:
+            rules.compute(store, mt.name, "primary", "contest")
+        assert "more than one template of this name" in str(exc.value)
+
+
+# ── mail days never extend a period that does not run from service ───────
+
+def test_mail_true_on_a_backward_template_is_refused_at_import():
+    """dates-a's rule, re-stated where a pack can trip over it: the three
+    days of FRBP 9006(f)/FRCP 6(d) extend a period that runs from *service*.
+    A period counted backward from a hearing runs from the hearing, so there
+    is nothing to extend — and adding three days anyway would move an
+    objection deadline three days *later*, past the point the rule protects.
+    The bankruptcy pack's `objection` row (−7 court days, `mail: True`) is
+    exactly this shape, which is what this guard is for."""
+    pack = _fake_pack(templates=(_template(
+        name="objection", days=7, direction="backward",
+        rule="court_days_before", mail=True,
+    ),))
+    with pytest.raises(rules.InvalidTemplate) as exc:
+        rules.validate_templates(pack)
+    message = str(exc.value)
+    assert "mail must be false on a backward" in message
+    assert "9006(f)" in message
+
+
+def test_mail_true_on_a_calendar_days_template_is_refused_at_import():
+    """The other half: `calendar_days` is this module's own `timedelta`, with
+    no jurisdiction rule behind it to add mail days under."""
+    pack = _fake_pack(templates=(_template(rule="calendar_days", mail=True),))
+    with pytest.raises(rules.InvalidTemplate) as exc:
+        rules.validate_templates(pack)
+    assert "calendar_days" in str(exc.value)
+
+
+def test_mail_true_on_a_forward_court_rule_validates():
+    """So the guard above is a rule and not a blanket ban on the key."""
+    rules.validate_templates(_fake_pack(templates=(_template(mail=True),)))
+    rules.validate_templates(
+        _fake_pack(templates=(_template(rule="business_days", mail=True),)))
+
+
+# ── arithmetic, cross-checked against the engine one case at a time ──────
+#
+# `compute` is not allowed to be a second implementation of anything. Each
+# case below states the hand-checkable answer *as a literal* and then asserts
+# the engine agrees, so a change in either this module or `homestead.keep.
+# dates` has to break one of the two halves visibly.
+
+_SERIAL = iter(range(1000))
+
+
+def _computed(template, *, code, anchor="2026-01-01", extra_fields=None,
+              district_record=None, mail=False):
+    # A fresh pack name per call: two `_computed`s in one test share the
+    # tmp_path store, and re-opening the same instance would hit I-9's
+    # first-write rule rather than the behaviour under test.
+    pack = _fake_pack(
+        f"_fake_tpl{next(_SERIAL)}",
+        jurisdiction=code, jurisdictions=("US-NM", "US-OR", "US-federal"),
+        templates=(template,), extra_fields=extra_fields,
+    )
+    mt = _mt(pack)
+    with _registered(mt):
+        store = Sidecar()
+        set_jurisdiction(store, mt.name, "primary", code)
+        store.put(mt.name, "move_date", "primary", Classified(Rung.L1, anchor))
+        if district_record is not None:
+            rung, value = district_record
+            store.put(mt.name, "district_state", "primary",
+                      Classified(rung, value, "On file" if rung in (Rung.L3, Rung.L4) else None))
+        return rules.compute(store, mt.name, "primary", template["name"], mail=mail)
+
+
+def test_nm_forward_twenty_court_days_from_a_friday_uses_the_state_calendar():
+    """2026-09-11 is a Friday. Twenty days is at or above NM's 11-day
+    short-period threshold, so Rule 1-006's ordinary forward branch applies
+    (the verified one) and the answer is 2026-10-01."""
+    import datetime as dt
+    assert dt.date(2026, 9, 11).weekday() == 4          # Friday
+
+    computed = _computed(
+        _template(name="contest", days=20, jurisdiction="US-NM"),
+        code="US-NM", anchor="2026-09-11",
+    )
+    assert computed.result_iso == "2026-10-01"
+    assert computed.result_iso == court_days(
+        "2026-09-11", 20, jurisdiction="US-NM").iso
+    # Not the federal calendar wearing NM's name: the two rows are different
+    # rules, and a state count never carries a district_state.
+    assert computed.district_state is None
+
+
+def test_federal_forward_seventy_court_days_matches_the_engine():
+    """FRBP 3002(c)'s claims bar, as the bankruptcy pack declares it."""
+    computed = _computed(
+        _template(name="claims-bar", days=70, jurisdiction="US-federal"),
+        code="US-federal", anchor="2026-09-11",
+    )
+    assert computed.result_iso == "2026-11-20"
+    assert computed.result_iso == court_days("2026-09-11", 70).iso
+
+
+def test_federal_backward_seven_court_days_before_a_monday_hearing():
+    """FRBP 3015(f)'s objection window. 2026-11-16 is a Monday; seven days
+    back, excluding the event day and rolling backward off a closure, is
+    2026-11-09 — and no mail days are added (see the import-time guard)."""
+    import datetime as dt
+    assert dt.date(2026, 11, 16).weekday() == 0         # Monday
+
+    computed = _computed(
+        _template(name="objection", days=7, direction="backward",
+                  rule="court_days_before", jurisdiction="US-federal"),
+        code="US-federal", anchor="2026-11-16",
+    )
+    assert computed.result_iso == "2026-11-09"
+    assert computed.result_iso == court_days_before("2026-11-16", 7).iso
+    assert computed.mail is False
+
+
+def test_calendar_days_thirty_landing_on_a_sunday_stays_on_it():
+    """§ 1326(a)(1)'s first plan payment, the one `calendar_days` row in the
+    wave: 2026-09-11 + 30 is Sunday 2026-10-11 and does not move."""
+    import datetime as dt
+    assert dt.date(2026, 10, 11).weekday() == 6         # Sunday
+
+    computed = _computed(
+        _template(name="first-plan-payment", days=30, rule="calendar_days",
+                  jurisdiction="US-federal"),
+        code="US-federal", anchor="2026-09-11",
+    )
+    assert computed.result_iso == "2026-10-11"
+    assert court_days("2026-09-11", 30).iso != computed.result_iso
+
+
+def test_mail_on_a_federal_forward_template_is_add_mail_days_over_court_days():
+    computed = _computed(
+        _template(name="claims-bar", days=70, jurisdiction="US-federal"),
+        code="US-federal", anchor="2026-09-11", mail=True,
+    )
+    expected = add_mail_days(court_days("2026-09-11", 70), jurisdiction="US-federal")
+    assert computed.result_iso == expected.iso
+    assert computed.mail is True
+
+
+# ── FRBP 9006(a)(6)(C) — the district's own state holidays ───────────────
+#
+# The case that makes this real: 2026-11-27, the Friday after Thanksgiving,
+# is a working day on the federal calendar and a legal holiday in New
+# Mexico. A Chapter 13 case in the District of New Mexico with a
+# 2026-09-18 petition has its 70-day claims bar land exactly there, so the
+# answer is 2026-11-27 without the district's state and 2026-11-30 with it.
+# Three days apart after mail days. A computed deadline that silently picked
+# the wrong one of those is the harm this whole section exists to stop.
+
+_DISTRICT_ANCHOR = "2026-09-18"
+_WITHOUT_NM = "2026-11-27"
+_WITH_NM = "2026-11-30"
+
+
+def test_the_pinned_case_actually_turns_on_a_new_mexico_holiday():
+    """Guard for the guard: if `holidays` ever stops calling 2026-11-27 an
+    NM closure, every assertion below would pass vacuously."""
+    import datetime as dt
+    import holidays
+
+    assert dt.date(2026, 11, 27) in holidays.US(subdiv="NM", years=[2026])
+    assert dt.date(2026, 11, 27) not in holidays.US(years=[2026])
+    assert court_days(_DISTRICT_ANCHOR, 70).iso == _WITHOUT_NM
+    assert court_days(_DISTRICT_ANCHOR, 70, district_state="NM").iso == _WITH_NM
+
+
+def test_a_template_naming_a_district_state_counts_that_states_holidays():
+    computed = _computed(
+        _template(name="claims-bar", days=70, jurisdiction="US-federal",
+                  district_state="NM"),
+        code="US-federal", anchor=_DISTRICT_ANCHOR,
+    )
+    assert computed.result_iso == _WITH_NM
+    assert computed.district_state == "NM"
+
+
+def test_without_a_district_state_the_computed_says_so_rather_than_assuming():
+    computed = _computed(
+        _template(name="claims-bar", days=70, jurisdiction="US-federal"),
+        code="US-federal", anchor=_DISTRICT_ANCHOR,
+    )
+    assert computed.result_iso == _WITHOUT_NM
+    assert computed.district_state is None
+
+
+def test_an_l1_district_state_record_on_the_instance_is_read_through_the_gate():
+    """The second source: a pack that declares an `L1` `district_state`
+    field lets one instance say which district it is in. No district *name*
+    is ever mapped to a code — that table is not this module's to keep."""
+    computed = _computed(
+        _template(name="claims-bar", days=70, jurisdiction="US-federal"),
+        code="US-federal", anchor=_DISTRICT_ANCHOR,
+        extra_fields={"district_state": Rung.L1},
+        district_record=(Rung.L1, "NM"),
+    )
+    assert computed.result_iso == _WITH_NM
+    assert computed.district_state == "NM"
+
+
+def test_the_templates_own_district_state_wins_over_the_instance_record():
+    computed = _computed(
+        _template(name="claims-bar", days=70, jurisdiction="US-federal",
+                  district_state="NM"),
+        code="US-federal", anchor=_DISTRICT_ANCHOR,
+        extra_fields={"district_state": Rung.L1},
+        district_record=(Rung.L1, "TX"),
+    )
+    assert computed.district_state == "NM"
+
+
+def test_a_district_state_field_below_l1_is_not_read_at_all():
+    """A pack that files the code at `L3` has said it is not public in this
+    forum; a counting rule may not reach past that, and the answer falls
+    back to the federal calendar alone rather than to a refusal — nothing is
+    missing, the pack simply did not publish one."""
+    computed = _computed(
+        _template(name="claims-bar", days=70, jurisdiction="US-federal"),
+        code="US-federal", anchor=_DISTRICT_ANCHOR,
+        extra_fields={"district_state": Rung.L3},
+        district_record=(Rung.L3, "NM"),
+    )
+    assert computed.result_iso == _WITHOUT_NM
+    assert computed.district_state is None
+
+
+def test_a_backward_template_never_reads_a_district_state():
+    """9006(a)(6)(C) is "after an event" only — `court_days_before` takes no
+    such argument, so the instance's own code is not resolved for it and the
+    `Computed` does not claim it was applied."""
+    computed = _computed(
+        _template(name="objection", days=7, direction="backward",
+                  rule="court_days_before", jurisdiction="US-federal"),
+        code="US-federal", anchor="2026-11-16",
+        extra_fields={"district_state": Rung.L1},
+        district_record=(Rung.L1, "NM"),
+    )
+    assert computed.district_state is None
+    assert computed.result_iso == court_days_before("2026-11-16", 7).iso
+
+
+def test_mail_days_are_added_over_the_districts_calendar_too():
+    computed = _computed(
+        _template(name="claims-bar", days=70, jurisdiction="US-federal",
+                  district_state="NM"),
+        code="US-federal", anchor=_DISTRICT_ANCHOR, mail=True,
+    )
+    expected = add_mail_days(
+        court_days(_DISTRICT_ANCHOR, 70, district_state="NM"), district_state="NM")
+    assert computed.result_iso == expected.iso == "2026-12-03"
+
+
+def test_the_district_state_is_part_of_the_preview_token():
+    """Two computations that differ only in which calendar was applied must
+    not share a token — otherwise an `accept` could file the date the
+    operator did not see."""
+    with_nm = _computed(
+        _template(name="claims-bar", days=70, jurisdiction="US-federal",
+                  district_state="NM"),
+        code="US-federal", anchor=_DISTRICT_ANCHOR,
+    )
+    without = _computed(
+        _template(name="claims-bar", days=70, jurisdiction="US-federal"),
+        code="US-federal", anchor=_DISTRICT_ANCHOR,
+    )
+    assert with_nm.district_state != without.district_state
+    assert with_nm.preview_token != without.preview_token
+
+
+def test_a_state_jurisdiction_with_a_district_state_refuses_through_the_engine():
+    """A pack may leave `jurisdiction` `None` and still name a
+    `district_state`; if such a template is computed on a *state* instance
+    the engine refuses by name (6(a)(6)(C) is a federal rule) rather than
+    quietly dropping the second calendar."""
+    with pytest.raises(UnparseableDate) as exc:
+        _computed(
+            _template(name="claims-bar", days=70, jurisdiction=None,
+                      district_state="NM"),
+            code="US-NM", anchor=_DISTRICT_ANCHOR,
+        )
+    assert "US-NM has no district-state rule" in str(exc.value)
+
+
+@pytest.mark.parametrize("bad", ["nm", "N", "NMX", "New Mexico", 35])
+def test_district_state_must_be_a_two_letter_upper_case_code(bad):
+    pack = _fake_pack(templates=(_template(district_state=bad),))
+    with pytest.raises(rules.InvalidTemplate) as exc:
+        rules.validate_templates(pack)
+    assert "two-letter upper-case USPS code" in str(exc.value)
+
+
+@pytest.mark.parametrize("rule,direction", [
+    ("court_days_before", "backward"), ("business_days", "forward"),
+    ("calendar_days", "forward"),
+])
+def test_district_state_is_refused_on_every_rule_but_court_days(rule, direction):
+    pack = _fake_pack(templates=(_template(
+        rule=rule, direction=direction, district_state="NM"),))
+    with pytest.raises(rules.InvalidTemplate) as exc:
+        rules.validate_templates(pack)
+    assert "9006(a)(6)(C)" in str(exc.value)
+
+
+def test_district_state_is_refused_on_a_state_scoped_template():
+    pack = _fake_pack(templates=(_template(jurisdiction="US-NM", district_state="NM"),))
+    with pytest.raises(rules.InvalidTemplate) as exc:
+        rules.validate_templates(pack)
+    assert "federal" in str(exc.value)
+
+
+def test_district_state_is_the_only_optional_key():
+    """The key set stayed closed: one optional key was added, not a door."""
+    pack = _fake_pack(templates=(_template(extra_key="x"),))
+    with pytest.raises(rules.InvalidTemplate) as exc:
+        rules.validate_templates(pack)
+    assert "extra_key" in str(exc.value)
+
+
+def test_a_template_without_the_optional_key_still_builds():
+    """`Template.district_state` defaults, so the ten required keys are still
+    a complete entry and no pack has to learn a new one."""
+    pack = _fake_pack(templates=(_template(),))
+    template, = rules.templates_of(_mt(pack))
+    assert template.district_state is None
+
+
+# ── a token proves *which* preview, not merely that one happened ──────────
+
+def test_a_token_minted_for_another_instance_is_refused():
+    """The token is a hash of the instance too, so a preview of `or-order`
+    cannot be accepted as `primary` — the failure mode a bare "was something
+    computed?" check would have let through."""
+    pack = _fake_pack(templates=(_template(),))
+    mt = _mt(pack)
+    with _registered(mt):
+        store = Sidecar()
+        for inst in ("primary", "or-order"):
+            set_jurisdiction(store, mt.name, inst, "US-NM")
+            store.put(mt.name, "move_date", inst, Classified(Rung.L1, "2026-01-01"))
+
+        here = rules.compute(store, mt.name, "primary", "notice")
+        there = rules.compute(store, mt.name, "or-order", "notice")
+        assert here.result_iso == there.result_iso        # same date …
+        assert here.preview_token != there.preview_token  # … different preview
+
+        with pytest.raises(rules.StaleToken):
+            rules.accept(store, here, token=there.preview_token)
+        assert not store.has(mt.name, "deadline", instances.item_id("primary", "notice"))
+
+
+def test_a_token_minted_for_another_template_is_refused():
+    pack = _fake_pack(templates=(
+        _template(name="notice"), _template(name="contest", days=21),
+    ))
+    mt = _mt(pack)
+    with _registered(mt):
+        store = Sidecar()
+        set_jurisdiction(store, mt.name, "primary", "US-NM")
+        store.put(mt.name, "move_date", "primary", Classified(Rung.L1, "2026-01-01"))
+        notice = rules.compute(store, mt.name, "primary", "notice")
+        contest = rules.compute(store, mt.name, "primary", "contest")
+        with pytest.raises(rules.StaleToken):
+            rules.accept(store, notice, token=contest.preview_token)
+
+
+def test_mail_changes_the_token_so_a_preview_cannot_be_accepted_as_the_other():
+    pack = _fake_pack(
+        jurisdiction="US-federal", jurisdictions=("US-federal",),
+        templates=(_template(jurisdiction="US-federal"),),
+    )
+    mt = _mt(pack)
+    with _registered(mt):
+        store = Sidecar()
+        set_jurisdiction(store, mt.name, "primary", "US-federal")
+        store.put(mt.name, "move_date", "primary", Classified(Rung.L1, "2026-01-01"))
+        plain = rules.compute(store, mt.name, "primary", "notice")
+        mailed = rules.compute(store, mt.name, "primary", "notice", mail=True)
+        assert plain.result_iso != mailed.result_iso
+        assert plain.preview_token != mailed.preview_token
+        with pytest.raises(rules.StaleToken):
+            rules.accept(store, plain, token=mailed.preview_token)
