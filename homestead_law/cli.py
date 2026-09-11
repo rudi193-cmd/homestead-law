@@ -289,7 +289,14 @@ def _default_derived(field: str, value: str) -> str:
 
 
 def _maybe_propose_party(field: str, value: str) -> None:
-    """If the field is a party name, propose it to the entity resolver."""
+    """If the field is a party name, propose it to the entity resolver.
+
+    The line it prints names the **field**, never the value. `child_name` is L4
+    and `opposing_party` L3, and the gate is what decides where either may be
+    rendered; a confirmation line printed straight from `argv` is a second door
+    onto the same datum that scored nothing (I-16), and a terminal transcript is
+    a log (I-15). `show custody child_name` is the gated way to read it back.
+    """
     party_fields = {"opposing_party", "child_name"}
     if field not in party_fields or not nestor_seam.available():
         return
@@ -298,7 +305,7 @@ def _maybe_propose_party(field: str, value: str) -> None:
         store = get_store()
         resolver = nestor_seam.resolver_for("party", store)
         resolver.propose(value, value, reason=f"entered as {field}")
-        print(f"  proposed to party resolver: {value}")
+        print(f"  proposed to party resolver: {field}")
     except Exception:
         pass
 
@@ -308,9 +315,11 @@ def _maybe_propose_party(field: str, value: str) -> None:
 def _cmd_deadline(args: Sequence[str]) -> int:
     """``deadline <matter> <id> <date> [instruction]`` — add a real deadline.
 
-    The date is an ISO date (YYYY-MM-DD). The optional instruction is the
-    derived form shown on the ambient queue when the rung withholds the date.
-    Rung defaults to L1 (public date); pass ``--rung L3`` or ``--rung L4`` to
+    The date is parsed by the engine's one strict parser and stored in its ISO
+    form; a date it cannot read is refused here, in one line, rather than stored
+    and met later as a gap on the queue. The optional instruction is the derived
+    form shown on the ambient queue when the rung withholds the date. Rung
+    defaults to L1 (public date); pass ``--rung L3`` or ``--rung L4`` to
     classify higher.
     """
     rung_str = "L1"
@@ -342,12 +351,25 @@ def _cmd_deadline(args: Sequence[str]) -> int:
         print(f"unknown matter {matter_name!r} — registered: {', '.join(all_matters())}", file=sys.stderr)
         return 1
 
+    from homestead.keep.dates import UnparseableDate, parse_deadline
     from homestead.keep.rungs import Classified, Rung
+    from homestead.keep.store import InvalidKey
 
     try:
         rung = Rung(rung_str)
     except ValueError:
         print(f"unknown rung {rung_str!r} — one of: L1, L2, L3, L4, L5", file=sys.stderr)
+        return 1
+
+    # The one strict parser, on this door too (I-1/I-2). The browser UI already
+    # parses here; the CLI stored whatever was typed, so `deadline custody
+    # hearing "next Tuesday"` went in unread and came back as a gap on the queue
+    # weeks later — the refusal belongs where the operator can still fix it.
+    # The ISO form is what is stored, so the two doors write the same string.
+    try:
+        date = parse_deadline(date).iso
+    except UnparseableDate as exc:
+        print(f"refused: {exc}", file=sys.stderr)
         return 1
 
     derived = instruction
@@ -357,7 +379,11 @@ def _cmd_deadline(args: Sequence[str]) -> int:
     _boot()
     sidecar = Sidecar()
     item = Classified(rung, date, derived)
-    replaced = sidecar.put(matter_name, "deadline", item_id, item, overwrite=True)
+    try:
+        replaced = sidecar.put(matter_name, "deadline", item_id, item, overwrite=True)
+    except InvalidKey as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return 1
 
     print(f"  stored: {matter_name}/deadline/{item_id}")
     print(f"  date:   {date}  (rung {rung.value})")
@@ -414,10 +440,17 @@ def _cmd_show(args: Sequence[str]) -> int:
             print(f"  [{row.rung.value}]  {where}: {row.text}")
         return 0
 
+    from homestead.keep.store import InvalidKey
+
     item_type = args[1]
     item_id = args[2] if len(args) > 2 else "primary"
     ref = (matter_name, item_type, item_id)
-    if not sidecar.has(*ref):
+    try:
+        present = sidecar.has(*ref)
+    except InvalidKey as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return 1
+    if not present:
         print(f"  {matter_name}/{item_type}/{item_id}: no such record", file=sys.stderr)
         return 1
     served = window.open_detail(ref)
@@ -439,6 +472,8 @@ def _cmd_queue(args: Sequence[str]) -> int:
     """``queue [--today YYYY-MM-DD]`` — what's due, from real data."""
     import datetime as dt
 
+    from homestead.keep.dates import UnparseableDate, parse_deadline
+
     today = dt.date.today().isoformat()
     i = 0
     while i < len(args):
@@ -447,6 +482,15 @@ def _cmd_queue(args: Sequence[str]) -> int:
             i += 2
         else:
             i += 1
+
+    # `--today` reaches the same parser every date does, here rather than deep
+    # in `_urgency` — an unreadable one used to surface as a traceback, and only
+    # when a deadline happened to exist to compare it against.
+    try:
+        today = parse_deadline(today).iso
+    except UnparseableDate as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return 1
 
     _boot()
     sidecar = Sidecar()
@@ -495,7 +539,14 @@ def _cmd_ui(args: Sequence[str]) -> int:
     i = 0
     while i < len(args):
         if args[i] == "--port" and i + 1 < len(args):
-            port = int(args[i + 1])
+            try:
+                port = int(args[i + 1])
+            except ValueError:
+                print(f"refused: --port {args[i + 1]!r} is not a number", file=sys.stderr)
+                return 1
+            if not 0 <= port <= 65535:
+                print(f"refused: --port {port} is not a port number", file=sys.stderr)
+                return 1
             i += 2
         else:
             i += 1

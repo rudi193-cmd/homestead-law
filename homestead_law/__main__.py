@@ -62,8 +62,24 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if "--smoke" in argv:
-        from homestead_law import patterns, registry, store  # noqa: F401
-        from homestead_law.app import demo, view, window  # noqa: F401
+        # Every top-level module in the package, not a hand-picked few: this is
+        # what CI runs against the built artifact, and a packaging break in the
+        # entry/UI layer (`server`, `cli`, `intake`) used to ship green because
+        # nothing here imported it. `tests/test_main.py` scans this block
+        # against the package's own file list, so a module added later cannot
+        # quietly stay out of it.
+        from homestead_law import (  # noqa: F401
+            cli,
+            intake,
+            nestor_seam,
+            nestor_store,
+            patterns,
+            queue,
+            registry,
+            server,
+            store,
+        )
+        from homestead_law.app import advisories, cover, demo, view, window  # noqa: F401
         from homestead_law.packs import custody  # noqa: F401
         print("homestead-law: smoke ok")
         return 0

@@ -31,6 +31,44 @@ from __future__ import annotations
 
 __all__ = ["build_server", "serve"]
 
+#: The largest request body this server will read into memory. A localhost UI
+#: has no use for a megabyte of JSON, and reading whatever ``Content-Length``
+#: claims is the one place a local page can spend the household's RAM.
+MAX_BODY_BYTES = 1 << 20
+
+
+class _BadRequest(Exception):
+    """A request this handler refuses to read — a malformed or oversized body, a
+    ``Content-Length`` that is not a number, a field that is not a string.
+
+    Carries the status to answer with and a one-line reason that names the
+    *shape* of the problem (which field, which limit) and never a stored value
+    (I-15). Raised rather than returned so every POST path is covered by one
+    ``except`` in ``do_POST`` — the alternative is a traceback on the console
+    and a reset connection, which is what an unreadable body used to produce.
+    """
+
+    def __init__(self, message: str, status: int = 400) -> None:
+        super().__init__(message)
+        self.status = status
+
+
+def _text(body: dict, name: str, default: str = "") -> str:
+    """One string field out of a decoded JSON object, or a refusal naming it.
+
+    A number, a list or an object is **refused, never coerced**: ``str(value)``
+    turns ``["custody"]`` into ``"['custody']"`` and a dict into a key the store
+    would happily accept, and a surface that coerces has decided something the
+    operator did not type.  ``None`` reads as the default (the page sends
+    ``instruction: null`` for "no instruction").
+    """
+    value = body.get(name, default)
+    if value is None:
+        value = default
+    if not isinstance(value, str):
+        raise _BadRequest(f"{name} must be a string")
+    return value
+
 
 # ── the page ──────────────────────────────────────────────────────────────
 
@@ -234,17 +272,28 @@ function show(name, btn) {
 }
 
 var _matters={};
+var _matterNames=[];
 
 function loadMatters() {
   return fetch('/api/matters').then(function(r){return r.json()}).then(function(data){
-    _matters={};
+    _matters={}; _matterNames=[];
     var sel=document.getElementById('rmatter'); sel.innerHTML='';
     data.matters.forEach(function(m){
-      _matters[m.name]=m;
+      _matters[m.name]=m; _matterNames.push(m.name);
       var o=document.createElement('option'); o.value=m.name; o.textContent=m.name; sel.appendChild(o);
     });
     fillFields();
   });
+}
+
+// The matter every form posts under.  The selected one, else the first the
+// registry returned (I-23 — the enumeration is the registry's, never a literal
+// in this file), else nothing: the server refuses a missing matter with a 400
+// rather than filing the record under a default one.
+function currentMatter() {
+  var sel=document.getElementById('rmatter');
+  if(sel&&sel.value) return sel.value;
+  return _matterNames.length?_matterNames[0]:'';
 }
 
 function fillFields() {
@@ -269,10 +318,11 @@ function showRung() {
 }
 
 function storeField() {
-  var matter=document.getElementById('rmatter').value;
+  var matter=currentMatter();
   var field=document.getElementById('rfield').value;
   var value=document.getElementById('rvalue').value.trim();
   var msg=document.getElementById('rmsg');
+  if(!matter){msg.innerHTML='<span class="sm s-err">No matter is registered</span>';return;}
   if(!value){msg.innerHTML='<span class="sm s-err">Type a value first</span>';return;}
   fetch('/api/store',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({matter:matter,field:field,value:value})})
@@ -287,12 +337,13 @@ function storeField() {
 }
 
 function storeDeadline() {
-  var matter=document.getElementById('rmatter').value;
+  var matter=currentMatter();
   var id=document.getElementById('did').value.trim();
   var date=document.getElementById('ddate').value.trim();
   var rung=document.getElementById('drung').value;
   var instr=document.getElementById('dinstr').value.trim();
   var msg=document.getElementById('dmsg');
+  if(!matter){msg.innerHTML='<span class="sm s-err">No matter is registered</span>';return;}
   if(!id||!date){msg.innerHTML='<span class="sm s-err">An id and a date are needed</span>';return;}
   fetch('/api/deadline',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({matter:matter,id:id,date:date,rung:rung,instruction:instr||null})})
@@ -307,7 +358,7 @@ function storeDeadline() {
 }
 
 function loadRecords() {
-  var matter=document.getElementById('rmatter').value;
+  var matter=currentMatter();
   var div=document.getElementById('rlist');
   document.getElementById('rdetail').innerHTML='';
   if(!matter){div.innerHTML='';return;}
@@ -317,13 +368,27 @@ function loadRecords() {
     var html='';
     data.rows.forEach(function(row){
       var where=row.item_id==='primary'?row.item_type:row.item_type+' / '+row.item_id;
-      html+='<div class="qi rw" onclick="openRecord(\''+esc(row.matter)+'\',\''+esc(row.item_type)+'\',\''+esc(row.item_id)+'\')">'
-        +'<span class="rb r-'+row.rung+'">'+row.rung+'</span>'
+      // The key goes into data- attributes and the click is bound afterwards.
+      // It is never spliced into a JS string literal inside an onclick: an
+      // attribute value is entity-decoded *before* the script is parsed, so an
+      // item id carrying a quote would close the literal no matter how the
+      // quote was escaped.  A store key may contain a quote (the engine's
+      // `key()` refuses only separators, NUL and whitespace), so this is a
+      // reachable id, not a hypothetical one.
+      html+='<div class="qi rw" data-matter="'+esc(row.matter)+'"'
+        +' data-type="'+esc(row.item_type)+'" data-id="'+esc(row.item_id)+'">'
+        +'<span class="rb r-'+esc(row.rung)+'">'+esc(row.rung)+'</span>'
         +'<span class="rk">'+esc(where.replace(/_/g,' '))+'</span>'
         +'<span class="qs">'+esc(row.text)+'</span>'
         +'</div>';
     });
     div.innerHTML=html;
+    Array.prototype.forEach.call(div.querySelectorAll('.rw'), function(el){
+      el.addEventListener('click', function(){
+        openRecord(el.getAttribute('data-matter'), el.getAttribute('data-type'),
+                   el.getAttribute('data-id'));
+      });
+    });
   }).catch(function(){div.innerHTML='<p class="sm s-err">Failed to load records</p>';});
 }
 
@@ -333,7 +398,7 @@ function openRecord(matter,item_type,item_id) {
     +'&item_id='+encodeURIComponent(item_id)).then(function(r){return r.json()}).then(function(data){
     if(data.error){div.innerHTML='<p class="sm s-err">'+esc(data.error)+'</p>';return;}
     var html='<div class="dt"><strong>'+esc(item_type.replace(/_/g,' '))+'</strong> '
-      +'<span class="rb r-'+data.rung+'">'+data.rung+'</span><div>'
+      +'<span class="rb r-'+esc(data.rung)+'">'+esc(data.rung)+'</span><div>'
       +(data.rendered?esc(data.value):'This record is sealed and is not shown here.')+'</div>';
     (data.advisories||[]).forEach(function(a){html+='<div class="adv">'+esc(a)+'</div>';});
     html+='</div>';
@@ -343,8 +408,13 @@ function openRecord(matter,item_type,item_id) {
 
 loadMatters().then(loadRecords);
 
+// Escapes for *both* places a value lands: element text and a double-quoted
+// attribute value.  The textContent/innerHTML round-trip this replaced escaped
+// & < > and nothing else, so a value carrying a quote escaped an attribute —
+// which is how an item id reached the page's own JS.
+var _ESC={'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'};
 function esc(s) {
-  var d=document.createElement('div'); d.textContent=s; return d.innerHTML;
+  return String(s===null||s===undefined?'':s).replace(/[&<>"']/g,function(c){return _ESC[c]});
 }
 
 var _items=[];
@@ -378,7 +448,7 @@ function renderItems() {
       opts='<option value="">&#8212;</option><option value="notes">Notes</option>';
     }
     html+='<div class="card" id="c'+i+'"><div class="cr">'
-      +'<span class="kb k-'+item.kind+'">'+item.kind.replace('_',' ')+'</span>'
+      +'<span class="kb k-'+esc(item.kind)+'">'+esc(item.kind.replace('_',' '))+'</span>'
       +'<span class="mt">'+esc(item.text)+'</span>'
       +'<span class="mv">'+esc(item.value)+'</span>'
       +'<select class="fs" id="f'+i+'">'+opts+'</select>'
@@ -393,13 +463,18 @@ function storeItem(idx) {
   var field=document.getElementById('f'+idx).value;
   if(!field) return;
   var card=document.getElementById('c'+idx);
+  // No hardcoded fallback matter: a matter name written down outside the
+  // registry is BUG-6's shape.  The selected matter, else the first the
+  // registry returned, else refuse here.
+  var matter=currentMatter();
+  if(!matter){card.innerHTML+='<span class="sm s-err">No matter is registered</span>';return;}
   var endpoint,body;
   if(field==='__deadline__'){
     endpoint='/api/deadline';
-    body={matter:document.getElementById('rmatter').value||'custody',id:'intake-'+Date.now(),date:item.value,instruction:item.text};
+    body={matter:matter,id:'intake-'+Date.now(),date:item.value,instruction:item.text};
   } else {
     endpoint='/api/store';
-    body={matter:document.getElementById('rmatter').value||'custody',field:field,value:item.value};
+    body={matter:matter,field:field,value:item.value};
   }
   fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify(body)})
@@ -425,9 +500,9 @@ function loadQueue() {
       else if(item.days_until<=14){cls='u-soon';txt='in '+item.days_until+'d';}
       else{txt='in '+item.days_until+'d';}
       html+='<div class="qi">'
-        +'<span class="rb r-'+item.rung+'">'+item.rung+'</span>'
+        +'<span class="rb r-'+esc(item.rung)+'">'+esc(item.rung)+'</span>'
         +'<span class="qs">'+esc(item.shown)+'</span>'
-        +'<span class="qu '+cls+'">'+txt+'</span>'
+        +'<span class="qu '+cls+'">'+esc(txt)+'</span>'
         +'</div>';
     });
     div.innerHTML=html;
@@ -476,7 +551,7 @@ function loadOrders() {
       html+='<div class="oi">'
         +'<div class="oq">'+(i+1)+'. '+esc(d.question)+'</div>'
         +'<div class="oc">&rarr; '+esc(d.commitment)+'</div>'
-        +'<span class="os '+sc+'">'+d.status+'</span>'
+        +'<span class="os '+sc+'">'+esc(d.status)+'</span>'
         +'</div>';
     });
     div.innerHTML=html;
@@ -505,6 +580,7 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
 
     from homestead.keep import paths
     from homestead.keep.rungs import Disposition
+    from homestead.keep.store import InvalidKey
     from homestead_law import nestor_seam
     from homestead_law import queue as queue_mod
     from homestead_law.app import advisories
@@ -556,8 +632,40 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
             self.wfile.write(body)
 
         def _body(self):
-            n = int(self.headers.get("Content-Length", 0))
-            return json.loads(self.rfile.read(n)) if n else {}
+            """The decoded JSON object of a POST, or ``_BadRequest``.
+
+            Every step refuses rather than raises through: an absent or
+            unreadable ``Content-Length``, a body over ``MAX_BODY_BYTES``, a
+            short read, bytes that are not UTF-8 JSON, and JSON that is not an
+            object.  Before this, a malformed body reached ``json.loads``
+            unguarded and the handler died with a traceback on the console and
+            a reset connection instead of a 400.
+            """
+            raw = self.headers.get("Content-Length")
+            if raw is None:
+                return {}
+            try:
+                n = int(raw)
+            except (TypeError, ValueError):
+                raise _BadRequest("Content-Length is not a number")
+            if n < 0:
+                raise _BadRequest("Content-Length is negative")
+            if n > MAX_BODY_BYTES:
+                raise _BadRequest(
+                    f"the request body is larger than {MAX_BODY_BYTES} bytes", 413
+                )
+            if n == 0:
+                return {}
+            data = self.rfile.read(n)
+            if len(data) != n:
+                raise _BadRequest("the request body ended before Content-Length")
+            try:
+                body = json.loads(data)
+            except (UnicodeDecodeError, ValueError):
+                raise _BadRequest("the request body is not readable JSON")
+            if not isinstance(body, dict):
+                raise _BadRequest("the request body must be a JSON object")
+            return body
 
         # ── GET ───────────────────────────────────────────────────────
 
@@ -620,10 +728,16 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
             item_id = qs.get("item_id", "primary")
             try:
                 matter(matter_name)
-                ref = (matter_name, item_type, item_id)
+            except KeyError:
+                return self._json({"error": f"unknown matter {matter_name!r}"}, 400)
+            ref = (matter_name, item_type, item_id)
+            try:
                 if not sidecar.has(*ref):
                     return self._json({"error": "no such record"}, 404)
-            except (KeyError, ValueError) as exc:
+            except InvalidKey as exc:
+                # The engine's key validation, surfaced as a refusal. `str(exc)`
+                # names the component and echoes what the caller typed — never a
+                # stored value (I-15).
                 return self._json({"error": str(exc)}, 400)
             window = Window()
             window.open_list(sidecar.records(matter_name))
@@ -660,8 +774,14 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
                 resolver = nestor_seam.resolver_for(domain, store)
                 result = resolver.resolve(surface)
                 self._json({"result": result})
-            except Exception as exc:
-                self._json({"error": str(exc)}, 500)
+            except Exception:
+                # The failure is named by *where* it happened, not by the
+                # exception's text (I-15). Nestor's store holds the household's
+                # own party and court names, so an exception message from it can
+                # carry one — `str(exc)` in a JSON body is a value crossing a
+                # surface that never scored it.
+                self._json(
+                    {"error": f"the {domain} resolver could not be read"}, 500)
 
         def _get_orders(self):
             if not nestor_ok:
@@ -676,25 +796,32 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
                      "status": d.get("status", "draft")}
                     for d in decisions
                 ]})
-            except Exception as exc:
-                self._json({"decisions": [], "error": str(exc)})
+            except Exception:
+                # References, never content (I-15) — see `_get_resolve`.
+                self._json(
+                    {"decisions": [], "error": "the decision store could not be read"})
 
         # ── POST ──────────────────────────────────────────────────────
 
         def do_POST(self):
             p = urllib.parse.urlparse(self.path).path
-            body = self._body()
-
-            if p == "/api/extract":
-                return self._post_extract(body)
-            if p == "/api/store":
-                return self._post_store(body)
-            if p == "/api/deadline":
-                return self._post_deadline(body)
+            try:
+                body = self._body()
+                if p == "/api/extract":
+                    return self._post_extract(body)
+                if p == "/api/store":
+                    return self._post_store(body)
+                if p == "/api/deadline":
+                    return self._post_deadline(body)
+            except _BadRequest as exc:
+                # An unread body (a refused Content-Length) leaves bytes on the
+                # socket, so this connection does not get reused.
+                self.close_connection = True
+                return self._json({"ok": False, "error": str(exc)}, exc.status)
             self.send_error(404)
 
         def _post_extract(self, body):
-            text = body.get("text", "")
+            text = _text(body, "text")
             items = extract(text)
             self._json({"items": [
                 {"kind": e.kind, "text": e.text, "value": e.value,
@@ -703,12 +830,19 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
             ]})
 
         def _post_store(self, body):
-            from homestead.keep.rungs import Classified, Rung
+            from homestead.keep.rungs import Classified
 
-            matter_name = body.get("matter", "custody")
-            field = body.get("field", "")
-            value = body.get("value", "")
+            # No default matter. A matter name written down outside the registry
+            # is BUG-6's shape, and defaulting here would file a bankruptcy
+            # record under custody without ever saying so (I-11: refuse by name,
+            # never default).
+            matter_name = _text(body, "matter").strip()
+            field = _text(body, "field").strip()
+            value = _text(body, "value").strip()
 
+            if not matter_name:
+                return self._json(
+                    {"ok": False, "error": "a matter is required"}, 400)
             try:
                 mt = matter(matter_name)
             except KeyError:
@@ -719,14 +853,16 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
                 return self._json(
                     {"ok": False, "error": f"unknown field {field!r}"}, 400)
 
-            value = str(value).strip()
             if not value:
                 return self._json({"ok": False, "error": "a value is required"}, 400)
 
             rung = mt.fields[field]
             derived = _derived(field, value) if rung.value in ("L3", "L4") else None
             item = Classified(rung, value, derived)
-            replaced = sidecar.put(matter_name, field, "primary", item, overwrite=True)
+            try:
+                replaced = sidecar.put(matter_name, field, "primary", item, overwrite=True)
+            except InvalidKey as exc:
+                return self._json({"ok": False, "error": str(exc)}, 400)
 
             if field in ("opposing_party", "child_name") and nestor_ok:
                 try:
@@ -741,14 +877,17 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
         def _post_deadline(self, body):
             from homestead.keep.dates import UnparseableDate, parse_deadline
             from homestead.keep.rungs import Classified, Rung
-            from homestead.keep.store import InvalidKey
 
-            matter_name = body.get("matter", "custody")
-            item_id = str(body.get("id", "")).strip()
-            date = str(body.get("date", "")).strip()
-            instruction = body.get("instruction") or None
-            rung_value = body.get("rung", "L1")
+            # No default matter here either — see `_post_store`.
+            matter_name = _text(body, "matter").strip()
+            item_id = _text(body, "id").strip()
+            date = _text(body, "date").strip()
+            instruction = _text(body, "instruction").strip() or None
+            rung_value = _text(body, "rung", "L1").strip() or "L1"
 
+            if not matter_name:
+                return self._json(
+                    {"ok": False, "error": "a matter is required"}, 400)
             try:
                 matter(matter_name)
             except KeyError:
@@ -790,7 +929,7 @@ def serve(*, host: str = "127.0.0.1", port: int = 8383) -> None:
     srv = build_server(host=host, port=port)
     url = f"http://{host}:{srv.server_address[1]}"
     print(f"  homestead-law ui: {url}")
-    print(f"  press Ctrl+C to stop")
+    print("  press Ctrl+C to stop")
 
     try:
         webbrowser.open(url)

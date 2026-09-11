@@ -58,6 +58,11 @@ homestead-law queue                                # what's due
 python -m homestead_law                            # the window, on these records (the demo only if empty)
 ```
 
+Dates go through the engine's one strict parser on both doors: `deadline` takes
+`2026-10-01` or `August 10, 2026`, stores the ISO form, and refuses anything it
+cannot read in one line — a date the queue could not have read is a refusal
+where it can still be fixed, never a gap met weeks later.
+
 The browser UI (`ui`) is the plain way in: a *Records* tab with a field form
 (matter, field, value — the rung and its reason shown beside the field), a
 deadline form, and the records on file composed through the gate; an *Intake*
