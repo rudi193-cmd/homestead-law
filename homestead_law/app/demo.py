@@ -177,7 +177,10 @@ def compose_queue(store: Sidecar, today: str = TODAY) -> str:
 # Separate from `seed()`'s `_DEMO` dict on purpose: that dict and the tests
 # pinned to its exact field texts predate this bite, and adding a pane demo
 # on top of it risks nothing already asserted. Custody already carries the
-# fields its own pane reads (`registration_contest_deadline`, one child);
+# fields its own pane reads (`registration_contest_deadline`, one child —
+# two on the composed pane since L9-child-name, because `seed()`'s own
+# child record moved onto `child.name` at a second sub-id and the pane
+# composes every `child.*` group it finds);
 # bankruptcy and workers' comp get just enough of their own to show every
 # pane shape — creditors/bar-dates/NOTICE, and an IME sub-record — composing
 # through the real gate, invented content at the real rungs, same posture
