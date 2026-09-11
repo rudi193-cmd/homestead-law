@@ -36,6 +36,36 @@ __all__ = ["build_server", "serve"]
 #: claims is the one place a local page can spend the household's RAM.
 MAX_BODY_BYTES = 1 << 20
 
+#: How long a refused request's leftover bytes get to arrive before the
+#: connection is closed anyway.  Short: the client sent them already or never
+#: will; this waits for a segment in flight, not for a slow sender.
+DRAIN_TIMEOUT_SECONDS = 0.2
+
+
+def _drain(sock, *, limit=MAX_BODY_BYTES, timeout=DRAIN_TIMEOUT_SECONDS):
+    """Read and discard whatever the client already sent of a body the
+    handler refused to read, so the socket closes with an empty receive
+    buffer.
+
+    Closing a socket that still holds unread bytes makes the kernel answer
+    with a reset instead of an orderly close, and on Windows a reset discards
+    data the peer has received but not yet read — the 400 the client was
+    about to parse (``WinError 10053``).  The bytes are bounded by ``limit``
+    and the wait by ``timeout``; a slow or silent client is not waited for,
+    and nothing read here is looked at (I-15).  Returns the count discarded.
+    """
+    discarded = 0
+    try:
+        sock.settimeout(timeout)
+        while discarded < limit:
+            chunk = sock.recv(min(65536, limit - discarded))
+            if not chunk:
+                break
+            discarded += len(chunk)
+    except OSError:
+        pass
+    return discarded
+
 
 class _BadRequest(Exception):
     """A request this handler refuses to read — a malformed or oversized body, a
@@ -815,9 +845,12 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
                     return self._post_deadline(body)
             except _BadRequest as exc:
                 # An unread body (a refused Content-Length) leaves bytes on the
-                # socket, so this connection does not get reused.
+                # socket, so this connection does not get reused — and the
+                # bytes are drained first, or the close becomes a reset.
                 self.close_connection = True
-                return self._json({"ok": False, "error": str(exc)}, exc.status)
+                self._json({"ok": False, "error": str(exc)}, exc.status)
+                _drain(self.connection)
+                return
             self.send_error(404)
 
         def _post_extract(self, body):
