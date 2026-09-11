@@ -246,21 +246,17 @@ SCHEMA: dict[str, dict[str, Any]] = {
     ),
     "grant_date": _field(
         Rung.L1,
-        "THE PACK'S ONE L1 FIELD THAT IS A DATE, AND A DELIBERATE "
-        "EXCEPTION. Every other entered date here is L2 (no forum). This "
-        "one is L1 because `rules.validate_templates` refuses any anchor "
-        "that is not — 'a deadline template may only anchor on a field "
-        "public in this matter's forum' — and `election-83b` is the one "
-        "computed template the plan gives this pack. The narrowest reading "
-        "that supports it: the date alone reveals only that an equity "
-        "grant was made, the same bare fact equity_grant.granted carries, "
-        "and it is the date written on the 83(b) election filed with the "
-        "IRS. That is a filing, not a public forum (26 U.S.C. § 6103 seals "
-        "returns), so the exception is recorded here rather than argued "
-        "away: raising it to L2 would delete this pack's only computed "
-        "deadline, which is a decision for the anchor rule, not for a "
-        "pack. See tests/test_venture.py::test_grant_date_is_the_only_l1_"
-        "date_and_why.",
+        "THE PACK'S ONLY L1 DATE, AND A DELIBERATE EXCEPTION — every other "
+        "entered date here is L2 (no forum; see the module docstring). This "
+        "one is L1 because rules.validate_templates refuses an anchor that "
+        "is not, and election-83b is this pack's one computed deadline. The "
+        "narrowest reading that supports it: the date alone reveals only "
+        "that an equity grant was made, and it is the date written on the "
+        "83(b) election sent to the IRS — a filing, not a public forum (26 "
+        "U.S.C. § 6103 seals returns). Recorded as an exception rather than "
+        "argued away, because raising it to L2 would delete the computed "
+        "deadline, which is a decision for the anchor rule and not for a "
+        "pack.",
     ),
     "ein": _field(
         Rung.L5,

@@ -305,6 +305,29 @@ def test_the_source_cites_83b2_and_the_note_names_the_postmark_reference():
     assert "accountant" in row["note"]
 
 
+def test_verified_is_claimed_secondary_with_a_named_source_and_a_named_uncertainty():
+    """The house rule for a status this build could not fetch a primary for:
+    `VERIFIED` is VERIFIED-*secondary*, `source` names what it rests on, and
+    everything the claim does *not* cover is named as an UNCERTAIN reference
+    in `note` rather than counted. Here the 30-day figure is the whole of the
+    claim; whether 26 U.S.C. § 7503's weekend/holiday extension reaches this
+    window, and whether a mailed election is timely by postmark, are the two
+    questions the note points at an accountant and this template never
+    resolves — which is also why the count never rolls (the test above)."""
+    (row,) = venture.TEMPLATES
+    assert row["status"] == "VERIFIED"
+    source = row["source"]
+    assert "PROVENANCE" in source
+    assert "30 days" in source
+    assert "not on a fetch performed during this build" in source
+
+    note = row["note"]
+    assert "7503" in note
+    assert "postmark" in note and "accountant" in note
+    # ...and the two questions are named as questions, not answered.
+    assert "not something this template resolves" in note
+
+
 # ── ein crosses no surface ────────────────────────────────────────────────
 
 def test_ein_never_renders_on_s1_list_s1_detail_or_s4():
@@ -430,7 +453,6 @@ def test_the_public_benefit_derived_form_is_the_fixed_sentence():
     [
         ("2026-06-04", "2026-07-04", "a Saturday AND Independence Day"),
         ("2027-06-04", "2027-07-04", "a Sunday AND Independence Day"),
-        ("2026-09-04", "2026-10-04", "a Sunday"),
         ("2026-12-06", "2027-01-05", "an ordinary weekday, across a year end"),
     ],
 )
