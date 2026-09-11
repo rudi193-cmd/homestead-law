@@ -969,6 +969,123 @@ def _cmd_queue(args: Sequence[str]) -> int:
     return 0
 
 
+# ── sync (Decision 5, Wave 5 L5-sync) ───────────────────────────────────────
+
+def _cmd_sync(args: Sequence[str]) -> int:
+    """``sync --matters a,b [--types t1,t2] --ceiling L1|L2|L3|L4 [--url URL]
+    [--init-household]`` — copy a consented scope of this household's own
+    records to its fleet store, on an explicit act.
+
+    ``--init-household`` mints ``household.id`` first (refusing if one
+    already exists); pass it alone to only initialize, or alongside
+    ``--matters``/``--ceiling`` to initialize and sync in one call.
+
+    An operator act (Decision 5) — no ``--yes`` here, unlike the fleet's own
+    ingest CLI: typing this command is the consent, shown exactly what would
+    be sent and asked once, in a real terminal. No tty on stdin is refused
+    before anything is composed.
+    """
+    from homestead_law import sync as law_sync
+    from homestead.keep.egress import EgressRefused
+    from homestead.keep.logs import IntegritySealError
+    from homestead.keep.sync import AlreadyDelivered
+
+    matters_opt: str | None = None
+    types_opt: str | None = None
+    ceiling_opt: str | None = None
+    url_opt: str | None = None
+    init_household = False
+    i = 0
+    while i < len(args):
+        if args[i] == "--matters" and i + 1 < len(args):
+            matters_opt = args[i + 1]
+            i += 2
+        elif args[i] == "--types" and i + 1 < len(args):
+            types_opt = args[i + 1]
+            i += 2
+        elif args[i] == "--ceiling" and i + 1 < len(args):
+            ceiling_opt = args[i + 1]
+            i += 2
+        elif args[i] == "--url" and i + 1 < len(args):
+            url_opt = args[i + 1]
+            i += 2
+        elif args[i] == "--init-household":
+            init_household = True
+            i += 1
+        else:
+            print(f"refused: unknown option {args[i]!r}", file=sys.stderr)
+            return 1
+
+    _boot()
+
+    if init_household:
+        try:
+            household = law_sync.init_household()
+        except law_sync.HouseholdAlreadyInitialized as exc:
+            print(f"refused: {exc}", file=sys.stderr)
+            return 1
+        print(f"  household initialized: {household}")
+        if matters_opt is None and ceiling_opt is None:
+            return 0
+
+    if matters_opt is None or ceiling_opt is None:
+        print(
+            "usage: homestead-law sync --matters a,b [--types t1,t2] "
+            "--ceiling L1|L2|L3|L4 [--url URL] [--init-household]",
+            file=sys.stderr,
+        )
+        return 1
+
+    matters = tuple(m for m in matters_opt.split(",") if m)
+    types = tuple(t for t in types_opt.split(",") if t) if types_opt else None
+
+    try:
+        scope = law_sync.scope_from(matters, types, ceiling_opt)
+    except (law_sync.UnknownMatter, ValueError) as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return 1
+
+    if not sys.stdin.isatty():
+        print(
+            "refused: sync needs an interactive terminal to confirm — there "
+            "is no --yes on this side of a sync (an operator act, Decision 5)",
+            file=sys.stderr,
+        )
+        return 1
+
+    sidecar = Sidecar()
+    envelope = law_sync.preview(sidecar, scope)
+
+    print(f"  matters: {', '.join(scope.matters)}")
+    print(f"  ceiling: {scope.ceiling.value}")
+    print(f"  rows:    {envelope.count}")
+    print(f"  head:    {envelope.head}")
+
+    # The `yes` is read *after* the Wire's own preview is printed — and the
+    # Wire printed is the object `egress.send`/`deliver` hands the transport,
+    # so what was approved is what leaves (`keep/egress.py`, "the preview is
+    # the payload"). Nothing is re-serialized between this and the send.
+    def confirm(wire) -> bool:
+        print(wire.preview())
+        answer = input("send? [y/N] ").strip().lower()
+        return answer in ("y", "yes")
+
+    try:
+        receipt = law_sync.send(envelope, url=url_opt, confirm=confirm)
+    except (EgressRefused, AlreadyDelivered, law_sync.NothingToSync,
+            IntegritySealError) as exc:
+        # `IntegritySealError`: a sealed log this process has no key for.
+        # The engine cannot establish that this envelope was not already
+        # synced, so it delivers nothing — refused by name here (I-11)
+        # rather than escaping the command as a traceback.
+        print(f"refused: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"  synced: {receipt.envelope_id}")
+    print(f"  head:   {receipt.head}")
+    return 0
+
+
 # ── verify ─────────────────────────────────────────────────────────────────
 
 def _cmd_verify(args: Sequence[str]) -> int:
@@ -1019,6 +1136,7 @@ COMMANDS = {
     "show": (_cmd_show, "show [matter] [item [id]] [--id inst] [--sub sub] — read records back, gated"),
     "matter": (_cmd_matter, "matter open <matter> --id inst --jurisdiction code — open an instance"),
     "queue": (_cmd_queue, "queue — what's due"),
+    "sync": (_cmd_sync, "sync --matters a,b --ceiling L1|L2|L3|L4 [--types …] [--url] [--init-household] — copy a consented scope to the fleet"),
     "verify": (_cmd_verify, "verify — check the Nestor ledger chain"),
     "ui": (_cmd_ui, "ui — intake and dashboard in the browser"),
 }

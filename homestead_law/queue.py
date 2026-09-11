@@ -121,6 +121,28 @@ def counts(store: Sidecar, *, today: str, soon_days: int = 14) -> dict[str, int]
     return {"overdue": overdue, "due_soon": due_soon}
 
 
+def _by_matter(items: list[QueueItem], *, soon_days: int) -> dict[str, dict[str, int]]:
+    """This household's own spread behind `counts()`'s aggregate — matter →
+    `{overdue, due_soon}` — built from the same items `cover()` already has,
+    so no second store read is needed. Passed to `cover_counts` as
+    `by_matter` (engine #58): a category's contributors are then the matters
+    whose bucket here holds at least one, closing the `(2, 0)` gap the L2c
+    audit found in the roster-only check (see `cover`'s own docstring).
+    Never itself shown — I-15's rule that a reference or a count crosses a
+    surface, never the mapping a household's own matters make to it.
+    """
+    per: dict[str, dict[str, int]] = {}
+    for item in items:
+        if item.gap:
+            continue
+        bucket = per.setdefault(item.matter, {"overdue": 0, "due_soon": 0})
+        if item.overdue:
+            bucket["overdue"] += 1
+        elif item.days_until is not None and item.days_until <= soon_days:
+            bucket["due_soon"] += 1
+    return per
+
+
 def cover(store: Sidecar, *, today: str, soon_days: int = 14) -> dict[str, int]:
     """The counts the resting cover may show — the aggregate passed through the
     re-identification check (I-31), so a number appears only where it reveals
@@ -140,17 +162,23 @@ def cover(store: Sidecar, *, today: str, soon_days: int = 14) -> dict[str, int]:
     queue, so a matter with records but no deadline does not inflate the roster
     for a deadline count either.
 
-    It is still the weaker of the two available checks: a roster of two says the
-    count *could* be spread across both, not that it is. `(2, 0)` passes here.
-    The engine's `cover_counts` is explicit that it cannot tell `(2,0)` from
-    `(1,1)` without the per-matter distribution, and closing that is the
-    distribution argument a later engine bite adds; until then this narrows the
-    roster to the truth it can establish today.
+    **`by_matter` — the distribution behind the roster (engine #58).** A roster
+    of two says the count *could* be spread across both, not that it is —
+    `overdue=2` over `{custody, bankruptcy}` used to pass here even when both
+    items sat in `custody` alone, because the roster-only gate cannot tell
+    `(2, 0)` from `(1, 1)`. `_by_matter` builds that distribution from the same
+    items this function already read, and `cover_counts` now tightens Gate 2
+    against it: a category survives only when at least `K` distinct matters
+    each contribute at least one to it. `(2, 0)` is dropped; `(1, 1)` still
+    passes. Recorded as a known boundary in
+    `docs/DECISION-cover-re-identification.md` before this bite closed it.
     """
     items = queue(store, today=today)
     open_matters = sorted({item.matter for item in items})
     return cover_counts(
-        open_matters, **counts(store, today=today, soon_days=soon_days)
+        open_matters,
+        by_matter=_by_matter(items, soon_days=soon_days),
+        **counts(store, today=today, soon_days=soon_days),
     )
 
 
