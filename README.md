@@ -38,6 +38,39 @@ lands in the shared store is only what the household chose to expose.
 > SQLite end to end" milestone is met; the adapter seam and the gated Postgres
 > sync generalize from here.
 
+## Entering your own information
+
+The demo (`--demo`) is synthetic. A household's own records go into the
+household root — `$HOMESTEAD_HOME`, else `~/.homestead` — and nothing below
+needs the optional `entity` extra:
+
+```bash
+pip install -e .
+
+homestead-law ui                                   # entry forms, intake and dashboard, on localhost
+homestead-law put custody courthouse "Dept 4, Superior Court of California, County of Marin"
+homestead-law put custody child_name "A. Rivera"   # stored at the pack's rung (L4) — no rung is chosen here
+homestead-law deadline custody hearing 2026-10-01 "Custody hearing"
+homestead-law deadline custody evaluation 2026-08-12 --rung L4 "A submission is due"
+homestead-law show custody                         # the list pane: L1–L3 shown, L4 derived, L5 absent
+homestead-law show custody child_name              # the detail pane: L4 renders, L5 still refused
+homestead-law queue                                # what's due
+python -m homestead_law                            # the window, on these records (the demo only if empty)
+```
+
+Dates go through the engine's one strict parser on both doors: `deadline` takes
+`2026-10-01` or `August 10, 2026`, stores the ISO form, and refuses anything it
+cannot read in one line — a date the queue could not have read is a refusal
+where it can still be fixed, never a gap met weeks later.
+
+The browser UI (`ui`) is the plain way in: a *Records* tab with a field form
+(matter, field, value — the rung and its reason shown beside the field), a
+deadline form, and the records on file composed through the gate; an *Intake*
+tab that extracts dates, parties, case numbers and courts from pasted text so
+each can be stored with one click. Entity resolution (`resolve`, `propose`),
+court orders (`orders`) and the ledger check (`verify`) need
+`pip install 'homestead-law[entity]'` and say so when it is missing.
+
 ## What is enforced here today
 
 *The record invariants, carried from `homestead.keep.record` and held more

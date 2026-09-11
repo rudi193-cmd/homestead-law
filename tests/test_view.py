@@ -64,3 +64,61 @@ def test_the_queue_demo_orders_gates_and_hides_the_cover(tmp_path, monkeypatch):
     assert "A submission is due" in out    # the L4 deadline's derived form
     assert "2026-08-12" not in out         # never the L4 date on the ambient queue
     assert "Nothing is open" in out        # the resting cover, over one matter (I-31)
+
+
+# ── the window opens on the household's own records (`compose_store`) ────────
+#
+# `compose_store()` is the real-vs-demo decision factored out of `run()`, so it
+# can be driven headlessly: the store `homestead-law put` writes is the one the
+# window draws, and only an empty store falls back to the seeded demo.
+
+
+def test_compose_store_falls_back_to_demo_when_the_real_store_is_empty(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    from homestead_law.app import view
+
+    context = view.compose_store()
+
+    assert context.demo is True
+    assert context.today == demo.TODAY
+    assert context.store.records(demo.MATTER) != []
+
+
+def test_compose_store_never_seeds_the_real_root_on_fallback(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    from homestead.keep.store import SIDECAR, SQLiteAdapter
+    from homestead_law.app import view
+
+    assert view.compose_store().demo is True
+    # `compose_store()` redirected `HOMESTEAD_HOME` to the fallback's own
+    # tmpdir; point back at the real root to inspect it directly.
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    assert SQLiteAdapter(tmp_path / "homestead-law.db").read_matter(SIDECAR, demo.MATTER) == []
+
+
+def test_compose_store_opens_the_real_store_when_a_record_was_entered(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    import os
+
+    from homestead.keep.rungs import Classified, Rung
+    from homestead_law.app import view
+    from homestead_law.app.window import Window
+
+    Sidecar().put("custody", "courthouse", "primary", Classified(Rung.L1, "Dept 9"))
+
+    context = view.compose_store()
+
+    assert context.demo is False
+    assert os.environ["HOMESTEAD_HOME"] == str(tmp_path)
+    window = Window()
+    window.open_list(context.store.records("custody"))
+    assert [row.text for row in window.rows] == ["Dept 9"]
+    assert "Jordan Rivera" not in [row.text for row in window.rows]   # no demo bleed
+
+
+def test_the_banner_and_hint_name_the_ways_in():
+    from homestead_law.app import view
+
+    assert "demonstration" in view.DEMO_BANNER
+    assert "homestead-law ui" in view.DEMO_BANNER and "homestead-law put" in view.DEMO_BANNER
+    assert "homestead-law ui" in view.ENTRY_HINT
