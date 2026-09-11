@@ -405,6 +405,22 @@ def _cmd_deadline(args: Sequence[str]) -> int:
     date = args[2]
     instruction = " ".join(args[3:]) if len(args) > 3 else None
 
+    # An option this command does not take would otherwise be swept into the
+    # positionals and end up *inside the stored instruction* — and `--id` is
+    # exactly the one an operator will reach for, since `put` and `show` both
+    # have it and this command's instance is named by the positional instead.
+    # Silently storing "Custody hearing --id or-order" is the store agreeing to
+    # something nobody typed, so it is refused by name.
+    unknown = [a for a in args if a.startswith("--")]
+    if unknown:
+        print(
+            f"refused: unknown option(s) {unknown} for deadline — it takes "
+            "--rung and --sub; the instance is the positional id (with --sub) "
+            "or `primary` (without it)",
+            file=sys.stderr,
+        )
+        return 1
+
     try:
         matter(matter_name)
     except KeyError:

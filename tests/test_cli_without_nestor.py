@@ -562,3 +562,20 @@ def test_help_says_an_id_is_a_label_never_a_name(capsys):
 
     assert main(["--help"]) == 0
     assert "is a label, never a name" in capsys.readouterr().out
+
+
+def test_deadline_refuses_an_option_it_does_not_take(capsys):
+    """An unconsumed `--flag` was swept into the positionals and stored *inside
+    the instruction* — `deadline custody hearing 2026-11-01 "Hearing" --id
+    or-order` filed the instruction "Hearing --id or-order". `--id` is the one
+    an operator will reach for here, since `put` and `show` both take it and
+    this command names its instance with the positional instead."""
+    assert run_cli([
+        "deadline", "custody", "hearing", "2099-11-01", "Hearing",
+        "--id", "or-order",
+    ]) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("refused:") and "--id" in err and "Traceback" not in err
+
+    assert run_cli(["show", "custody", "deadline", "primary.hearing"]) == 1
+    assert "no such record" in capsys.readouterr().err
