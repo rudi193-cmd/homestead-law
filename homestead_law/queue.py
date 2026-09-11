@@ -115,7 +115,30 @@ def cover(store: Sidecar, *, today: str, soon_days: int = 14) -> dict[str, int]:
     """The counts the resting cover may show — the aggregate passed through the
     re-identification check (I-31), so a number appears only where it reveals
     nothing about which matter it came from. Over a single-matter household this
-    is empty, and the cover rests on 'Nothing is open'."""
+    is empty, and the cover rests on 'Nothing is open'.
+
+    The roster handed to the check is **the matters this household actually has
+    a deadline in**, not every matter type the registry knows about. `cover.py`
+    says what it is being handed: *"`matters` is the roster of open matters"*,
+    and its second gate is *"with a single open matter, the household is that
+    matter"*. Registered types are not open matters — the registry is the same
+    list on every install, so passing it would let the second gate be satisfied
+    by the *software's* shape rather than the household's, and a household with
+    one live matter would start showing counts the moment a second pack shipped.
+    That is the second-pack readiness failure in the one place it would have
+    been silent: nothing breaks, a number simply appears. Derived from the
+    queue, so a matter with records but no deadline does not inflate the roster
+    for a deadline count either.
+
+    It is still the weaker of the two available checks: a roster of two says the
+    count *could* be spread across both, not that it is. `(2, 0)` passes here.
+    The engine's `cover_counts` is explicit that it cannot tell `(2,0)` from
+    `(1,1)` without the per-matter distribution, and closing that is the
+    distribution argument a later engine bite adds; until then this narrows the
+    roster to the truth it can establish today.
+    """
+    items = queue(store, today=today)
+    open_matters = sorted({item.matter for item in items})
     return cover_counts(
-        list(all_matters()), **counts(store, today=today, soon_days=soon_days)
+        open_matters, **counts(store, today=today, soon_days=soon_days)
     )

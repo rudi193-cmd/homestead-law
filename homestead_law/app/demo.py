@@ -112,8 +112,10 @@ def compose_demo(store: Sidecar) -> str:
 def compose_queue(store: Sidecar, today: str = TODAY) -> str:
     """Seed the deadlines and render the queue — the store→dates→gate pipeline for
     *what is due*, headless. Overdue first, then soonest; an L4 deadline shows its
-    derived instruction, not its date; and the resting cover shows nothing over a
-    single matter (I-31), even though the queue itself has items."""
+    derived instruction, not its date; and the resting cover shows only what
+    survives the re-identification check (I-31) — nothing at all while the
+    demo's deadlines all sit in one matter, even though the queue itself has
+    items."""
     seed_deadlines(store)
     lines = [f"{MATTER} — what's due, as of {today}:"]
     for item in queue_mod.queue(store, today=today):
@@ -126,5 +128,10 @@ def compose_queue(store: Sidecar, today: str = TODAY) -> str:
         lines.append(f"  [{item.rung.value}] {item.shown} — {mark}")
 
     resting = queue_mod.cover(store, today=today)
-    lines.append(f"cover (resting): {resting or 'Nothing is open — single matter (I-31)'}")
+    # "single matter" was the *reason* nothing survived while one pack was
+    # built; with a second registered it can also be "no count reached the
+    # anonymity floor". The line says what the cover does — shows nothing —
+    # and names the invariant, rather than asserting a reason that stops being
+    # the true one the day a second pack lands.
+    lines.append(f"cover (resting): {resting or 'Nothing is open (I-31)'}")
     return "\n".join(lines)
