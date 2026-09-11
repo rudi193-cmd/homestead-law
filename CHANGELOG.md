@@ -5,7 +5,7 @@
 
 ### Added
 
-* venture pack — the application and the company's calendar, dates entered, one federal 83(b) clock ([4ddb5fa](https://github.com/homestead-affairs/homestead-law/commit/4ddb5fad16fd8c960b4c4d4cafde94fa23f75f7e))
+* venture pack — the application and the company's calendar, dates entered, one federal 83(b) clock ([fcb0cee](https://github.com/homestead-affairs/homestead-law/commit/fcb0cee4bc32aede25790c14b915c2fbff439db8))
 
 
 ### Fixed
