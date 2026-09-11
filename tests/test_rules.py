@@ -657,7 +657,7 @@ def test_accept_writes_the_same_two_field_shape_the_deadline_command_uses(nm_ins
     assert record.payload == computed.result_iso
     assert record.derived == (
         "computed from move_date under NMSA 40-10A-305; "
-        "confirm against the court's notice"
+        "confirm against the source above"
     )
 
 

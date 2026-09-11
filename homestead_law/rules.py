@@ -829,7 +829,7 @@ def accept(
 
     Writes `(matter, "deadline", instances.item_id(instance, template))` at
     `L1` with the instruction `"computed from <anchor_field> under <source>;
-    confirm against the court's notice"` — the same two-field shape (a date,
+    confirm against the source above"` — the same two-field shape (a date,
     an instruction) the existing `deadline` command already writes, so the
     queue and the detail pane read an accepted template exactly as they read
     a hand-entered deadline; nothing downstream needs to know which door
@@ -855,9 +855,17 @@ def accept(
         raise StaleToken(computed.matter, computed.instance, computed.template)
 
     item_id = instances.item_id(computed.instance, computed.template)
+    # Named after the source, not "the court": this function is shared by
+    # every pack's templates, and not every anchor runs under a court (the
+    # venture pack's `election-83b` counts an IRS filing window under 26
+    # U.S.C. § 83(b), with no court and no docket). "Confirm against the
+    # court's notice" was accurate for custody/bankruptcy alone and false the
+    # day a non-judicial template used this same writer (X7-drift audit,
+    # 2026-09-11) — corrected to name what was already right there, the
+    # source just stated, rather than assuming a forum that may not exist.
     instruction = (
         f"computed from {computed.anchor_field} under {computed.source}; "
-        "confirm against the court's notice"
+        "confirm against the source above"
     )
     item = Classified(Rung.L1, computed.result_iso, instruction)
     return store.put(computed.matter, "deadline", item_id, item, overwrite=replace)

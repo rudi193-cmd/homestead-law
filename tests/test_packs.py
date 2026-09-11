@@ -296,10 +296,16 @@ def test_child_name_and_child_dot_name_both_exist_until_l4_surfaces_retires_it()
     through in the pack's prose, but it is still live: `cli.py`'s
     `party_fields`, `server.py`'s intake form and `app/demo.py` all address
     it. This test holds **both** on file at L4 for as long as that is true.
-    The bite that retires the field is L4-surfaces (wave 4) — the bite that
-    already rewrites every door naming it — and this assertion is what that
-    bite will have to come here and change, deliberately, rather than
-    discovering afterwards that a door went quiet.
+
+    Corrected (X7-drift audit, 2026-09-11): this docstring used to say
+    "the bite that retires the field is L4-surfaces (wave 4)" as a forward
+    promise. L4-surfaces has since landed, in this same wave sequence, and
+    did not retire it — every door named above is unchanged, exactly the
+    drift a stale forward promise invites once the bite it names has already
+    passed. Retiring `child_name` is now a separate, still-open bite, tracked
+    unstruck in `docs/PLAN-affairs-face.md`; whichever bite actually does it
+    will have to come here and change this assertion deliberately, rather
+    than discovering afterwards that a door went quiet.
     """
     assert custody.FIELDS["child_name"] is Rung.L4
     assert custody.FIELDS["child.name"] is Rung.L4
@@ -310,7 +316,7 @@ def test_child_name_and_child_dot_name_both_exist_until_l4_surfaces_retires_it()
     assert "child_name" not in custody.REPEATABLE
     assert "child.name" in custody.REPEATABLE
 
-    # the strike-through names the bite that retires it, and is dated.
+    # the strike-through names the still-open retirement and is dated.
     why = custody.SCHEMA["child_name"]["why"]
     assert "~~Superseded 2026-09-11 by the repeatable `child.name`~~" in why
-    assert "L4-surfaces" in why
+    assert "docs/PLAN-affairs-face.md" in why
