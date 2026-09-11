@@ -44,7 +44,10 @@ the default itself be one of the tuple's members.
 `"derived"` sentence — the stand-in text a surface shows in place of the
 payload. Where the engine's own 0.3.0 custody pack classifies the same field
 name (`case_number`, `docket`, `opposing_party`, `parenting_time`,
-`child_name`, `diagnosis`, `notes`), the sentence is copied verbatim from it —
+~~`child_name`~~, `diagnosis`, `notes` — six, not seven, since
+`L9-child-name` dropped `child_name` here, 2026-09-11; the engine's pack is
+a separate repo and still declares it, so it simply stopped being *shared*),
+the sentence is copied verbatim from it —
 `tests/test_packs.py::test_derived_forms_match_the_engine_pack_where_the_field_exists`
 holds the two packs to the same text by comparison, not by promise, so they
 cannot drift the way the CLI's and the browser UI's now-deleted copies of this
