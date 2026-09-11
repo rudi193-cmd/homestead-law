@@ -234,23 +234,70 @@ def test_the_negation_exemption_is_narrow_not_a_blanket_pass_for_the_phrase():
     assert not _banned_phrase_hits(exempt)
 
 
-def test_the_real_pack_notice_and_why_strings_are_clean():
-    """The positive side, pointed directly at the bankruptcy pack's own
-    NOTICE and every `why`/`derived` string — the exact fields the module
-    docstring names as where advice would first slip in."""
-    from homestead_law.packs import bankruptcy
+def test_every_registered_packs_notice_and_why_strings_are_clean():
+    """The positive side, pointed at every *registered* pack's `NOTICE` and
+    every `why`/`derived` string — the exact places the module docstring
+    names as where advice would first slip in.
 
-    assert not _banned_phrase_hits(
-        ast.parse(f"NOTICE = {bankruptcy.NOTICE!r}")
-    )
-    for field, spec in bankruptcy.SCHEMA.items():
-        for key in ("why", "derived"):
-            text = spec.get(key)
-            if text is None:
-                continue
-            assert not _banned_phrase_hits(ast.parse(f"X = {text!r}")), (
-                f"{field}.{key} carries an advice-shaped phrase"
+    Registry-relative (I-23), not a hand-kept list of packs: the guard above
+    reads files on disk, which covers a new pack for free, but this check
+    used to name `bankruptcy` alone, so a pack registered later got the
+    file-level scan and not the field-level one. `all_matters()` means the
+    day a pack lands it is checked here with no edit to this file — which is
+    how `grant` (wave 8) came to be covered."""
+    from homestead_law.registry import all_matters, matter
+
+    checked = 0
+    for name in all_matters():
+        pack = matter(name).pack
+        notice = pack.NOTICE if hasattr(pack, "NOTICE") else None
+        if notice is not None:
+            assert not _banned_phrase_hits(ast.parse(f"NOTICE = {notice!r}")), (
+                f"{name}'s NOTICE carries an advice-shaped phrase"
             )
+        for field, spec in matter(name).schema.items():
+            for key in ("why", "derived"):
+                text = spec.get(key)
+                if text is None:
+                    continue
+                checked += 1
+                assert not _banned_phrase_hits(ast.parse(f"X = {text!r}")), (
+                    f"{name}.{field}.{key} carries an advice-shaped phrase"
+                )
+    assert checked > 0, "no pack declared a why/derived string — read nothing"
+
+
+def test_the_banned_list_holds_no_bare_verb_a_legitimate_status_would_trip():
+    """`grant.STATUS_VALUES` spells the operator's own not-yet-submitted
+    state `preparing` so the phrase list never has reason to look at a stored
+    value twice — but `submitted` *is* a declared status and a legitimate
+    operator fact, and `file`/`draft`/`submit` are ordinary words this tree
+    uses about itself. A list that grew one of them as a bare verb would fire
+    on a real status value and on ordinary prose, and a guard that fires on
+    ordinary prose is one somebody turns off.
+
+    So the rule is exact-word: a banned entry may contain such a verb only as
+    part of a longer phrase ("must file", "you can file"), never alone. The
+    check runs every declared status value through the real scan."""
+    from homestead_law.packs import grant
+
+    for value in sorted(grant.STATUS_VALUES):
+        assert not _banned_phrase_hits(ast.parse(f"STATUS = {value!r}")), (
+            f"the phrase list fires on the declared status {value!r}"
+        )
+        assert not _banned_phrase_lines(value), (
+            f"the README-side phrase list fires on the status {value!r}"
+        )
+
+    bare_verbs = {"file", "files", "filing", "draft", "drafts", "drafting",
+                  "submit", "submits", "submitted"}
+    offenders = [p for p in BANNED_PHRASES if p.strip() in bare_verbs]
+    assert not offenders, (
+        f"bare verbs in BANNED_PHRASES: {offenders} — each of these appears "
+        "in this tree as an ordinary word or a declared status value, so a "
+        "bare entry would have to be carved out by hand, and a carve-out "
+        "must be an exact word rather than a substring"
+    )
 
 
 # ── guard 2b — the same phrases, over the README's own page copy ────────────

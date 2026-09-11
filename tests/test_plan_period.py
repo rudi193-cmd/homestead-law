@@ -167,17 +167,22 @@ def test_multiple_confirmed_instances_each_get_their_own_line(tmp_path, monkeypa
 
 
 def test_signal_fields_is_the_frozenset_wave_8_names():
-    """`"safe"`/`"equity_grant"` were the field names pinned here before
-    L8-venture built the actual producer — corrected to
-    `"safe.amount"`/`"equity_grant.amount"`, the dotted field names the real
-    (REPEATABLE) venture pack stores under; see plan_period.py's own note."""
+    """Both Wave 8 producers are real now. `grant` declares `disbursement` as
+    a decision-2 repeatable group (`disbursement.expected`/`.amount`/
+    `.received`/`.account_label`), so no record is ever stored under the
+    bare item type `"disbursement"` — the two money-bearing sub-fields are
+    named individually instead. `venture` declares `safe`/`equity_grant` the
+    same way, so `"safe"`/`"equity_grant"` are corrected to the dotted
+    `"safe.amount"`/`"equity_grant.amount"` the real pack stores under (see
+    `plan_period.SIGNAL_FIELDS`'s own docstring note)."""
     assert plan_period.SIGNAL_FIELDS == frozenset(
         {
             "award_amount",
-            "disbursement",
-            "safe.amount",
+            "disbursement.amount",
+            "disbursement.received",
             "equity_grant.amount",
             "revenue_start",
+            "safe.amount",
         }
     )
 
