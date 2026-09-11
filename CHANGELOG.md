@@ -6,20 +6,16 @@
 ### Added
 
 * jurisdiction and derived forms on the custody pack (decisions 1, 3) ([945a44a](https://github.com/homestead-affairs/homestead-law/commit/945a44a0c1aeb4702e46bd66b26cc8c230f88913))
-* let a household enter and read its own records without the entity extra ([b03869b](https://github.com/homestead-affairs/homestead-law/commit/b03869bbae482bb8df8b53c8bfebf830a0d0d133))
 * let a household enter and read its own records without the entity extra ([86817fa](https://github.com/homestead-affairs/homestead-law/commit/86817fa5026ce16621cbcb51df68e60a01c3701d))
-* the pack declares its jurisdictions and derived forms; the doors read them through the engine ([6ff0b67](https://github.com/homestead-affairs/homestead-law/commit/6ff0b67046f0b16360aed166469c995f1d9f4e0b))
 
 
 ### Fixed
 
-* drain a refused request body before the socket closes ([6ff5189](https://github.com/homestead-affairs/homestead-law/commit/6ff51895de81ddb58aa943682affe0e22a7f0eaa))
+* rest the cover on the matters a household has, not the packs it ships ([4741d7e](https://github.com/homestead-affairs/homestead-law/commit/4741d7e0452b712bdcf74e185023d001a0694dd7))
+* require a derived form at import and scan the registry for tables too ([72cbb56](https://github.com/homestead-affairs/homestead-law/commit/72cbb56a9c4f9774b2c4787aa7df1bb13694c72d))
 * drain a refused request body before the socket closes ([add4f68](https://github.com/homestead-affairs/homestead-law/commit/add4f6856696b358fd0a642657cd1c41871afbc1))
 * draw one cover button and one queue pane per registered matter ([ed8df14](https://github.com/homestead-affairs/homestead-law/commit/ed8df143887db63c188777a956b03a62badd11cc))
-* draw one cover button and one queue pane per registered matter, and hold the tests registry-relative ([bffaba4](https://github.com/homestead-affairs/homestead-law/commit/bffaba43f12b08e29f4c5a6877b349ae90e17626))
 * refuse a missing matter, parse the CLI's dates, and smoke every module ([ec23c0b](https://github.com/homestead-affairs/homestead-law/commit/ec23c0b64d69819d26c6e1f785fba9b151b70a1c))
-* require a derived form at import and scan the registry for tables too ([72cbb56](https://github.com/homestead-affairs/homestead-law/commit/72cbb56a9c4f9774b2c4787aa7df1bb13694c72d))
-* rest the cover on the matters a household has, not the packs it ships ([4741d7e](https://github.com/homestead-affairs/homestead-law/commit/4741d7e0452b712bdcf74e185023d001a0694dd7))
 
 ## [0.1.1](https://github.com/homestead-affairs/homestead-law/compare/v0.1.0...v0.1.1) (2026-08-24)
 
