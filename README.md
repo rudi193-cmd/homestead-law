@@ -157,6 +157,9 @@ declares, because both guards that read it (`cli._cmd_put` and
 `registry._validate`) compare a member against the field string a `put`
 actually names.
 
+Workers' comp declares three of its own — `ime.date`, `ime.examiner`,
+`ime.note`, one independent medical exam per sub-id (below).
+
 `GET /api/instances?matter=` and `POST /api/matter/open` are the browser UI's
 doors onto the same two functions; `/api/store` and `/api/deadline` accept
 `id`/`sub` alongside the existing fields. The page's own forms do not yet
@@ -212,6 +215,105 @@ template is the same refusal in its strongest form: the app will not compute a
 date it cannot stand behind, so the operator's own read of the court's notice
 is what goes on file, at the rung `deadline` was always given at (L1 by
 default).
+
+## Workers' comp
+
+A second registered matter, `workers_comp` — an active New Mexico WCA claim
+that stays an NM claim after the household's move to Oregon (unlike custody,
+`JURISDICTIONS = ("US-NM",)`: the forum does not move, only where treatment
+happens does). Registering it touched exactly one line in `registry.py`
+(I-23) — no change to `cli.py`, `server.py`, `queue.py`, or the view.
+
+```bash
+homestead-law matter open workers_comp --id primary --jurisdiction US-NM
+homestead-law put workers_comp employer "Acme Distribution"
+homestead-law put workers_comp wca_case_number "WCA-2026-00456"
+homestead-law put workers_comp diagnosis "Rotator cuff strain"   # L4 — never on the list
+homestead-law put workers_comp ime.date 2026-10-05 --sub 2026-10
+homestead-law put workers_comp ime.examiner "Dr. R. Chen" --sub 2026-10
+homestead-law put workers_comp ime.note "report received; no permanent restrictions" --sub 2026-10
+homestead-law show workers_comp --id primary
+```
+
+### Nothing here computes a deadline; every date is entered
+
+`homestead_law.packs.workers_comp.TEMPLATES` is empty, and that is a decision
+rather than an omission. A computed deadline template may only anchor on a
+field the pack declares `L1` — `rules.compute()` reads the anchor through the
+gate on `S1_LIST`, where anything above `L1` renders as its derived form, so
+no date reaches the arithmetic at all. All three New Mexico rules this matter
+carries anchor above `L1`:
+
+| rule | would anchor on | rung | so |
+|---|---|---|---|
+| 60-day health-care-provider change window (NMSA 1978 § 52-1-49(B)-(C)) | `hcp_selection_date` | `L4` | entered, not computed |
+| 3-day objection to a provider change | the change-notice date | `L4` | entered, not computed (`hcp_change_objection_deadline`) |
+| 15-day notice of accident (§ 52-1-29) | `date_of_injury` | `L4` | entered, not computed (`notice_of_accident_date`) |
+
+~~`hcp_selection_date` is `L1` so the 60-day window can be computed.~~ Struck
+(audit, 2026-09-11): a rung answers the harm of disclosing the value, never
+what a template needs. This pack already rules that its forum does not post —
+`wca_case_number`, `hearing_date` and `mediation_date` are all `L3` for that
+reason — and a date saying a health care provider was chosen for an
+identified claimant is a health-care fact about that person, which is `L4`.
+The template went; the rung stayed. The statutes stay cited on the fields'
+own `why` strings, so the reference survives the arithmetic that could not.
+
+Every other date on this pack — `mediation_date`, `hearing_date`,
+`complaint_date`, `hcp_change_objection_deadline`, the notice and selection
+dates once they are actually known — is likewise entered, through the same
+`put`/`deadline` doors every other field uses. Nothing here files or drafts
+anything (decision 8's package-wide guard is a sibling bite's job; this pack's
+own `why` text and derived forms are held against the advice-shaped phrases
+the I-44 scan bans — an imperative aimed at the operator, a date given as an
+instruction, a claim about which relief suits them — by
+`tests/test_workers_comp.py`, which keeps the phrase list itself, where a test
+file is out of the scan's reach and this file is not).
+
+**PROVENANCE attempted, nothing reachable.** `https://law.justia.com/codes/new-mexico/2021/chapter-52/article-1/section-52-1-49/`
+returned `EGRESS_BLOCKED`; `https://www.wca.state.nm.us/` failed DNS
+resolution; the 2025-edition Justia page, the official compiler at
+`nmonesource.com`, and a `web.archive.org` snapshot of the first were each
+blocked the same way. A general web search corroborates the 60-day figure in
+prose but is not a dated, quoted fetch of the statute. Even with an `L1`
+anchor these would have shipped `UNCERTAIN` and refused to compute (I-2's
+rule, applied to a counting rule instead of a date), so nothing computable is
+lost by the ruling above. `_validate_templates` still runs at import: the day
+a template *is* added here it is held to the shape and to the `L1` anchor
+rule, by the build.
+
+### The health boundary (decision 7)
+
+*"Workers' comp is a law pack; medical content stays in health."* Every field
+that touches the claimant's medical facts (`date_of_injury`, `body_part`,
+`diagnosis`, `impairment_rating`, `mmi_date`, `treating_physician`,
+`hcp_selection_date`, `ime.*`, `oos_provider_affidavit_date`) holds only a
+**date or a short reference** —
+the clinical narrative belongs in `homestead-health`'s own packs. A pack-level
+cap, `MAX_L4_CHARS = 200`, and `validate_value(field, value)` are the
+structural fence: a value over the cap on an `L4` field is refused by field
+name, naming `homestead-health` as where the longer content belongs, and
+never echoing what was typed (I-15).
+
+**`validate_value` is not yet called by either door.** Neither `cli.py`'s
+`_cmd_put` nor `server.py`'s `/api/store` has a per-pack validation hook today.
+`L4-surfaces` (wave 4) is the bite that wires it in;
+`tests/test_workers_comp.py` carries that claim as a pending `xfail(strict=True)`
+— `test_the_doors_call_validate_value` — so the wiring is announced by a named
+failure asking for the mark to be removed, not by a test that has to be
+deleted. The function's own contract (200 accepted, 201 refused, the message
+naming the field and `homestead-health` and echoing nothing) is tested
+unconditionally today.
+
+`ime.date`, `ime.examiner` and `ime.note` are the `REPEATABLE` fields: three
+records per independent medical exam, all addressed by one `--sub` (e.g.
+`--sub 2026-10`), each a short reference and never the underlying report. The
+dotted-sub-field shape is the convention `homestead_law.packs.custody` uses
+for `child.name`/`child.dob`/`child.school`, and for the same mechanical
+reason — `_cmd_put` holds the *typed* field string against `REPEATABLE`, so a
+bare `ime` would need a bare `ime` field, i.e. one free-text blob per exam
+beside `notes`, which is the drift toward narrative decision 7 exists to
+stop.
 
 ## What is enforced here today
 

@@ -42,15 +42,18 @@ instead of rummaging a module's namespace for whatever it happens to expose.
 `jurisdictions` is every jurisdiction it may be filed in (decision 1); the
 guard below holds the first inside the second.
 
-## Only custody is built
+## ~~Only custody is built~~ custody and workers_comp are built (wave 3)
 
-Custody is the one pack in v1 — *"one pack proves the seam; three prove nothing
-that one does not."* Bankruptcy and workers' comp are the two other types the
-model discusses (a case number is `L1` in a bankruptcy, `L3` in a family
-matter), and they are **Phase 5, not built**. They are not in this registry,
-and inventing a stub for either would be the hand-kept phantom this invariant
-forbids — a matter name in a list with no pack behind it, which is the missing
-half of BUG-6.
+~~Custody is the one pack in v1 — "one pack proves the seam; three prove
+nothing that one does not." Bankruptcy and workers' comp are the two other
+types the model discusses (a case number is L1 in a bankruptcy, L3 in a family
+matter), and they are Phase 5, not built.~~ (struck 2026-09-11, L3-workers-comp)
+`homestead_law.packs.workers_comp` is now registered — an active New Mexico
+WCA claim, decision 7's "workers' comp is a law pack; medical content stays in
+health." Bankruptcy remains the one other type the model discusses and is not
+yet in this registry (its own parallel wave-3 bite); inventing a stub for it
+would still be the hand-kept phantom this invariant forbids — a matter name in
+a list with no pack behind it, the missing half of BUG-6.
 
 ## What it does not hold
 
@@ -70,7 +73,7 @@ from typing import Any, Mapping
 
 from homestead_law import packs
 from homestead.keep.rungs import Rung
-from homestead_law.packs import custody
+from homestead_law.packs import custody, workers_comp
 
 __all__ = ["MatterType", "REGISTRY", "all_matters", "matter"]
 
@@ -142,9 +145,11 @@ def _entry(pack: ModuleType) -> MatterType:
 #: The one enumeration (I-23). Keyed by matter name → its `MatterType`. Authored
 #: here, the way `surfaces.FACTS` is authored — add a pack by importing it and
 #: adding a line, and everything that iterates `all_matters()` picks it up with
-#: no other change. Only `custody` is built (bankruptcy, workers' comp: Phase 5).
+#: no other change. `custody` and `workers_comp` are built; bankruptcy is the
+#: remaining type the model discusses and is not yet in this registry.
 REGISTRY: dict[str, MatterType] = {
     custody.MATTER: _entry(custody),
+    workers_comp.MATTER: _entry(workers_comp),
 }
 
 
