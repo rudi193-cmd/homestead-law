@@ -516,6 +516,57 @@ def test_what_leaves_at_ceiling_l3_drops_l4_and_l5_without_deriving_them(
     assert "joint legal" in raw
 
 
+# ── L9-child-name: a retired field's rows still in a household's store ──────
+
+def test_a_retired_fields_rows_cross_on_a_matter_scope_and_cannot_be_named(
+    tmp_path, monkeypatch
+):
+    """The ruling this bite owes a household that has a pre-L9
+    `("custody", "child_name", "primary")` row on disk, pinned rather than
+    assumed, because the two halves of `--matters`/`--types` answer it
+    differently and both answers are deliberate.
+
+    `--matters custody --ceiling L4` **carries it**: `scope_from` leaves
+    `item_types` at `None`, so the scope names a matter and not a list of
+    types, and the engine composes every row of that matter under the
+    ceiling. A retired declaration is not a retired *record* — the row is
+    still the household's, still classified at the rung it was written with,
+    and dropping it silently from a sync the operator asked for at L4 would
+    lose data no door ever told them was gone.
+
+    `--types child_name` **refuses it**, by name: `item_types_for` reads each
+    pack's live `fields` (I-23), and `child_name` is no longer one of them,
+    so naming it is the "a type no named matter holds" refusal rather than a
+    scope that narrows to nothing. The asymmetry is the point: a household
+    can still *send* what it has, and cannot *ask for* a name the registry
+    no longer knows.
+    """
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    store = Sidecar()
+    planted = "Rivera-planted-legacy-L4"
+    store.put("custody", "child_name", "primary",
+              Classified(Rung.L4, planted,
+                         derived="A minor child is named in this matter"))
+
+    assert "child_name" not in law_sync.item_types_for(("custody",))
+
+    scope = law_sync.scope_from(("custody",), None, "L4")
+    assert scope.item_types is None
+    envelope = law_sync.preview(store, scope)
+    assert {row["item_type"] for row in envelope.rows} == {"child_name"}
+    assert envelope.rows[0]["value"] == planted
+
+    # …and at a ceiling below its rung it drops like any other L4 row.
+    below = law_sync.preview(store, law_sync.scope_from(("custody",), None, "L3"))
+    assert below.rows == () and planted not in below.to_bytes().decode()
+
+    # Naming the retired type is refused, by name, with no row in the message.
+    with pytest.raises(law_sync.UnknownItemType) as caught:
+        law_sync.scope_from(("custody",), ("child_name",), "L4")
+    assert "child_name" in str(caught.value)
+    assert planted not in str(caught.value)
+
+
 # ── the destination is a place, never a permission ──────────────────────────
 
 def test_the_fleet_url_file_is_read_stripped(tmp_path, monkeypatch):
