@@ -152,14 +152,21 @@ that actually cut those releases.
   here: a document does not mark its own landing before the PR that lands it
   exists.
 
-## Found by Wave 7, not yet built
+## Found by Wave 7 ~~, not yet built~~ (built: the one law item landed in 0.10.0, 2026-09-11)
 
-- **L9-child-name** `feat:` — retire the superseded singular `child_name`:
+- ~~**L9-child-name** `feat:` — retire the superseded singular `child_name`:
   rewrite `cli.py`'s `party_fields`, `server.py`'s intake `<option>` and
   Nestor hook and `app/demo.py` onto the repeatable `child.name`, drop the
   field from `packs/custody.py` with its strike-through kept, and change
   `tests/test_packs.py`'s both-on-file assertion deliberately. Unstruck: it
-  has no PR and no release, which is the whole point of open item 1 below.
+  has no PR and no release, which is the whole point of open item 1 below.~~
+  **Landed: PR [#50](https://github.com/homestead-affairs/homestead-law/pull/50),
+  released 0.10.0** (`feat: retire the singular child_name — child.name under
+  a sub-id is the one name`; the audit added five commits on the same PR,
+  among them the Intake card's sub-id box synced on paint and the sync
+  ruling that a legacy `child_name` row is still *carried* under a matter
+  scope but can no longer be *asked for* by type). Struck 2026-09-11 by the
+  `docs:` follow-up, once `CHANGELOG.md`'s own `[0.10.0]` section carried it.
 
 ## Wave 8 — the grant, the accelerator application, and the business
 
@@ -242,9 +249,11 @@ consumer) and `G2b` (`homestead-ledger`, not this repo).
    a record already on disk still lists and still opens.
 
    **`L9-child-name` is built, on branch `claude/law-child-name`, 2026-09-11**
-   (no PR and no release yet — this bullet stays unstruck; the orchestrator
+   ~~(no PR and no release yet — this bullet stays unstruck; the orchestrator
    strikes it once a PR and a release both carry it, per this document's own
-   evidence rule for every other bite above). What the branch does: drops
+   evidence rule for every other bite above)~~ — and landed the same day:
+   PR #50, released 0.10.0; the bullet under *Found by Wave 7* is struck
+   with that evidence, so this open item is closed. What the branch does: drops
    `child_name` from `packs/custody.py`'s `SCHEMA`/`FIELDS`, moving the
    retirement story its `why` string carried into the module docstring as
    struck, dated prose; rewrites `cli.py`'s `party_fields` and
@@ -316,8 +325,8 @@ Wave 7 audits turned up — `G9-cover-distribution` (the ledger's `cover()`
 never passes `by_matter=`), `G9b-fleet-ci-leg` (no CI job installs
 `psycopg`, so the fleet dial test skips on every OS), and the two G8 browser
 gaps (the owner/allowable-uses form, the include-business checkbox). Law has
-no UI gap of its own; its Wave 7 follow-ups are `L9-child-name` above and
-the `rules.accept` wording, which this bite fixed.
+no UI gap of its own; its Wave 7 follow-ups are `L9-child-name` above ~~and~~
+(landed, #50, 0.10.0) and the `rules.accept` wording, which this bite fixed.
 
 **tracked in `homestead-health`** — `W0-HEALTH`; `H2-cap`;
 `H6-sealed-reader`; `H7-floor-0.12`; `X7-drift-health`.
