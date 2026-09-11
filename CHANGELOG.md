@@ -5,26 +5,22 @@
 
 ### Added
 
-* a Chapter 13 pack that drafts nothing, with the plan-period flag ([98c2dd5](https://github.com/homestead-affairs/homestead-law/commit/98c2dd5243f2a533233062913baf44391114ea76))
-* a workers' compensation pack that keeps dates and references, never the medicine ([81a6a17](https://github.com/homestead-affairs/homestead-law/commit/81a6a17306fad8b85c82b0461065614b76861083))
-* add the workers' comp pack (wave 3, decision 7) ([fcff5f4](https://github.com/homestead-affairs/homestead-law/commit/fcff5f438b5de175b5ff9ec603d3eb277a60a09b))
-* compute a deadline from a pack template through the gate, and accept it by token ([d13dbad](https://github.com/homestead-affairs/homestead-law/commit/d13dbad9673d8c6fa740e19b91592a0b75f42b67))
-* custody relocation fields, repeatable children, and deadline templates ([3c3320b](https://github.com/homestead-affairs/homestead-law/commit/3c3320b9e36351429bd42ea5227150ce04e6f4a8))
 * deadline templates — compute and accept, never guess (L3-deadline-templates) ([03d66be](https://github.com/homestead-affairs/homestead-law/commit/03d66bec2e9bc6850680fa29560df0649085d230))
 * the bankruptcy pack, a plan-period interaction flag, and I-44's AST guard ([4d11cfd](https://github.com/homestead-affairs/homestead-law/commit/4d11cfdf15c0acdd0d2b077297817bfc56f09f3f))
-* the custody pack carries the relocation, registration, and children a move needs ([bf2fa21](https://github.com/homestead-affairs/homestead-law/commit/bf2fa21253a8594050e8a3ac2e8902f4343481cc))
+* add the workers' comp pack (wave 3, decision 7) ([fcff5f4](https://github.com/homestead-affairs/homestead-law/commit/fcff5f438b5de175b5ff9ec603d3eb277a60a09b))
+* custody relocation fields, repeatable children, and deadline templates ([3c3320b](https://github.com/homestead-affairs/homestead-law/commit/3c3320b9e36351429bd42ea5227150ce04e6f4a8))
 
 
 ### Fixed
 
 * an L1 district_state on the bankruptcy pack, so a forward count reads the district's calendar ([82c40b8](https://github.com/homestead-affairs/homestead-law/commit/82c40b833002cf6cc1109abcd1e66556fd5ce1bc))
 * describe the banned phrases instead of quoting them in the README ([2ede392](https://github.com/homestead-affairs/homestead-law/commit/2ede39260df3f868db25dd3254e62e5911c58c43))
-* one template contract with no exception, and a repeatable field that needs its sub ([5995973](https://github.com/homestead-affairs/homestead-law/commit/59959734902f732d3615184c5cbe59d7ac8fb4ba))
 * only say "district holidays not applied" where one could have been ([b5c2299](https://github.com/homestead-affairs/homestead-law/commit/b5c2299b455ccfae55d37062a5d213f058d5524b))
-* pick a template by the instance's forum, and name the calendars a count used ([115f692](https://github.com/homestead-affairs/homestead-law/commit/115f6922b0d41387b59ed49b39dd8b6de3d96c65))
 * refuse a broken template at the door instead of raising through it ([938faf9](https://github.com/homestead-affairs/homestead-law/commit/938faf99b3c2d9a2d12e6574962bf9e1db066c1e))
-* rung the harm, not the template, and split ime the way custody splits child ([139df17](https://github.com/homestead-affairs/homestead-law/commit/139df175a0ec02969cb229f5e92a3e5195bad91c))
 * the templates the sibling bite can read, and a flag that fails closed ([1d29902](https://github.com/homestead-affairs/homestead-law/commit/1d299028925724cb6be4276fb48569492eb6bae5))
+* pick a template by the instance's forum, and name the calendars a count used ([115f692](https://github.com/homestead-affairs/homestead-law/commit/115f6922b0d41387b59ed49b39dd8b6de3d96c65))
+* rung the harm, not the template, and split ime the way custody splits child ([139df17](https://github.com/homestead-affairs/homestead-law/commit/139df175a0ec02969cb229f5e92a3e5195bad91c))
+* one template contract with no exception, and a repeatable field that needs its sub ([5995973](https://github.com/homestead-affairs/homestead-law/commit/59959734902f732d3615184c5cbe59d7ac8fb4ba))
 
 ## [0.3.0](https://github.com/homestead-affairs/homestead-law/compare/v0.2.0...v0.3.0) (2026-09-11)
 
