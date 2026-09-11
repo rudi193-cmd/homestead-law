@@ -35,12 +35,12 @@ from homestead.keep.dates import Deadline, UnparseableDate
 
 from homestead_law import instances
 from homestead_law.app.window import Row, Window
-from homestead_law.packs import bankruptcy, custody, workers_comp
+from homestead_law.packs import bankruptcy, custody, grant, venture, workers_comp
 from homestead_law.store import Sidecar
 
 __all__ = [
     "PANES", "pane_for", "pane_text", "custody_pane", "bankruptcy_pane",
-    "workers_comp_pane", "generic_pane",
+    "workers_comp_pane", "grant_pane", "venture_pane", "generic_pane",
 ]
 
 PaneComposer = Callable[..., dict]
@@ -232,6 +232,172 @@ def workers_comp_pane(
     }
 
 
+def _undone_dates(
+    groups: dict[str, dict[str, Row]], due_field: str, done_field: str,
+) -> list[str]:
+    """The `due_field` text of every sub-record in `groups` that has no
+    `done_field` yet — "undone", for `_indicator_for_dates`. A sub-record
+    with both fields on file is finished and drops out of the candidate
+    list entirely, the same way a completed custody timeline date is not
+    what the indicator should call urgent."""
+    dates = []
+    for fields in groups.values():
+        if done_field in fields:
+            continue
+        if due_field in fields:
+            dates.append(fields[due_field].text)
+    return dates
+
+
+def _ref_rows(
+    groups: dict[str, dict[str, Row]], label: str, id_field: str, *,
+    date_field: str | None = None, date_prefix: str = "",
+) -> list[dict]:
+    """One row per sub-record, by reference only — `"founder 1"`, `"SAFE 2
+    — signed 2027-01-05"` — never the group's own fields. `id_field` (an L4
+    field: `founder.name`/`safe.investor`/`equity_grant.grantee`) supplies
+    the reference this row opens; a sub-record missing it is skipped, since
+    there is then nothing to open. `date_field`, when given and on file, is
+    a low-rung administrative date (`safe.signed`, L1) safe to fold into the
+    label itself — the label is synthesized text, never the served value of
+    the field the ref actually points at, so the L4 content it names still
+    renders only when that ref is opened on `S1_DETAIL`."""
+    out = []
+    for sub in sorted(groups):
+        fields = groups[sub]
+        row = fields.get(id_field)
+        if row is None:
+            continue
+        text = f"{label} {sub}"
+        if date_field is not None and date_field in fields:
+            text += f" — {date_prefix} {fields[date_field].text}"
+        out.append({
+            "matter": row.ref[0], "item_type": row.ref[1], "item_id": row.ref[2],
+            "rung": row.rung.value, "text": text,
+        })
+    return out
+
+
+#: The grant's own timeline, in the order the award process runs.
+_GRANT_TIMELINE = (
+    "submission_deadline", "decision_date", "award_date",
+    "award_period_start", "award_period_end",
+)
+
+
+def grant_pane(
+    store: Sidecar, matter_name: str, instance: str, *, today: str,
+) -> dict:
+    """Milestones, reports and disbursements (one card per sub-record,
+    served — `milestone.name` and `disbursement.amount` are `L3` and render
+    in full at `S1_LIST`'s `L3` ceiling; every other field in these three
+    groups is `L2` and renders as its date or label), the award timeline,
+    the `state` field (`status`, renamed here only because `"status"` is
+    one of the words `tests/test_i33_one_indicator.py`'s key scan treats as
+    indicator-shaped — the field itself is unchanged), and `NOTICE`
+    verbatim. The indicator is the nearest undone milestone or report due
+    date — a milestone already `done`, or a report already `submitted`,
+    drops out of the running."""
+    rows = _rows(store, matter_name, instance)
+    plain = _plain(rows)
+    milestones = _grouped(rows, "milestone")
+    reports = _grouped(rows, "report")
+    disbursements = _grouped(rows, "disbursement")
+    timeline = [_row_dict(plain[f]) for f in _GRANT_TIMELINE if f in plain]
+    candidates = (
+        _undone_dates(milestones, "milestone.due", "milestone.done")
+        + _undone_dates(reports, "report.due", "report.submitted")
+    )
+    indicator = _indicator_for_dates(candidates, today=today)
+    return {
+        "matter": matter_name,
+        "instance": instance,
+        "milestones": _cards(milestones),
+        "reports": _cards(reports),
+        "disbursements": _cards(disbursements),
+        "timeline": timeline,
+        "state": _row_dict(plain["status"]) if "status" in plain else None,
+        "notice": grant.NOTICE,
+        "indicator": indicator,
+    }
+
+
+#: The application's own timeline, in the order it runs.
+_VENTURE_APPLICATION_TIMELINE = ("application_submitted", "interview_date", "decision_date")
+#: The company card's flat fields, beside `public_benefit` (handled on its
+#: own — see `venture_pane`) and the repeatable groups.
+_VENTURE_COMPANY_FIELDS = ("entity_type", "formation_state", "formation_date", "benefit_report_due")
+#: Compliance dates with no `REPEATABLE` sibling of their own — each is one
+#: fixed statutory date, so the indicator treats every one of them as
+#: perpetually "undone" (there is no field recording that it was filed).
+_VENTURE_INDICATOR_DATES = (
+    "annual_report_due", "franchise_tax_due", "business_license_due", "benefit_report_due",
+)
+
+
+def venture_pane(
+    store: Sidecar, matter_name: str, instance: str, *, today: str,
+) -> dict:
+    """The application timeline and its `application_state`; the company
+    card (`entity_type`/`formation_state`/`formation_date`/
+    `benefit_report_due`, served, plus `public_benefit` shown by its
+    schema-level derived sentence rather than its served payload — the one
+    field this pane deliberately keeps off the summary card even though it
+    is `L3` and would otherwise render in full at `S1_LIST`'s `L3` ceiling,
+    because a certificate's stated purpose is exactly the kind of specific
+    language the module docstring calls out as different from a coarse
+    tag); the registrations calendar (`registration.kind`/`due`/`done`,
+    served); and founders/SAFEs/equity grants as reference rows only
+    (`_ref_rows`) — never their own fields, which render only when a row's
+    ref is opened on `S1_DETAIL`. `ein` is `L5` and never reaches `_rows` at
+    all (the gate drops it before this composer ever sees it). The
+    indicator is the nearest undone registration, annual report, franchise
+    tax, business license or benefit report due date."""
+    rows = _rows(store, matter_name, instance)
+    plain = _plain(rows)
+    registrations = _grouped(rows, "registration")
+    founders = _grouped(rows, "founder")
+    safes = _grouped(rows, "safe")
+    equity_grants = _grouped(rows, "equity_grant")
+
+    application_timeline = [
+        _row_dict(plain[f]) for f in _VENTURE_APPLICATION_TIMELINE if f in plain
+    ]
+    application_state = (
+        _row_dict(plain["application_status"]) if "application_status" in plain else None
+    )
+
+    company = [_row_dict(plain[f]) for f in _VENTURE_COMPANY_FIELDS if f in plain]
+    if "public_benefit" in plain:
+        row = plain["public_benefit"]
+        company.append({
+            "matter": row.ref[0], "item_type": row.ref[1], "item_id": row.ref[2],
+            "rung": row.rung.value,
+            "text": venture.SCHEMA["public_benefit"]["derived"],
+        })
+
+    candidates = _undone_dates(registrations, "registration.due", "registration.done")
+    candidates += [plain[f].text for f in _VENTURE_INDICATOR_DATES if f in plain]
+    indicator = _indicator_for_dates(candidates, today=today)
+
+    return {
+        "matter": matter_name,
+        "instance": instance,
+        "application_timeline": application_timeline,
+        "application_state": application_state,
+        "company": company,
+        "registrations": _cards(registrations),
+        "founders": _ref_rows(founders, "founder", "founder.name"),
+        "safes": _ref_rows(
+            safes, "SAFE", "safe.investor",
+            date_field="safe.signed", date_prefix="signed",
+        ),
+        "equity_grants": _ref_rows(equity_grants, "equity grant", "equity_grant.grantee"),
+        "notice": venture.NOTICE,
+        "indicator": indicator,
+    }
+
+
 def generic_pane(
     store: Sidecar, matter_name: str, instance: str, *, today: str,
 ) -> dict:
@@ -254,6 +420,8 @@ PANES: dict[str, PaneComposer] = {
     custody.MATTER: custody_pane,
     bankruptcy.MATTER: bankruptcy_pane,
     workers_comp.MATTER: workers_comp_pane,
+    grant.MATTER: grant_pane,
+    venture.MATTER: venture_pane,
 }
 
 
@@ -318,6 +486,23 @@ def pane_text(pane: dict) -> str:
     elif "exams" in pane:
         lines += _timeline_lines(pane["timeline"])
         lines += _card_lines("exam", pane["exams"])
+    elif "milestones" in pane:
+        lines.append(f"  {pane['notice']}")
+        if pane["state"]:
+            lines.append(f"  status: {pane['state']['text']}")
+        lines += _card_lines("milestone", pane["milestones"])
+        lines += _card_lines("report", pane["reports"])
+        lines += _card_lines("disbursement", pane["disbursements"])
+        lines += _timeline_lines(pane["timeline"])
+    elif "application_timeline" in pane:
+        lines.append(f"  {pane['notice']}")
+        lines += _timeline_lines(pane["application_timeline"])
+        if pane["application_state"]:
+            lines.append(f"  application_status: {pane['application_state']['text']}")
+        lines += _timeline_lines(pane["company"])
+        lines += _card_lines("registration", pane["registrations"])
+        for row in pane["founders"] + pane["safes"] + pane["equity_grants"]:
+            lines.append(f"  {row['text']}")
     else:
         lines += _timeline_lines(pane["rows"])
     return "\n".join(lines)

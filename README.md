@@ -579,11 +579,16 @@ The *Matter* tab composes two things for `currentMatter()`/
   headless underneath it): custody's children and relocation timeline;
   bankruptcy's creditors, the two bar-date countdowns, the `NOTICE` sentence
   verbatim, and the plan-period reference line when one is on file; workers'
-  comp's treatment/IME timeline. The pane's own shape — `children`,
-  `creditors`, `exams`, or the generic `rows` — picks the rendering; nothing
-  in the page names a matter to choose between them (I-23's habit, held
-  here too), so a fourth pack lands with a working, if generic, pane the day
-  its registry entry does, with no change to this file.
+  comp's treatment/IME timeline; the grant's milestones, reports and
+  disbursements by reference, its award timeline and the `NOTICE`; the
+  venture's application timeline and registrations calendar, its founders
+  and SAFEs as reference rows only (opened, like every pane row, one record
+  at a time on the detail below). The pane's own shape — `children`,
+  `creditors`, `exams`, `milestones`, `application_timeline`, or the
+  generic `rows` — picks the rendering; nothing in the page names a matter
+  to choose between them (I-23's habit, held here too), so a sixth pack
+  lands with a working, if generic, pane the day its registry entry does,
+  with no change to this file.
 
   **The pane is a list surface, not a detail one** (`S1_LIST`, ceiling `L3`).
   A child's name, a date of birth, a diagnosis are `L4`: the pane shows the

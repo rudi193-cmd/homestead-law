@@ -16,6 +16,8 @@ from homestead_law import instances
 from homestead_law import registry as registry_mod
 from homestead_law.app import panes
 from homestead_law.packs import bankruptcy, custody, workers_comp
+from homestead_law.packs import grant as grant_pack
+from homestead_law.packs import venture as venture_pack
 from homestead_law.store import Sidecar
 
 TODAY = "2026-08-10"
@@ -263,7 +265,10 @@ def test_the_pane_registry_is_a_subset_of_the_real_matters():
     from homestead_law.registry import all_matters
 
     assert set(panes.PANES) <= set(all_matters())
-    assert set(panes.PANES) == {custody.MATTER, bankruptcy.MATTER, workers_comp.MATTER}
+    assert set(panes.PANES) == {
+        custody.MATTER, bankruptcy.MATTER, workers_comp.MATTER,
+        grant_pack.MATTER, venture_pack.MATTER,
+    }
 
 
 # ── XSS: an id shaped like a script tag is refused, never stored or rendered ─

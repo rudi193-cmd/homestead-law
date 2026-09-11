@@ -18,7 +18,7 @@ from homestead_law import instances
 from homestead_law import queue as queue_mod
 from homestead_law.app import panes as panes_mod
 from homestead_law.app.window import Ref, Window
-from homestead_law.packs import bankruptcy, custody, workers_comp
+from homestead_law.packs import bankruptcy, custody, grant, venture, workers_comp
 from homestead_law.registry import all_matters
 from homestead_law.store import Sidecar
 
@@ -158,7 +158,11 @@ def compose_queue(store: Sidecar, today: str = TODAY) -> str:
 # bankruptcy and workers' comp get just enough of their own to show every
 # pane shape — creditors/bar-dates/NOTICE, and an IME sub-record — composing
 # through the real gate, invented content at the real rungs, same posture
-# `seed()`'s own docstring states.
+# `seed()`'s own docstring states. Grant and venture (L8-surfaces) get the
+# same minimal treatment: one milestone and a status for the grant pane, one
+# registration and one founder for the venture pane — enough to show a card,
+# a reference row and a state field without duplicating either pack's own
+# closed-set values.
 
 _PANE_INSTANCE = "primary"
 
@@ -177,6 +181,15 @@ _PANE_SEED = (
     (bankruptcy, "creditor.name", "cred1", "First National Bank"),
     (workers_comp, "hcp_selection_date", None, "2026-02-01"),
     (workers_comp, "ime.date", "2026-05", "2026-05-12"),
+    (grant, "status", None, "submitted"),
+    (grant, "submission_deadline", None, "2026-09-30"),
+    (grant, "milestone.name", "m1", "Phase 1 report"),
+    (grant, "milestone.due", "m1", "2026-10-01"),
+    (venture, "application_status", None, "submitted"),
+    (venture, "application_submitted", None, "2026-06-01"),
+    (venture, "registration.kind", "r1", "state-tax"),
+    (venture, "registration.due", "r1", "2026-12-01"),
+    (venture, "founder.name", "f1", "A. Founder"),
 )
 
 

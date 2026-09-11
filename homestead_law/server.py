@@ -701,6 +701,18 @@ function renderTimeline(heading,rows) {
   return html;
 }
 
+// Founders/SAFEs/equity grants (venture) — one row per sub-record, by
+// reference only (L8-surfaces): the row's own text is a synthesized label
+// ("founder 1", "SAFE 2 — signed 2027-01-05"), never a group's fields;
+// its L4 content renders only once the row is opened on S1_DETAIL, the same
+// click every other openable row already binds through bindOpenableRows.
+function renderRefRows(heading,rows,emptyText) {
+  var html='<h3>'+esc(heading)+'</h3>';
+  if(!rows.length) return html+'<p class="empty">'+esc(emptyText)+'</p>';
+  rows.forEach(function(r){ html+=fieldRow(r); });
+  return html;
+}
+
 // I-33: one indicator per pane. Called exactly once by renderPane below —
 // a single scalar in, a single badge out, so the pane can never carry two.
 var INDICATOR_LABEL={overdue:'overdue',needs_attention:'needs attention',
@@ -736,6 +748,22 @@ function renderPane(data) {
   } else if(data.exams){
     html+=renderTimeline('Treatment timeline',data.timeline);
     html+=renderCards('Independent medical exams','Exam',data.exams,'No exams on file.');
+  } else if(data.milestones){
+    html+='<div class="dt">'+esc(data.notice)+'</div>';
+    if(data.state) html+=fieldRow(data.state);
+    html+=renderCards('Milestones','Milestone',data.milestones,'No milestones on file.');
+    html+=renderCards('Reports','Report',data.reports,'No reports on file.');
+    html+=renderCards('Disbursements','Disbursement',data.disbursements,'No disbursements on file.');
+    html+=renderTimeline('Award timeline',data.timeline);
+  } else if(data.application_timeline){
+    html+='<div class="dt">'+esc(data.notice)+'</div>';
+    html+=renderTimeline('Application timeline',data.application_timeline);
+    if(data.application_state) html+=fieldRow(data.application_state);
+    html+=renderTimeline('Company',data.company);
+    html+=renderCards('Registrations','Registration',data.registrations,'No registrations on file.');
+    html+=renderRefRows('Founders',data.founders,'No founders on file.');
+    html+=renderRefRows('SAFEs',data.safes,'No SAFEs on file.');
+    html+=renderRefRows('Equity grants',data.equity_grants,'No equity grants on file.');
   } else {
     if(!data.rows.length) html+='<p class="empty">Nothing on file.</p>';
     data.rows.forEach(function(r){ html+=fieldRow(r); });
