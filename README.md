@@ -71,6 +71,64 @@ each can be stored with one click. Entity resolution (`resolve`, `propose`),
 court orders (`orders`) and the ledger check (`verify`) need
 `pip install 'homestead-law[entity]'` and say so when it is missing.
 
+## Instances and jurisdiction
+
+A matter can be more than one order in more than one forum — an NM custody
+order being registered in Oregon after a relocation is one matter, custody,
+with two **instances**: the original NM order and the OR registration. Nothing
+in the engine changed to say so (wave 3, decision 2): an item id is just a
+string, and this bite is the convention it now follows —
+
+```
+item_id(instance)        -> "<instance>"
+item_id(instance, sub)   -> "<instance>.<sub>"
+```
+
+— stored exactly where it always was, `(matter, item_type, item_id)`. An id
+matches `^[a-z0-9][a-z0-9-]{0,39}$` (`homestead_law.instances.ID_PATTERN`) —
+lowercase letters, digits and hyphens, never a dot — so `split_item_id` can
+always recover the two halves without guessing. `--id` defaults to `primary`
+everywhere, so a household with one instance of a matter sees no change at
+all.
+
+An instance's **jurisdiction** — which forum's rules govern it — is a fact
+about the instance, not the matter: a pack declares a default (`JURISDICTION`)
+and the full set an instance may be filed under (`JURISDICTIONS`); an operator
+opens an instance by declaring which one it is actually in:
+
+```bash
+homestead-law matter open custody --id nm-order --jurisdiction US-NM
+homestead-law matter open custody --id or-order --jurisdiction US-OR
+homestead-law put custody courthouse "Second Judicial District Court" --id nm-order
+homestead-law deadline custody nm-order 2026-11-01 --sub hearing
+homestead-law show custody                    # lists instances: nm-order, or-order
+homestead-law show custody --id nm-order      # that instance's records
+```
+
+A code outside the pack's own `JURISDICTIONS` is refused by name, and nothing
+is stored; opening an already-open instance again is refused unless
+`--replace` is given (the store's own I-9, not a new rule). Reading a
+jurisdiction back (`homestead_law.jurisdiction.jurisdiction_of`) goes through
+the same gate every other record does — `serve()`, never `.payload` — and
+refuses (**provisional I-42**: *"jurisdiction absent → refuse"*) whenever
+nothing was actually rendered, whether because no jurisdiction was ever set or
+because what is on file does not read back as itself (a jurisdiction planted
+by hand at `L5`, say). **Anything that will one day do date arithmetic on a
+deadline in an instance must call `jurisdiction_of` first** — an anchor date
+counted under an assumed forum is a guess about which rules to count under,
+and this module refuses that guess before the counting rules themselves exist
+to make it (they are a later bite).
+
+A pack may also declare `REPEATABLE` — field names that accept a `--sub`
+(a repeatable sub-record, e.g. a child of a custody matter). Custody declares
+none yet; `--sub` on any of its fields is refused by name.
+
+`GET /api/instances?matter=` and `POST /api/matter/open` are the browser UI's
+doors onto the same two functions; `/api/store` and `/api/deadline` accept
+`id`/`sub` alongside the existing fields. The page's own forms do not yet
+offer an instance picker — that UI wiring is left to a later (surfaces) bite;
+today they always write the `primary` instance, exactly as before this one.
+
 ## What is enforced here today
 
 *The record invariants, carried from `homestead.keep.record` and held more

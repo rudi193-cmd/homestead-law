@@ -171,6 +171,22 @@ def test_the_cover_shows_a_count_spread_across_two_matters(tmp_path, monkeypatch
     assert cover(store, today=TODAY) == {"overdue": 2}
 
 
+# ── L2b-instances: QueueItem names matter + instance, by reference ──────────
+
+def test_queue_item_names_the_instance_split_from_its_own_ref(tmp_path, monkeypatch):
+    """`instance` is `instances.split_item_id(ref[2])[0]` — a reference, like
+    `matter` and `ref` (I-15), never content. A dotted item id splits into its
+    instance; a bare, pre-instances one reads as its own instance."""
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    store = Sidecar()
+    _deadline(store, "custody", "nm-order.hearing", Rung.L1, "2026-09-15", "a hearing is set")
+    _deadline(store, "custody", "legacy-label", Rung.L1, "2026-08-20", "a pre-instances deadline")
+
+    by_ref = {it.ref[2]: it.instance for it in queue(store, today=TODAY)}
+    assert by_ref["nm-order.hearing"] == "nm-order"
+    assert by_ref["legacy-label"] == "legacy-label"
+
+
 # ── the queue reaches no payload (the chokepoint holds it too) ────────────────
 
 def test_queue_module_reaches_no_payload():

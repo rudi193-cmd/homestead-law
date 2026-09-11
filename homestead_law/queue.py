@@ -30,6 +30,7 @@ from dataclasses import dataclass
 from homestead.keep.dates import Deadline
 from homestead.keep.rungs import Rung
 
+from homestead_law import instances
 from homestead_law.app.cover import cover_counts
 from homestead_law.registry import all_matters
 from homestead_law.store import Due, Ref, Sidecar
@@ -39,11 +40,19 @@ __all__ = ["QueueItem", "queue", "counts", "cover"]
 
 @dataclass(frozen=True)
 class QueueItem:
-    """One line of the queue: which matter, the reference to open it, the gated
-    display, and the urgency. `days_until` is `None` for a gap (an unparseable
-    date), and `gap` is why."""
+    """One line of the queue: which matter and instance, the reference to open
+    it, the gated display, and the urgency. `days_until` is `None` for a gap
+    (an unparseable date), and `gap` is why.
+
+    `instance` names the matter *instance* this deadline belongs to (decision
+    2) — `instances.split_item_id(ref[2])[0]`, a reference exactly as `matter`
+    and `ref` already are (I-15), never content. A deadline stored before this
+    bite (a bare label with no dot) reads as its own instance here — the
+    honest answer for a string this module cannot know was ever meant to
+    carry one."""
 
     matter: str
+    instance: str
     ref: Ref
     rung: Rung
     shown: str
@@ -82,6 +91,7 @@ def queue(store: Sidecar, *, today: str) -> list[QueueItem]:
             items.append(
                 QueueItem(
                     matter=matter,
+                    instance=instances.split_item_id(due.ref[2])[0],
                     ref=due.ref,
                     rung=due.rung,
                     shown=due.shown,

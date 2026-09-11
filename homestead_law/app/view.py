@@ -35,6 +35,7 @@ from datetime import date
 
 from homestead.app import theme
 from homestead.keep.rungs import Disposition
+from homestead_law import instances
 from homestead_law import queue as queue_mod
 from homestead_law.app import advisories, demo
 from homestead_law.app.window import Window
@@ -237,10 +238,15 @@ def run() -> int:
         # view fixed the same assumption).
         served = window.open_detail(ref)
         clear()
-        # Named by matter and item type (`ref[0]`, `ref[1]`) rather than just the
-        # item type: the queue can open a detail from any registered matter, so
-        # the heading says which one, not only what.
-        ttk.Label(content, text=f"{ref[0]} · {ref[1]}", style="Heading.TLabel").pack(anchor="w")
+        # Named by matter, instance and item type — the queue can open a
+        # detail from any registered matter (and, within it, any instance —
+        # decision 2), so the heading says which of both, not only what.
+        # `instance` is a reference, read off the ref's own item id, never a
+        # payload (I-15).
+        instance = instances.split_item_id(ref[2])[0]
+        ttk.Label(
+            content, text=f"{ref[0]}/{instance} · {ref[1]}", style="Heading.TLabel"
+        ).pack(anchor="w")
         ttk.Label(content, text=served.rung.value, style="Muted.TLabel").pack(anchor="w", pady=(0, 12))
         body = (
             str(served.value)

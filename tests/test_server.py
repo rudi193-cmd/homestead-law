@@ -249,6 +249,96 @@ def test_the_server_is_bound_to_localhost_only(ui):
     assert ui.host == "127.0.0.1"
 
 
+# ── L2b-instances: /api/instances and /api/matter/open ──────────────────────
+
+def test_matter_open_stores_jurisdiction_and_instances_lists_it(ui):
+    status, data = ui.json(
+        "/api/matter/open", {"matter": "custody", "id": "primary", "jurisdiction": "US-NM"})
+    assert status == 200 and data == {"ok": True, "replaced": False}
+
+    status, data = ui.json("/api/instances?matter=custody")
+    assert status == 200
+    assert data["instances"] == [{"id": "primary", "jurisdiction": "US-NM"}]
+
+
+def test_instances_lists_a_matter_with_nothing_open_as_empty(ui):
+    status, data = ui.json("/api/instances?matter=custody")
+    assert status == 200 and data["instances"] == []
+
+
+def test_instances_never_carries_l3_or_higher_content(ui):
+    """The endpoint's own contract: codes only. A field entered under the
+    instance must not leak into `/api/instances`, whatever its rung."""
+    ui.json("/api/matter/open", {"matter": "custody", "id": "primary", "jurisdiction": "US-NM"})
+    ui.json("/api/store", {"matter": "custody", "field": "child_name", "value": "A. Rivera"})
+
+    status, data = ui.json("/api/instances?matter=custody")
+    assert status == 200
+    assert "A. Rivera" not in json.dumps(data)
+    assert data["instances"] == [{"id": "primary", "jurisdiction": "US-NM"}]
+
+
+def test_instances_refuses_an_unknown_matter(ui):
+    status, data = ui.json("/api/instances?matter=bogus")
+    assert status == 400 and "bogus" in data["error"]
+
+
+def test_matter_open_refuses_a_code_outside_the_pack(ui):
+    status, data = ui.json(
+        "/api/matter/open", {"matter": "custody", "id": "primary", "jurisdiction": "US-CA"})
+    assert status == 400 and data["ok"] is False
+    assert "US-CA" in data["error"]
+
+    status, data = ui.json("/api/instances?matter=custody")
+    assert data["instances"] == []
+
+
+def test_matter_open_twice_refuses_without_replace(ui):
+    ui.json("/api/matter/open", {"matter": "custody", "id": "primary", "jurisdiction": "US-NM"})
+    status, data = ui.json(
+        "/api/matter/open", {"matter": "custody", "id": "primary", "jurisdiction": "US-OR"})
+    assert status == 409 and data["ok"] is False
+
+    status, data = ui.json("/api/instances?matter=custody")
+    assert data["instances"] == [{"id": "primary", "jurisdiction": "US-NM"}]
+
+    status, data = ui.json(
+        "/api/matter/open",
+        {"matter": "custody", "id": "primary", "jurisdiction": "US-OR", "replace": True})
+    assert status == 200 and data["replaced"] is True
+    status, data = ui.json("/api/instances?matter=custody")
+    assert data["instances"] == [{"id": "primary", "jurisdiction": "US-OR"}]
+
+
+def test_matter_open_refuses_a_missing_matter_id_or_jurisdiction(ui):
+    for payload in (
+        {"id": "primary", "jurisdiction": "US-NM"},
+        {"matter": "custody", "jurisdiction": "US-NM"},
+        {"matter": "custody", "id": "primary"},
+    ):
+        status, data = ui.json("/api/matter/open", payload)
+        assert status == 400, f"{payload!r} was accepted"
+        assert data["ok"] is False
+
+
+def test_the_queue_names_the_instance_by_reference(ui):
+    ui.json("/api/deadline", {"matter": "custody", "id": "primary", "sub": "hearing",
+                              "date": "2099-10-01"})
+    status, data = ui.json("/api/queue")
+    assert status == 200
+    assert data["items"][0]["instance"] == "primary"
+
+
+def test_deadline_sub_composes_a_dotted_item_id(ui):
+    """`sub` is new and optional; given, the stored item id is
+    `instances.item_id(id, sub)` — `"<id>.<sub>"` — so a second instance can
+    carry its own `hearing` without colliding with the first."""
+    ui.json("/api/deadline", {"matter": "custody", "id": "primary", "sub": "hearing",
+                              "date": "2099-10-01"})
+    status, data = ui.json("/api/records?matter=custody")
+    assert any(r["item_id"] == "primary.hearing" for r in data["rows"])
+
+
 # ── the audit's attack list ────────────────────────────────────────────────
 #
 # Everything below is a way in that the first version of this door left open.

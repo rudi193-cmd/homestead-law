@@ -22,10 +22,16 @@ from typing import Sequence
 
 from homestead.keep import paths
 
-from homestead_law import nestor_seam
+from homestead_law import instances, nestor_seam
+from homestead_law.jurisdiction import (
+    JurisdictionAbsent,
+    UnsupportedJurisdiction,
+    jurisdiction_of,
+    set_jurisdiction,
+)
 from homestead_law.nestor_store import get_store
 from homestead_law.registry import all_matters, matter
-from homestead_law.store import Sidecar
+from homestead_law.store import RecordExists, Sidecar
 
 __all__ = ["run_cli"]
 
@@ -221,16 +227,39 @@ def _cmd_orders(args: Sequence[str]) -> int:
 # ── put (real record input) ────────────────────────────────────────────────
 
 def _cmd_put(args: Sequence[str]) -> int:
-    """``put <matter> <field> <value>`` — store a real record.
+    """``put <matter> <field> <value> [--id instance] [--sub sub]`` — store a
+    real record.
 
     Writes to the household's law database (not a throwaway). The value is
     classified at the pack's declared rung — no rung is chosen here.
 
+    ``--id`` names which instance of the matter the value belongs to
+    (default ``primary`` — unchanged from before this bite, for a household
+    with only one instance of a matter). ``--sub`` is only for a field the
+    pack declares ``REPEATABLE`` — a sub-id, never a name (I-15); a value not
+    on file yet is stored under a fresh one, not looked up.
+
     If the field involves a party name (opposing_party, child_name), the name
     is also proposed to Nestor's party resolver as a draft alias.
     """
+    id_opt = instances.DEFAULT_INSTANCE
+    sub_opt: str | None = None
+    filtered: list[str] = []
+    i = 0
+    while i < len(args):
+        if args[i] == "--id" and i + 1 < len(args):
+            id_opt = args[i + 1]
+            i += 2
+        elif args[i] == "--sub" and i + 1 < len(args):
+            sub_opt = args[i + 1]
+            i += 2
+        else:
+            filtered.append(args[i])
+            i += 1
+    args = filtered
+
     if len(args) < 3:
-        print("usage: homestead-law put <matter> <field> <value>", file=sys.stderr)
+        print("usage: homestead-law put <matter> <field> <value> [--id instance] [--sub sub]", file=sys.stderr)
         print(f"  matters: {', '.join(all_matters())}", file=sys.stderr)
         for name in all_matters():
             print(f"  fields ({name}): {', '.join(matter(name).fields)}", file=sys.stderr)
@@ -250,6 +279,20 @@ def _cmd_put(args: Sequence[str]) -> int:
         print(f"unknown field {field!r} for {matter_name} — fields: {', '.join(mt.fields)}", file=sys.stderr)
         return 1
 
+    if sub_opt is not None and field not in mt.repeatable:
+        print(
+            f"refused: field {field!r} does not accept --sub for {matter_name!r} "
+            "— it is not declared REPEATABLE",
+            file=sys.stderr,
+        )
+        return 1
+
+    try:
+        item_id = instances.item_id(id_opt, sub_opt)
+    except instances.InvalidId as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return 1
+
     from homestead.keep.rungs import Classified, derived_of
 
     rung = mt.fields[field]
@@ -265,9 +308,9 @@ def _cmd_put(args: Sequence[str]) -> int:
     _boot()
     sidecar = Sidecar()
     item = Classified(rung, value, derived)
-    replaced = sidecar.put(matter_name, field, "primary", item, overwrite=True)
+    replaced = sidecar.put(matter_name, field, item_id, item, overwrite=True)
 
-    print(f"  stored: {matter_name}/{field}/primary")
+    print(f"  stored: {matter_name}/{field}/{item_id}")
     print(f"  rung:   {rung.value}")
     if replaced:
         print(f"  (replaced previous value)")
@@ -303,7 +346,8 @@ def _maybe_propose_party(field: str, value: str) -> None:
 # ── deadline ───────────────────────────────────────────────────────────────
 
 def _cmd_deadline(args: Sequence[str]) -> int:
-    """``deadline <matter> <id> <date> [instruction]`` — add a real deadline.
+    """``deadline <matter> <id> <date> [instruction] [--sub sub]`` — add a real
+    deadline.
 
     The date is parsed by the engine's one strict parser and stored in its ISO
     form; a date it cannot read is refused here, in one line, rather than stored
@@ -311,13 +355,27 @@ def _cmd_deadline(args: Sequence[str]) -> int:
     form shown on the ambient queue when the rung withholds the date. Rung
     defaults to L1 (public date); pass ``--rung L3`` or ``--rung L4`` to
     classify higher.
+
+    ``<id>`` keeps its pre-instances meaning when ``--sub`` is not given: the
+    deadline's own item id, exactly as any household that has never typed
+    ``--sub`` already knows it (this is what every deadline stored before this
+    bite looked like, and it goes on looking like that). Pass ``--sub`` to
+    address a specific *instance* of the matter instead: ``<id>`` then names
+    the instance and ``--sub`` the deadline within it — the two together are
+    ``homestead_law.instances.item_id(<id>, sub)``, ``"<id>.<sub>"`` — so a
+    second registered order in this matter can carry its own ``hearing``
+    without colliding with the first one's.
     """
     rung_str = "L1"
+    sub_opt: str | None = None
     filtered: list[str] = []
     i = 0
     while i < len(args):
         if args[i] == "--rung" and i + 1 < len(args):
             rung_str = args[i + 1]
+            i += 2
+        elif args[i] == "--sub" and i + 1 < len(args):
+            sub_opt = args[i + 1]
             i += 2
         else:
             filtered.append(args[i])
@@ -325,13 +383,14 @@ def _cmd_deadline(args: Sequence[str]) -> int:
     args = filtered
 
     if len(args) < 3:
-        print("usage: homestead-law deadline <matter> <id> <date> [instruction]", file=sys.stderr)
+        print("usage: homestead-law deadline <matter> <id> <date> [instruction] [--sub sub]", file=sys.stderr)
         print('  e.g.: homestead-law deadline custody hearing 2026-09-15 "Custody hearing"', file=sys.stderr)
         print('  e.g.: homestead-law deadline custody evaluation 2026-08-12 --rung L4 "A submission is due"', file=sys.stderr)
+        print('  e.g.: homestead-law deadline custody primary 2026-09-15 --sub hearing   (a specific instance)', file=sys.stderr)
         return 1
 
     matter_name = args[0]
-    item_id = args[1]
+    id_arg = args[1]
     date = args[2]
     instruction = " ".join(args[3:]) if len(args) > 3 else None
 
@@ -366,6 +425,15 @@ def _cmd_deadline(args: Sequence[str]) -> int:
     if rung.value in ("L3", "L4") and not derived:
         derived = "A deadline is on file"
 
+    if sub_opt is not None:
+        try:
+            item_id = instances.item_id(id_arg, sub_opt)
+        except instances.InvalidId as exc:
+            print(f"refused: {exc}", file=sys.stderr)
+            return 1
+    else:
+        item_id = id_arg
+
     _boot()
     sidecar = Sidecar()
     item = Classified(rung, date, derived)
@@ -387,18 +455,41 @@ def _cmd_deadline(args: Sequence[str]) -> int:
 # ── show (read back, through the gate) ─────────────────────────────────────
 
 def _cmd_show(args: Sequence[str]) -> int:
-    """``show [matter] [item_type [item_id]]`` — read a matter's records back.
+    """``show [matter] [item_type [item_id]] [--id instance] [--sub sub]`` —
+    read a matter's records back.
 
     With no argument, lists every registered matter and how many records each
-    holds.  With a matter, lists that matter's records as the list pane would
-    draw them (``S1_LIST``: L1–L3 payloads, the derived form for L4, nothing for
-    L5 — I-16 holds here exactly as on the window).  With an item, opens it in
-    the detail pane (``S1_DETAIL``: L4 renders, L5 is still refused) and prints
-    any advisory beneath it.  ``item_id`` defaults to ``primary``, the id
-    ``put`` files a field under.
+    holds.  With a matter and nothing else, lists that matter's *instances*
+    (each with its jurisdiction, or a note that none is set) — an id is a
+    label, never a name (I-15), so what is listed here is a reference to open
+    with ``--id``, not a name to read anything from.  Pass ``--id`` to list one
+    instance's records instead, exactly as the list pane draws them
+    (``S1_LIST``: L1–L3 payloads, the derived form for L4, nothing for L5 —
+    I-16 holds here exactly as on the window).  With an item type, opens a
+    record in the detail pane (``S1_DETAIL``: L4 renders, L5 is still refused)
+    and prints any advisory beneath it; the raw ``item_id`` positional, when
+    given, is used exactly as typed (unchanged from before this bite) —
+    ``--id``/``--sub`` compose one only when it is omitted, defaulting to the
+    ``primary`` instance.
     """
     from homestead_law.app import advisories
     from homestead_law.app.window import Window
+
+    id_opt: str | None = None
+    sub_opt: str | None = None
+    filtered: list[str] = []
+    i = 0
+    while i < len(args):
+        if args[i] == "--id" and i + 1 < len(args):
+            id_opt = args[i + 1]
+            i += 2
+        elif args[i] == "--sub" and i + 1 < len(args):
+            sub_opt = args[i + 1]
+            i += 2
+        else:
+            filtered.append(args[i])
+            i += 1
+    args = filtered
 
     _boot()
     sidecar = Sidecar()
@@ -417,23 +508,56 @@ def _cmd_show(args: Sequence[str]) -> int:
         return 1
 
     window = Window()
-    rows = window.open_list(sidecar.records(matter_name))
 
-    if len(args) == 1:
-        if not rows:
+    if len(args) == 1 and id_opt is None:
+        # No item type and no --id: list instances, not records — the id
+        # printed here is a label to pass to --id, never content (I-15).
+        ids = instances.instances_of(sidecar, matter_name)
+        if not ids:
             print(f"  {matter_name}: nothing on file — `homestead-law put {matter_name} <field> <value>`")
             return 0
-        print(f"  {matter_name}:")
+        print(f"  {matter_name} instances:")
+        for inst in ids:
+            try:
+                code = jurisdiction_of(sidecar, matter_name, inst)
+            except JurisdictionAbsent:
+                code = "no jurisdiction set"
+            print(f"  {inst}  ({code})")
+        return 0
+
+    if len(args) == 1:
+        # --id given: this instance's records, in the pre-instances flat form.
+        try:
+            rows = window.open_list(instances.records_of(sidecar, matter_name, id_opt))
+        except instances.InvalidId as exc:
+            print(f"refused: {exc}", file=sys.stderr)
+            return 1
+        if not rows:
+            print(f"  {matter_name}/{id_opt}: nothing on file")
+            return 0
+        print(f"  {matter_name}/{id_opt}:")
         for row in rows:
             _, item_type, item_id = row.ref
-            where = item_type if item_id == "primary" else f"{item_type}/{item_id}"
+            sub = instances.split_item_id(item_id)[1]
+            where = item_type if sub is None else f"{item_type}/{sub}"
             print(f"  [{row.rung.value}]  {where}: {row.text}")
         return 0
+
+    window.open_list(sidecar.records(matter_name))
 
     from homestead.keep.store import InvalidKey
 
     item_type = args[1]
-    item_id = args[2] if len(args) > 2 else "primary"
+    if len(args) > 2:
+        item_id = args[2]
+    elif id_opt is not None or sub_opt is not None:
+        try:
+            item_id = instances.item_id(id_opt or instances.DEFAULT_INSTANCE, sub_opt)
+        except instances.InvalidId as exc:
+            print(f"refused: {exc}", file=sys.stderr)
+            return 1
+    else:
+        item_id = instances.DEFAULT_INSTANCE
     ref = (matter_name, item_type, item_id)
     try:
         present = sidecar.has(*ref)
@@ -453,6 +577,85 @@ def _cmd_show(args: Sequence[str]) -> int:
         print("  This record is sealed and is not shown here.")
     for line in advisories.advisory_lines(sidecar, ref):
         print(f"  ~ {line}")
+    return 0
+
+
+# ── matter (open an instance) ───────────────────────────────────────────────
+
+def _cmd_matter(args: Sequence[str]) -> int:
+    """``matter open <matter> --id <instance> --jurisdiction <code> [--replace]``
+    — declare an instance's jurisdiction, opening it.
+
+    This is how an instance of a matter comes to exist under this bite: there
+    is no separate "create" step, because the one fact every instance needs
+    before anything else can be filed under it (or computed from a date in
+    it) is which forum it is in (decision 1; provisional I-42). Refuses a
+    ``--jurisdiction`` outside the matter's own pack (never a guess), and
+    refuses re-opening an already-open instance unless ``--replace`` is given
+    (I-9 — the store's own unconsented-overwrite rule, not a new one).
+
+    ``--id`` is a label, never a name (I-15): pick anything that matches
+    ``homestead_law.instances.ID_PATTERN`` and is meaningful to your
+    household — it is never itself the content a rung protects.
+    """
+    if not args or args[0] != "open":
+        print("usage: homestead-law matter open <matter> --id <instance> --jurisdiction <code> [--replace]", file=sys.stderr)
+        return 1
+
+    id_opt: str | None = None
+    jurisdiction_opt: str | None = None
+    replace = False
+    positional: list[str] = []
+    i = 1
+    while i < len(args):
+        if args[i] == "--id" and i + 1 < len(args):
+            id_opt = args[i + 1]
+            i += 2
+        elif args[i] == "--jurisdiction" and i + 1 < len(args):
+            jurisdiction_opt = args[i + 1]
+            i += 2
+        elif args[i] == "--replace":
+            replace = True
+            i += 1
+        else:
+            positional.append(args[i])
+            i += 1
+
+    if len(positional) != 1 or id_opt is None or jurisdiction_opt is None:
+        print("usage: homestead-law matter open <matter> --id <instance> --jurisdiction <code> [--replace]", file=sys.stderr)
+        return 1
+
+    matter_name = positional[0]
+    try:
+        matter(matter_name)
+    except KeyError:
+        print(f"unknown matter {matter_name!r} — registered: {', '.join(all_matters())}", file=sys.stderr)
+        return 1
+
+    _boot()
+    sidecar = Sidecar()
+    try:
+        replaced = set_jurisdiction(
+            sidecar, matter_name, id_opt, jurisdiction_opt, replace=replace
+        )
+    except instances.InvalidId as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return 1
+    except UnsupportedJurisdiction as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return 1
+    except RecordExists:
+        print(
+            f"refused: {matter_name}/{id_opt} is already open — pass --replace "
+            "to change its jurisdiction",
+            file=sys.stderr,
+        )
+        return 1
+
+    print(f"  opened: {matter_name}/{id_opt}")
+    print(f"  jurisdiction: {jurisdiction_opt}")
+    if replaced:
+        print("  (replaced the previous jurisdiction)")
     return 0
 
 
@@ -500,7 +703,9 @@ def _cmd_queue(args: Sequence[str]) -> int:
             mark = f"overdue by {abs(item.days_until)}d"
         else:
             mark = f"in {item.days_until}d"
-        print(f"  [{item.rung.value}]  {item.shown}  ·  {mark}")
+        # Named by matter and instance (a reference — I-15), not by the raw
+        # item id, which may carry a sub the operator never asked to see here.
+        print(f"  [{item.rung.value}]  {item.matter}/{item.instance}  {item.shown}  ·  {mark}")
     return 0
 
 
@@ -549,9 +754,10 @@ COMMANDS = {
     "resolve": (_cmd_resolve, "resolve <domain> <surface> — entity resolution"),
     "propose": (_cmd_propose, "propose <domain> <surface> <canonical> — propose an alias"),
     "orders": (_cmd_orders, "orders <propose|check|list> — court decisions"),
-    "put": (_cmd_put, "put <matter> <field> <value> — store a record"),
-    "deadline": (_cmd_deadline, "deadline <matter> <id> <date> — add a deadline"),
-    "show": (_cmd_show, "show [matter] [item [id]] — read records back, gated"),
+    "put": (_cmd_put, "put <matter> <field> <value> [--id inst] [--sub sub] — store a record"),
+    "deadline": (_cmd_deadline, "deadline <matter> <id> <date> [--sub sub] — add a deadline"),
+    "show": (_cmd_show, "show [matter] [item [id]] [--id inst] [--sub sub] — read records back, gated"),
+    "matter": (_cmd_matter, "matter open <matter> --id inst --jurisdiction code — open an instance"),
     "queue": (_cmd_queue, "queue — what's due"),
     "verify": (_cmd_verify, "verify — check the Nestor ledger chain"),
     "ui": (_cmd_ui, "ui — intake and dashboard in the browser"),

@@ -680,6 +680,59 @@ def test_the_real_packs_declare_a_derived_form_for_every_rung_that_needs_one():
             assert sentence, f"{name}/{field} ({rung.value}) declares no derived form"
 
 
+# ── L2b-instances: REPEATABLE (decision 2) ───────────────────────────────────
+
+def test_repeatable_is_read_live_and_defaults_to_empty():
+    """`MatterType.repeatable` mirrors `jurisdictions` — read straight off the
+    pack, and a pack that names none (custody, today) reads as an empty set
+    rather than erroring, so a pack with nothing repeatable pays nothing for
+    that."""
+    assert matter("custody").repeatable == frozenset()
+    assert matter("custody").repeatable is custody.REPEATABLE
+
+
+def test_a_repeatable_name_the_pack_does_not_have_fails_the_build():
+    """Decision 2's plant: `REPEATABLE` naming a field `FIELDS` does not
+    declare — the same 'enumerated but not real' shape I-23 forbids for
+    matters, one level down, at fields."""
+    broken_pack = _fake_pack("workers_comp")
+    broken_pack.REPEATABLE = frozenset({"not_a_real_field"})
+    entry = registry_mod._entry(broken_pack)
+    with pytest.raises(RuntimeError) as exc:
+        registry_mod._validate(
+            {**REGISTRY, "workers_comp": entry},
+            {"custody": custody, "workers_comp": broken_pack},
+        )
+    assert "not_a_real_field" in str(exc.value)
+    assert "REPEATABLE" in str(exc.value)
+
+
+def test_a_repeatable_naming_a_real_field_passes():
+    good_pack = _fake_pack("workers_comp")
+    good_pack.REPEATABLE = frozenset({"case_number"})
+    entry = registry_mod._entry(good_pack)
+    registry_mod._validate(
+        {**REGISTRY, "workers_comp": entry},
+        {"custody": custody, "workers_comp": good_pack},
+    )
+
+
+def test_a_repeatable_of_the_wrong_shape_fails_the_build():
+    broken_pack = _fake_pack("workers_comp")
+    broken_pack.REPEATABLE = ["case_number"]   # a list, not a frozenset
+    entry = registry_mod._entry(broken_pack)
+    with pytest.raises(RuntimeError) as exc:
+        registry_mod._validate(
+            {**REGISTRY, "workers_comp": entry},
+            {"custody": custody, "workers_comp": broken_pack},
+        )
+    assert "REPEATABLE" in str(exc.value)
+
+
+def test_the_real_registry_passes_the_repeatable_check():
+    registry_mod._validate(REGISTRY, registry_mod._discover_packs())
+
+
 def test_no_derived_form_carries_a_digit():
     """A derived form stands in for a payload; a digit in it is the payload
     leaking through its own stand-in (a case number, a date, a count of
