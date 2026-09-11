@@ -416,17 +416,17 @@ def test_the_flag_line_carries_no_funder_name_and_no_amount():
 # ── --smoke / --demo still pass with the pack present ────────────────────────
 
 def test_demo_panes_compose_for_every_registered_matter_including_grant():
-    """`app.demo.compose_panes` iterates `all_matters()` and falls back to
-    `panes.generic_pane` for any matter with no dedicated composer
-    (`app/panes.py`'s own contract — L8-surfaces is the bite that gives grant
-    one) — this pins that grant, with no records at all, composes cleanly
-    rather than raising."""
+    """`app.demo.compose_panes` iterates `all_matters()`; `app/panes.py` now
+    gives grant its own composer (L8-surfaces) — this pins that grant, with
+    no records at all, composes cleanly rather than raising, through its own
+    shape rather than the generic fallback."""
     from homestead_law.app import panes
 
     store = Sidecar()
     pane = panes.pane_for(store, MATTER, "primary", today=TODAY)
     assert pane["matter"] == MATTER
-    assert pane["rows"] == []
+    assert pane["milestones"] == [] and pane["reports"] == [] and pane["disbursements"] == []
+    assert pane["notice"] == grant.NOTICE
     panes.pane_text(pane)  # does not raise
 
 
@@ -649,13 +649,14 @@ def test_no_planted_name_or_amount_reaches_a_prompt_an_agent_or_egress():
         assert not leaked, f"{surface.name} rendered {leaked}"
 
 
-def test_the_generic_pane_stands_in_for_l4_and_never_renders_its_payload():
-    """`--demo` composes grant through `panes.generic_pane` (L8-surfaces is
-    the bite that gives it a dedicated one), so the fallback is what an
-    operator sees today. It serves `S1_LIST`: `L1`-`L3` render — the
-    operator's own screen is what that ceiling is for — and `L4` derives.
-    The planted `allowable_uses`/`restrictions`/`notes` payloads must not
-    appear in the pane, its text rendering, or a JSON round-trip of it."""
+def test_the_dedicated_pane_never_renders_allowable_uses_restrictions_or_notes():
+    """`app.panes.grant_pane` (L8-surfaces) composes milestones, reports,
+    disbursements, the award timeline and `state` — never `allowable_uses`,
+    `restrictions` or `notes`, which the plan's own field list for this pane
+    leaves out. Not merely their payloads: neither of these fields' own
+    derived stand-in sentences appears either, because the composer never
+    reads them at all — the record is one explicit `S1_DETAIL` open away
+    (`tests/test_panes_wave8.py` proves that half)."""
     import json
 
     from homestead_law.app import panes
@@ -669,7 +670,7 @@ def test_the_generic_pane_stands_in_for_l4_and_never_renders_its_payload():
         assert payload not in rendered, payload
     for sentence in ("Allowable uses are on file", "Restrictions are on file",
                      "An operator note is on file"):
-        assert sentence in rendered, sentence
+        assert sentence not in rendered, sentence
 
 
 def test_neither_the_queue_nor_the_plan_period_line_carries_the_plant():

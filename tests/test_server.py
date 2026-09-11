@@ -26,6 +26,7 @@ import pytest
 from homestead.keep.rungs import Rung
 from homestead_law import nestor_seam, server
 from homestead_law import registry as registry_mod
+from homestead_law.packs import venture as venture_pack
 
 
 def _register_second_matter(monkeypatch, name: str = "_fake_second") -> None:
@@ -1325,6 +1326,41 @@ def test_store_on_a_pack_with_no_validate_value_is_unaffected(ui):
     assert status == 200 and data["ok"] is True
 
 
+# ── validate_value wired into /api/store for grant (L8-surfaces) ────────────
+# venture's own six refusals through this door are already pinned by the
+# L8-venture audit (`test_store_refuses_a_venture_value_by_name_and_never_
+# echoes_it`, above); grant's own CLI-door coverage lives in
+# `tests/test_grant.py` — this is the one door neither pack's own test file
+# reaches yet.
+
+def test_store_refuses_a_grant_status_outside_the_closed_set_never_echoing(ui):
+    planted = "drafting"
+    status, data = ui.json(
+        "/api/store", {"matter": "grant", "field": "status", "value": planted})
+    assert status == 400 and data["ok"] is False
+    assert "status" in data["error"] and planted not in data["error"]
+
+    status, data = ui.json("/api/records?matter=grant")
+    assert data["rows"] == []
+
+
+def test_store_refuses_a_grant_account_label_shaped_like_a_number(ui):
+    planted = "4111111111111111"
+    status, data = ui.json(
+        "/api/store",
+        {"matter": "grant", "field": "disbursement.account_label",
+         "value": planted, "sub": "tranche-1"},
+    )
+    assert status == 400 and data["ok"] is False
+    assert "account_label" in data["error"] and planted not in data["error"]
+
+
+def test_store_accepts_a_declared_grant_status(ui):
+    status, data = ui.json(
+        "/api/store", {"matter": "grant", "field": "status", "value": "submitted"})
+    assert status == 200 and data["ok"] is True and data["rung"] == "L2"
+
+
 # ── /api/pane and /api/deadline/templates (L4-surfaces) ─────────────────────
 
 def test_pane_composes_the_custody_pane_with_children_absent_and_derived_present(ui):
@@ -1344,6 +1380,44 @@ def test_pane_composes_the_custody_pane_with_children_absent_and_derived_present
     timeline = {t["item_type"]: t["text"] for t in data["timeline"]}
     assert timeline["registration_contest_deadline"] == "2026-09-01"
     assert data["indicator"] in (None, "overdue", "needs_attention", "nothing_due")
+
+
+def test_pane_composes_the_grant_pane_through_the_door(ui):
+    """L8-surfaces: the door is generic over the registry — no matter-name
+    literal is needed here beyond the query string — so a grant instance
+    opened in the switcher renders through the same `/api/pane` handler
+    every other matter already uses."""
+    ui.json("/api/store", {"matter": "grant", "field": "milestone.name",
+                           "value": "Phase 1 report", "sub": "m1"})
+    ui.json("/api/store", {"matter": "grant", "field": "status", "value": "submitted"})
+
+    status, data = ui.json("/api/pane?matter=grant&id=primary")
+    assert status == 200
+    assert data["notice"] == "This pack keeps dates and references from the " \
+        "funder's notice; it drafts nothing and submits nothing."
+    assert data["milestones"][0]["fields"]["milestone.name"]["text"] == "Phase 1 report"
+    assert data["state"]["text"] == "submitted"
+    assert data["indicator"] in (None, "overdue", "needs_attention", "nothing_due")
+
+    page = ui.get("/")[1].decode()
+    assert "data.milestones" in page and "renderCards(" in page
+
+
+def test_pane_composes_the_venture_pane_through_the_door(ui):
+    ui.json("/api/store", {"matter": "venture", "field": "founder.name",
+                           "value": "A. Founder", "sub": "1"})
+    ui.json("/api/store", {"matter": "venture", "field": "entity_type", "value": "pbc"})
+
+    status, data = ui.json("/api/pane?matter=venture&id=primary")
+    assert status == 200
+    assert data["notice"] == venture_pack.NOTICE
+    assert data["founders"][0]["text"] == "founder 1"
+    assert "A. Founder" not in json.dumps(data)
+    company = {c["item_type"]: c["text"] for c in data["company"]}
+    assert company["entity_type"] == "pbc"
+
+    page = ui.get("/")[1].decode()
+    assert "data.application_timeline" in page and "renderRefRows(" in page
 
 
 def test_pane_composes_the_bankruptcy_pane_with_notice_and_bar_dates(ui):
