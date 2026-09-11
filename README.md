@@ -220,8 +220,9 @@ default).
 
 `homestead_law/packs/bankruptcy.py` is the second real pack, the first with
 `JURISDICTION`/`JURISDICTIONS` fixed to `("US-federal",)` — a Chapter 13 case
-does not move between forums the way a custody order can. 34 fields: case
-administrivia (`district`, `courthouse`, `chapter`, `case_number`, `trustee`)
+does not move between forums the way a custody order can. 35 fields: case
+administrivia (`district`, `district_state`, `courthouse`, `chapter`,
+`case_number`, `trustee`)
 and every procedural date this case has (`petition_date` the anchor,
 `creditor_meeting_date`, `plan_filed_date`, `first_plan_payment_due`,
 `claims_bar_date`, `governmental_claims_bar_date`, `confirmation_hearing_date`,
@@ -279,6 +280,31 @@ the FRBP default and its `note` says to check the district's own rules.
 `creditor_meeting_date` (the § 341 meeting) is deliberately **never
 computed** — its 21–50-day window is set administratively by the U.S.
 Trustee, not by a rule this pack can count.
+
+**`district_state` — the second calendar a forward count reads.** FRBP
+9006(a)(6)(C) makes "any other day declared a holiday by the state where the
+district court is located" a legal holiday too, for periods measured **after**
+an event. The pack is general — a Chapter 13 case is filed in whichever
+district the debtor lives in — so the district's state is an `L1` field on the
+*instance*, entered like any other, not a constant in the table and not a
+lookup from `district` (a court-name-to-state table is an enumeration, which
+I-23 keeps in a registry or a pack, and every miss in one would be a silently
+wrong calendar rather than a refusal):
+
+```bash
+homestead-law put bankruptcy district      "District of New Mexico" --id primary
+homestead-law put bankruptcy district_state NM --id primary
+```
+
+With it, the sibling `rules.py` bite counts the three `court_days` rows on
+both calendars; without it they are counted federally and every door says
+"district holidays not applied" rather than letting the operator assume state
+closures were counted. It matters: a 2026-09-18 petition puts `claims-bar`
+(70 days forward) on **2026-11-27** federally and **2026-11-30** with
+`district_state` = `NM`, because New Mexico keeps Presidents' Day on the
+Friday after Thanksgiving and its district courts are closed on a day the
+federal calendar has open. `first-plan-payment` is unaffected and its `note`
+says why — calendar days read no calendar at all.
 
 **The plan-period interaction flag** (`homestead_law.plan_period`). While a
 bankruptcy instance is confirmed (`plan_confirmation_date` on file) and not

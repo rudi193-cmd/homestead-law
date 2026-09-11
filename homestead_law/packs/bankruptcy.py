@@ -106,6 +106,26 @@ SCHEMA: dict[str, dict[str, Any]] = {
         "the federal judicial district a case is filed in is printed on the "
         "docket caption itself — public in this matter's forum (step 1).",
     ),
+    "district_state": _field(
+        Rung.L1,
+        "the two-letter USPS code of the state the district court sits in — "
+        "the District of New Mexico sits in NM. Public in this matter's "
+        "forum for the same reason `district` beside it is (step 1): it is "
+        "the caption's own geography, read off the docket, and says nothing "
+        "about the debtor. It is a separate field rather than a lookup from "
+        "`district` because a court-name-to-state table is an enumeration "
+        "(I-23 puts those in a registry or a pack, not in a counting "
+        "module), and because every miss in such a table would be a silently "
+        "*wrong* calendar rather than a refusal. `L1` is what makes it "
+        "readable at all: FRBP 9006(a)(6)(C) adds the holidays of that "
+        "state to a period measured **after** an event, so a counting rule "
+        "reads this value, and a counting rule may only read a field that "
+        "renders unconditionally on every surface. Entered, never computed, "
+        "and optional — a case whose instance carries no `district_state` "
+        "is counted on the federal calendar alone, and every door says so "
+        "(\"district holidays not applied\") rather than letting the "
+        "operator assume state closures were counted.",
+    ),
     "courthouse": _field(
         Rung.L1,
         "the court's public identity — public in any federal forum "
@@ -538,7 +558,16 @@ TEMPLATES: tuple[dict[str, Any], ...] = (
         "source": _PROVENANCE_3015B,
         "status": "VERIFIED",
         "note": "Extendable only for cause on notice; this template computes "
-                "the unextended deadline.",
+                "the unextended deadline. "
+                "Counted on the federal calendar; when the instance carries a "
+                "`district_state`, FRBP 9006(a)(6)(C)'s second calendar — the "
+                "legal holidays of the state the district court sits in — is "
+                "counted with it, and the computed date can differ. A District "
+                "of New Mexico case is the worked example: New Mexico keeps "
+                "Presidents' Day on the Friday after Thanksgiving, which the "
+                "federal courts are open on. Without that field the count is "
+                "federal-only and every door says \"district holidays not "
+                "applied\".",
     },
     {
         "name": "first-plan-payment",
@@ -562,7 +591,12 @@ TEMPLATES: tuple[dict[str, Any], ...] = (
                 "the statute picks and this template does not know it; "
                 "enter `first_plan_payment_due` from the court's own notice "
                 "instead of computing it. 'Unless the court orders "
-                "otherwise' is likewise not modelled.",
+                "otherwise' is likewise not modelled. A `district_state` on "
+                "the instance does not reach this row and is not an "
+                "omission: calendar days read no calendar at all, so the "
+                "state closure that moves a `court_days` result moves "
+                "nothing here — declining that roll is the whole of what "
+                "counting calendar days means.",
     },
     {
         "name": "claims-bar",
@@ -575,7 +609,16 @@ TEMPLATES: tuple[dict[str, Any], ...] = (
         "source": _PROVENANCE_3002C,
         "status": "VERIFIED",
         "note": "Voluntary-case figure; an involuntary Chapter 7 case's "
-                "90-day figure is not modelled (this pack is Chapter 13).",
+                "90-day figure is not modelled (this pack is Chapter 13). "
+                "Counted on the federal calendar; when the instance carries a "
+                "`district_state`, FRBP 9006(a)(6)(C)'s second calendar — the "
+                "legal holidays of the state the district court sits in — is "
+                "counted with it, and the computed date can differ. A District "
+                "of New Mexico case is the worked example: New Mexico keeps "
+                "Presidents' Day on the Friday after Thanksgiving, which the "
+                "federal courts are open on. Without that field the count is "
+                "federal-only and every door says \"district holidays not "
+                "applied\".",
     },
     {
         "name": "governmental-claims-bar",
@@ -587,7 +630,16 @@ TEMPLATES: tuple[dict[str, Any], ...] = (
         "jurisdiction": "US-federal",
         "source": _PROVENANCE_3002C1,
         "status": "VERIFIED",
-        "note": "The narrower § 1308 tax-return-claim window is not modelled.",
+        "note": "The narrower § 1308 tax-return-claim window is not modelled. "
+                "Counted on the federal calendar; when the instance carries a "
+                "`district_state`, FRBP 9006(a)(6)(C)'s second calendar — the "
+                "legal holidays of the state the district court sits in — is "
+                "counted with it, and the computed date can differ. A District "
+                "of New Mexico case is the worked example: New Mexico keeps "
+                "Presidents' Day on the Friday after Thanksgiving, which the "
+                "federal courts are open on. Without that field the count is "
+                "federal-only and every door says \"district holidays not "
+                "applied\".",
     },
     {
         "name": "objection",

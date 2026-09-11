@@ -29,7 +29,8 @@ def test_bankruptcy_is_us_federal_only():
 
 def test_the_l1_fields():
     l1 = {
-        "jurisdiction", "district", "courthouse", "chapter", "case_number",
+        "jurisdiction", "district", "district_state", "courthouse", "chapter",
+        "case_number",
         "trustee", "petition_date", "creditor_meeting_date", "plan_filed_date",
         "first_plan_payment_due", "claims_bar_date",
         "governmental_claims_bar_date", "confirmation_hearing_date",
@@ -60,6 +61,103 @@ def test_the_l2_l4_l5_fields():
 
 def test_ssn_is_l5_the_canonical_datum():
     assert bankruptcy.FIELDS["ssn"] is Rung.L5, "an SSN is L5 — L5 has no override"
+
+
+# ── district_state — the second calendar a forward count reads ───────────────
+
+def test_district_state_is_declared_at_l1_under_exactly_that_name():
+    """FRBP 9006(a)(6)(C) adds the holidays of the state a federal district
+    court sits in to a period measured *after* an event. The sibling
+    `rules.py` bite reads that state off the **instance**
+    (`rules._district_state_for`), and it reads it by two hard conditions:
+    the field is named exactly `district_state`, and it is classified exactly
+    `L1`. Both are this pack's side of that contract, so both are pinned
+    here — a rename or a rung moved down would not break any test in the
+    sibling's own file, it would silently stop applying the district's
+    calendar and compute a claims-bar date on the federal one."""
+    assert "district_state" in bankruptcy.FIELDS
+    assert bankruptcy.FIELDS["district_state"] is Rung.L1
+
+
+def test_district_state_declares_no_derived_form_and_names_step_one():
+    """`L1` renders unconditionally, so it needs no stand-in (decision 3
+    requires `derived` at L3/L4 only) — and the `why` has to say *why* this
+    is public, not merely that a counting rule wants it, which is the one
+    argument a rung may never be set by."""
+    spec = bankruptcy.SCHEMA["district_state"]
+    assert "derived" not in spec
+    assert re.search(r"\bstep 1\b", spec["why"])
+    assert "district" in spec["why"]
+
+
+def test_l1_is_what_makes_the_district_state_readable_to_the_arithmetic():
+    """Not an assertion about the number: the behaviour the rung buys.
+
+    A counting rule reads this value through the gate on `S1_LIST`, like
+    everything else in this package (`Served.value`, never `.payload`), and
+    the sibling `rules._district_state_for` additionally requires the pack to
+    have declared it **exactly** `L1` — a pack that files the code lower has
+    said it is not public in this forum, and a counting rule may not reach
+    past that. Both halves are shown here rather than asserted: `L1` renders
+    the code itself on that door, while `L4` hands back a derived stand-in
+    and `L5` is denied outright — so a district's state filed above `L3`
+    would be *absent* to the arithmetic, not merely protected, and the count
+    would quietly fall back to the federal calendar."""
+    from homestead.keep.rungs import Classified, Disposition, Surface, serve
+
+    rendered = serve(Classified(Rung.L1, "NM", None), Surface.S1_LIST)
+    assert rendered.disposition is Disposition.RENDER
+    assert rendered.value == "NM"
+
+    withheld = serve(Classified(Rung.L4, "NM", "a state"), Surface.S1_LIST)
+    assert withheld.disposition is not Disposition.RENDER
+    assert withheld.value != "NM"
+
+    denied = serve(Classified(Rung.L5, "NM", "a state"), Surface.S1_LIST)
+    assert denied.disposition is not Disposition.RENDER
+
+
+def test_district_state_is_entered_never_computed():
+    """It is geography, not a deadline: no template anchors on it, and none
+    could — an anchor is a date."""
+    assert all(t["anchor"] != "district_state" for t in bankruptcy.TEMPLATES)
+
+
+def test_every_forward_court_days_template_says_the_district_calendar_applies():
+    """The three `court_days` rows are the ones whose answer moves when a
+    district's state closes. Each `note` has to say so, because the row
+    itself carries no `district_state` — the pack is general, the field is on
+    the instance — and a reader of the table alone would otherwise take the
+    computed date for the whole answer."""
+    checked = 0
+    for template in bankruptcy.TEMPLATES:
+        if template["rule"] != "court_days":
+            continue
+        note = template["note"]
+        assert "district_state" in note, template["name"]
+        assert "9006(a)(6)(C)" in note, template["name"]
+        assert "district holidays not applied" in note, template["name"]
+        checked += 1
+    assert checked == 3
+
+
+def test_the_calendar_days_template_says_the_district_calendar_does_not_reach_it():
+    """`first-plan-payment` counts calendar days, which read no calendar at
+    all. Silence there would read as an oversight next to three rows that
+    mention it; the note says it is the rule."""
+    note = next(
+        t["note"] for t in bankruptcy.TEMPLATES if t["name"] == "first-plan-payment"
+    )
+    assert "district_state" in note
+    assert "does not reach this row" in note
+
+
+def test_the_backward_template_claims_no_district_calendar():
+    """9006(a)(6)(C) is forward-only — the engine's `court_days_before` takes
+    no `district_state` parameter at all — so the backward row must not
+    promise one."""
+    note = next(t["note"] for t in bankruptcy.TEMPLATES if t["name"] == "objection")
+    assert "district_state" not in note
 
 
 def test_case_number_is_l1_here_and_l3_in_custody_the_worked_example():
