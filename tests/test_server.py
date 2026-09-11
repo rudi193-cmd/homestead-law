@@ -1857,3 +1857,57 @@ def test_every_item_type_the_sync_tab_offers_is_one_a_scope_accepts(ui):
     scope = law_sync.scope_from(
         tuple(data["matters"]), tuple(data["item_types"]), "L3")
     assert set(scope.item_types) == set(data["item_types"])
+
+
+# ── venture's own refusals through /api/store (L8-venture audit) ────────────
+
+@pytest.mark.parametrize(
+    "field,sub,planted,expect",
+    [
+        ("entity_type", None, "ZZZ-S-CORP-ZZZ", "must be one of"),
+        ("application_status", None, "ZZZ-DRAFTING-ZZZ", "must be one of"),
+        ("registration.kind", "r1", "ZZZ-TRADEMARK-ZZZ", "must be one of"),
+        ("bank_account_label", None, "ZZZ Bad Label", "a label matches"),
+        ("bank_account_label", None, "12345678", "account number"),
+        ("ein", None, "ZZZ-NOT-AN-EIN", "an EIN matches"),
+    ],
+)
+def test_store_refuses_a_venture_value_by_name_and_never_echoes_it(
+    field, sub, planted, expect, ui,
+):
+    """The browser door's half of `tests/test_cli_without_nestor.py`'s twin:
+    `_post_store` calls `venture.validate_value` before building the
+    `Classified`, so the same six refusals answer 400 with the field name and
+    the pack's own published rule, and the error JSON echoes nothing (I-15).
+    Nothing lands in the store."""
+    body = {"matter": "venture", "field": field, "value": planted}
+    if sub:
+        body["sub"] = sub
+
+    status, data = ui.json("/api/store", body)
+
+    assert status == 400 and data["ok"] is False
+    assert field in data["error"] and expect in data["error"]
+    assert planted not in data["error"]
+
+    status, data = ui.json("/api/records?matter=venture")
+    assert data["rows"] == []
+
+
+def test_store_accepts_the_venture_values_the_pack_allows_and_never_lists_the_ein(ui):
+    """The positive half, and the reason `ein`'s refusal text is the only
+    place a human ever reads about it: an accepted EIN stores at `L5` and
+    then appears on no list at all."""
+    for field, value, rung in (
+        ("entity_type", "pbc", "L2"),
+        ("bank_account_label", "venture-ops", "L2"),
+        ("ein", "12-3456789", "L5"),
+    ):
+        status, data = ui.json(
+            "/api/store", {"matter": "venture", "field": field, "value": value})
+        assert status == 200 and data["ok"] is True and data["rung"] == rung, field
+
+    status, data = ui.json("/api/records?matter=venture")
+    body = json.dumps(data)
+    assert "12-3456789" not in body and "ein" not in body
+    assert "pbc" in body

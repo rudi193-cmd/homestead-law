@@ -44,24 +44,29 @@ from homestead_law.store import Sidecar
 __all__ = ["SIGNAL_FIELDS", "flag"]
 
 #: Item types, in any *other* matter, whose mere presence — never their value
-#: — is the signal: `award_amount`/`disbursement.amount`/`disbursement.
-#: received` from a grant (L8-grant, wired below), `safe`/`equity_grant`/
-#: `revenue_start` from a venture (Wave 8, not yet built). A frozenset of
-#: field names, not matter names, so it carries no I-23 exposure of its own.
+#: — is the signal: `award_amount`/`disbursement.amount`/
+#: `disbursement.received` from a grant (`packs/grant.py`, L8-grant),
+#: `safe.amount`/`equity_grant.amount`/`revenue_start` from a venture
+#: (`packs/venture.py`, L8-venture). A frozenset of field names, not matter
+#: names, so it carries no I-23 exposure of its own.
 #:
-#: **The two `disbursement.*` members, not a bare `"disbursement"`
-#: (L8-grant).** `homestead_law.packs.grant` declares `disbursement` as a
-#: decision-2 repeatable group — one composed record per tranche, addressed
-#: `disbursement.expected`/`disbursement.amount`/`disbursement.received`/
-#: `disbursement.account_label` — so no record is ever stored under the bare
-#: item type `"disbursement"`; a set naming only that would never match a
-#: real grant record and this consumer would silently never see one. The two
-#: members actually named are the two that carry money or its arrival —
-#: `disbursement.amount` (a tranche's amount) and `disbursement.received`
-#: (the date a tranche actually landed, which alone can mark an asset having
-#: arrived even on a grant record silent about the amount); `disbursement.
-#: expected` and `disbursement.account_label` are scheduling and a ledger
-#: reference, neither one itself new income or an asset.
+#: **Every name is dotted where its group is `REPEATABLE` (decision 2).** The
+#: plan paragraph names the *groups* — `"safe"`, `"equity_grant"`,
+#: `"disbursement"` — and no record is ever stored under a bare group name: a
+#: repeatable group is one composed `Classified` per sub-id, addressed
+#: `safe.amount`, `disbursement.received` and so on. A set naming the bare
+#: group would match nothing a real pack writes, and this consumer would
+#: silently never fire — `_any_signal_elsewhere` compares `ref[1]` exactly.
+#: So each group contributes the member that actually carries money or its
+#: arrival, and nothing else: a scheduling date or a ledger reference is
+#: neither new income nor an asset.
+#:
+#: `grant.disbursement` contributes `disbursement.amount` (a tranche's
+#: amount) and `disbursement.received` (the date a tranche actually landed,
+#: which alone marks an asset having arrived even on a record silent about
+#: the amount); `disbursement.expected` and `disbursement.account_label` are
+#: scheduling and a ledger reference. `venture.safe`/`venture.equity_grant`
+#: contribute their `.amount` each.
 #:
 #: **One entry per line, sorted.** Two Wave 8 bites add producers to this one
 #: literal in parallel; a packed line is a merge conflict inside a line,
@@ -71,9 +76,9 @@ SIGNAL_FIELDS: frozenset[str] = frozenset(
         "award_amount",
         "disbursement.amount",
         "disbursement.received",
-        "equity_grant",
+        "equity_grant.amount",
         "revenue_start",
-        "safe",
+        "safe.amount",
     }
 )
 

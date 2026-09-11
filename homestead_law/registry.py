@@ -79,7 +79,13 @@ from typing import Any, Mapping
 
 from homestead_law import packs
 from homestead.keep.rungs import Rung
-from homestead_law.packs import bankruptcy, custody, grant, workers_comp
+from homestead_law.packs import (
+    bankruptcy,
+    custody,
+    grant,
+    venture,
+    workers_comp,
+)
 from homestead_law import rules
 
 __all__ = ["MatterType", "REGISTRY", "all_matters", "matter"]
@@ -154,13 +160,15 @@ def _entry(pack: ModuleType) -> MatterType:
 #: adding a line, and everything that iterates `all_matters()` picks it up with
 #: no other change. Custody, bankruptcy and workers' comp are all built (wave
 #: 3); every matter type the model discusses has a pack behind it. `grant`
-#: (wave 8, L8-grant) is the household's own affairs beyond the three the
-#: model discusses — the registry does not distinguish the two kinds.
+#: and `venture` (wave 8, L8-grant/L8-venture) are the household's own
+#: affairs beyond the three the model discusses — the registry does not
+#: distinguish the two kinds.
 REGISTRY: dict[str, MatterType] = {
     custody.MATTER: _entry(custody),
     bankruptcy.MATTER: _entry(bankruptcy),
     workers_comp.MATTER: _entry(workers_comp),
     grant.MATTER: _entry(grant),
+    venture.MATTER: _entry(venture),
 }
 
 

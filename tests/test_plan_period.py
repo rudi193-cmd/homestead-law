@@ -167,17 +167,51 @@ def test_multiple_confirmed_instances_each_get_their_own_line(tmp_path, monkeypa
 
 
 def test_signal_fields_is_the_frozenset_wave_8_names():
-    """Updated by L8-grant: the real `grant` pack declares `disbursement` as
-    a decision-2 repeatable group (`disbursement.expected`/`.amount`/
-    `.received`/`.account_label`), so no record is ever stored under the
-    bare item type `"disbursement"` — the two money-bearing sub-fields are
-    named individually instead (see `plan_period.SIGNAL_FIELDS`'s own
-    docstring note)."""
+    """Every name dotted where its group is REPEATABLE, sorted, one per line.
+    `"safe"`/`"equity_grant"`/`"disbursement"` were the *group* names pinned
+    here before either Wave 8 producer existed; no record is ever stored
+    under a bare group name, so each contributes the member that carries
+    money or its arrival instead. The two `disbursement.*` names are
+    L8-grant's, the two dotted venture names are L8-venture's, and the two
+    bites edit this one literal in parallel — see
+    `plan_period.SIGNAL_FIELDS`' own note on why it is written this way."""
     assert plan_period.SIGNAL_FIELDS == frozenset(
         {
-            "award_amount", "disbursement.amount", "disbursement.received",
-            "safe", "equity_grant", "revenue_start",
+            "award_amount",
+            "disbursement.amount",
+            "disbursement.received",
+            "equity_grant.amount",
+            "revenue_start",
+            "safe.amount",
         }
+    )
+
+
+def test_signal_fields_is_written_sorted_one_name_per_line():
+    """Merge-friendliness, held by a test rather than by a comment nobody
+    re-reads: the literal in `plan_period.py` is one string per line and in
+    sorted order, so two bites adding a producer in parallel produce a
+    conflict git resolves as a plain union instead of a conflict *inside* a
+    line. Planted: the packed single-line shape this replaced fails it."""
+    import ast
+    import inspect
+
+    source = inspect.getsource(plan_period)
+    tree = ast.parse(source)
+    (node,) = [
+        n for n in ast.walk(tree)
+        if isinstance(n, ast.AnnAssign)
+        and isinstance(n.target, ast.Name)
+        and n.target.id == "SIGNAL_FIELDS"
+    ]
+    (literal,) = node.value.args
+    names = [e.value for e in literal.elts]
+    linenos = [e.lineno for e in literal.elts]
+
+    assert names == sorted(names), f"SIGNAL_FIELDS is not sorted: {names}"
+    assert len(set(linenos)) == len(linenos), (
+        f"two names share a line ({linenos}) — a packed line makes a "
+        "parallel addition a conflict inside the line"
     )
 
 
@@ -321,3 +355,33 @@ def test_the_flag_is_computed_not_logged(tmp_path, monkeypatch):
         f"plan_period calls {on_store} on the store — a notice is computed "
         "from records, never written or logged"
     )
+
+
+# ── L8-venture: the real producer, not the fake-pack fixture ────────────────
+
+def test_a_safe_on_the_real_venture_pack_flags_a_confirmed_case(tmp_path, monkeypatch):
+    """The fake `_fake_second` fixture above proves the mechanism; this proves
+    the actual producer L8-venture ships. One SAFE record — investor and
+    amount both filled in — makes exactly one reference line, and the line
+    carries neither the investor's name nor the amount (I-15): 'presence,
+    never value' held against real data, not a stand-in."""
+    from homestead_law.packs import venture
+
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    store = Sidecar()
+    _confirmed_bankruptcy(store)
+    store.put(
+        venture.MATTER, "safe.investor", "seed-1",
+        Classified(Rung.L4, "Acme Ventures", derived="A SAFE investor is on file"),
+    )
+    store.put(
+        venture.MATTER, "safe.amount", "seed-1",
+        Classified(Rung.L4, "250000", derived="A SAFE amount is on file"),
+    )
+
+    lines = plan_period.flag(store)
+
+    assert lines == (EXPECTED_LINE,)
+    assert "Acme Ventures" not in lines[0]
+    assert "250000" not in lines[0]
+    assert "250,000" not in lines[0]

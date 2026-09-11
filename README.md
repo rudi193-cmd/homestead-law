@@ -413,15 +413,16 @@ structural fence: a value over the cap on an `L4` field is refused by field
 name, naming `homestead-health` as where the longer content belongs, and
 never echoing what was typed (I-15).
 
-**`validate_value` is not yet called by either door.** Neither `cli.py`'s
-`_cmd_put` nor `server.py`'s `/api/store` has a per-pack validation hook today.
-`L4-surfaces` (wave 4) is the bite that wires it in;
-`tests/test_workers_comp.py` carries that claim as a pending `xfail(strict=True)`
-— `test_the_doors_call_validate_value` — so the wiring is announced by a named
-failure asking for the mark to be removed, not by a test that has to be
-deleted. The function's own contract (200 accepted, 201 refused, the message
-naming the field and `homestead-health` and echoing nothing) is tested
-unconditionally today.
+~~**`validate_value` is not yet called by either door.**~~ Corrected:
+`L4-surfaces` (wave 4) wired it in, and both doors call it — `cli.py`'s
+`_cmd_put` and `server.py`'s `/api/store` each do
+`hasattr(mt.pack, "validate_value")` and call it before building the
+`Classified` they would store, so a pack that declares none (custody,
+bankruptcy) pays nothing. `tests/test_workers_comp.py::test_the_doors_call_validate_value`
+is the pin, no longer an `xfail`. The function's own contract (200 accepted,
+201 refused, the message naming the field and `homestead-health` and echoing
+nothing) is tested unconditionally, and `packs/venture.py` picks the same
+hook up for its closed sets, its account-label shape and its `ein` shape.
 
 `ime.date`, `ime.examiner` and `ime.note` are the `REPEATABLE` fields: three
 records per independent medical exam, all addressed by one `--sub` (e.g.
@@ -452,7 +453,11 @@ phrase scan never has reason to look at a stored value twice. `award_amount`
 and the money-bearing halves of the repeatable `disbursement` group feed the
 bankruptcy pack's plan-period flag
 (`homestead_law.plan_period.SIGNAL_FIELDS`), the same reference line the
-Wave 8 venture pack will also produce.
+venture pack below also produces.
+
+## Venture
+
+`homestead_law/packs/venture.py` (`JURISDICTION="US-DE"`, `JURISDICTIONS=("US-DE","US-OR")`) tracks an accelerator application and, alongside it, a Delaware public benefit corporation's own compliance calendar — formation, the registered agent, recurring state filings, founders, SAFEs and equity grants. **Every entered date is `L2`, with one exception.** `L1` means public in this matter's forum, and this matter has no forum: there is no court and no docket, and a Secretary of State's corporate register is not one either — it is a register the company files into. A date that reveals an application, a formation or a filing deadline exists is household metadata, which is `L2` (the same rung custody gives `move_date` and the ledger gives a posting date). The exception is `grant_date`, which stays `L1` because `rules.validate_templates` refuses any anchor that is not, and `grant_date` anchors the pack's one computed deadline: `election-83b`, 26 U.S.C. § 83(b)(2), 30 **calendar** days forward, no roll off a weekend or a federal holiday, `mail` refused. **One venture instance per grant** — `grant_date` is a single top-level field, so a second founder whose stock was transferred on a different day gets a second instance (`--id founders-2026-09`), not a second anchor; `rules.compute` is not extended. Every other date, including each founder's own confirmed `founder.election_83b_deadline`, is entered. This pack keeps dates and references; it forms nothing, files nothing, and computes no tax. `ein` is sealed at `L5` — it renders on no surface and has no derived form, and `validate_value` checks its `NN-NNNNNNN` shape at the door without ever echoing it, because entry is the only moment a value typed into the wrong box could be noticed at all. It is one of the two producers `homestead_law.plan_period.flag` watches for during an open Chapter 13 plan — a `safe.amount`, an `equity_grant.amount` or a `revenue_start` on file here surfaces one reference line on the bankruptcy pane, never an amount or an investor's name.
 
 ## Computing a deadline
 

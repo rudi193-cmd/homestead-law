@@ -58,6 +58,11 @@ BANNED_PHRASES = (
     "which chapter", "right chapter", "chapter is right",
     "convert to chapter", "switch to chapter", "qualify for chapter",
     "eligible for chapter", "best option", "your best",
+    # telling the operator to take a formation/filing act for the business
+    # (L8-venture, decision 8 extended to the venture pack's own subject
+    # matter): a pack that keeps dates and references may say a filing EXISTS
+    # or is DUE, but never instruct the act itself.
+    "form the company", "incorporate the company", "file with the state",
 )
 
 #: The one sanctioned shape "which chapter" may appear in: the pack-level
