@@ -190,21 +190,20 @@ def test_every_law_bite_this_repos_own_history_can_verify_is_named():
         )
 
 
-def test_l8_surfaces_is_named_but_not_struck_ahead_of_its_own_release():
-    """`L8-surfaces` merged to `main` (PR #46) but release-please had not cut
-    the release containing it as of this document's own writing — striking
-    it here would satisfy `test_every_struck_bite_names_a_pr_number_and_a_
-    release` on a release number nobody could yet audit, the doc-prose
-    equivalent of a scan asserting a result with no evidence."""
+def test_l8_surfaces_is_struck_with_its_own_pr_and_release():
+    """`L8-surfaces` went through three states while this document was being
+    written: in progress on `claude/law-surfaces-8`, merged to `main` (PR
+    #46) with no release yet, and finally released as 0.9.0 (PR #47) —
+    struck only at the last of those, once `CHANGELOG.md`'s own `[0.9.0]`
+    section confirmed it, never ahead of the evidence
+    `test_every_struck_bite_names_a_pr_number_and_a_release` requires of
+    every other struck bite in this file."""
     for item in _list_items(PLAN_FACE.read_text("utf-8")):
         if "L8-surfaces" in item:
-            assert not _STRUCK_SPAN.search(item), (
-                "L8-surfaces is struck through in docs/PLAN-affairs-face.md "
-                "before this repo's CHANGELOG.md shows a release carrying it"
+            assert _STRUCK_SPAN.search(item), (
+                "L8-surfaces has a release (0.9.0, CHANGELOG.md) and must be "
+                "struck like every other landed bite in this document"
             )
-            assert "#46" in item, (
-                "L8-surfaces has merged (PR #46) — name it, even unstruck, "
-                "so a reader knows exactly what is pending a release number"
-            )
+            assert "#46" in item and "0.9.0" in item
             return
     raise AssertionError("L8-surfaces is not named in docs/PLAN-affairs-face.md at all")

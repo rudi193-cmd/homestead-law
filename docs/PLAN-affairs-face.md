@@ -44,6 +44,7 @@ the engine's own drift bite found in its history.
 | 0.6.0 | [#41](https://github.com/homestead-affairs/homestead-law/pull/41) | `L5-sync` (#40) |
 | 0.7.0 | [#43](https://github.com/homestead-affairs/homestead-law/pull/43) | `L8-grant` (#42) |
 | 0.8.0 | [#45](https://github.com/homestead-affairs/homestead-law/pull/45) | `L8-venture` (#44) |
+| 0.9.0 | [#47](https://github.com/homestead-affairs/homestead-law/pull/47) | `L8-surfaces` (#46) |
 
 Two small fix branches merged between named bites (`claude/law-refused-body-drain`,
 #27, and `claude/law-drain-spy-wait`, #30 — both a request-body drain fix
@@ -170,20 +171,16 @@ consumer) and `G2b` (`homestead-ledger`, not this repo).
   13 flag.~~ **Landed: PR
   [#44](https://github.com/homestead-affairs/homestead-law/pull/44), release
   0.8.0.**
-- **L8-surfaces** `feat:`, depends L4-surfaces — grant pane, venture pane,
+- ~~**L8-surfaces** `feat:`, depends L4-surfaces — grant pane, venture pane,
   the Chapter 13 flag line on the bankruptcy pane and the queue; its own
   audit found and fixed a composer reading a pack's `SCHEMA`/`FIELDS`
-  straight off the pack instead of the `Row` the gate served it. **Merged,
-  not yet released:** PR
-  [#46](https://github.com/homestead-affairs/homestead-law/pull/46) merged
-  to `main` as `32c9804` (head `d1969a9`) — this branch has merged `main` at
-  that commit. Left unstruck on purpose: release-please had not cut the
-  release containing it when this was written, so there is no release
-  number to name, and `tests/test_plan_affairs_face.py` requires a struck
-  bite to name both a PR and a release. It is struck, with `#46` and the
-  release, by whoever next touches this document once that tag exists — the
-  same pattern the engine's own `X7-drift-engine` bite used for
-  `E7b-fleet-structured-values`.
+  straight off the pack instead of the `Row` the gate served it.~~
+  **Landed: PR
+  [#46](https://github.com/homestead-affairs/homestead-law/pull/46), release
+  0.9.0.** (Merged as `32c9804`, head `d1969a9`; released via PR
+  [#47](https://github.com/homestead-affairs/homestead-law/pull/47) — struck
+  once `CHANGELOG.md`'s own `[0.9.0]` section confirmed it, per this
+  document's own evidence rule.)
 
 ---
 
