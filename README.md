@@ -533,6 +533,47 @@ current store state before comparing the submitted token, so a preview left
 open in a tab while the underlying anchor or jurisdiction changed is refused
 as stale rather than accepted against content nobody actually saw.
 
+## The page
+
+The *Records* tab carries a **matter and instance switcher**: pick a matter
+(a `<select>` from `/api/matters`, live, I-23), type or pick an instance from
+what `/api/instances` already knows, and every form and list on the page —
+intake, records, the pane, computed deadlines — reads that pair instead of
+assuming `primary`. A repeatable field (`child.name`, `creditor.name`,
+`ime.date`, …) shows a sub-id box; the intake and store forms build their
+field options from `mt.fields`, never a literal list of names. **Open
+instance** posts to `/api/matter/open` with a jurisdiction picked from the
+matter's own `jurisdictions` — the same door `matter open --replace` uses,
+refused the same way on an occupied instance or an unsupported code.
+
+The *Matter* tab composes two things for `currentMatter()`/
+`currentInstance()`:
+
+* **The per-pack pane** (`GET /api/pane?matter=&id=`, `app.panes.pane_for`
+  headless underneath it): custody's children and relocation timeline;
+  bankruptcy's creditors, the two bar-date countdowns, the `NOTICE` sentence
+  verbatim, and the plan-period reference line when one is on file; workers'
+  comp's treatment/IME timeline. The pane's own shape — `children`,
+  `creditors`, `exams`, or the generic `rows` — picks the rendering; nothing
+  in the page names a matter to choose between them (I-23's habit, held
+  here too), so a fourth pack lands with a working, if generic, pane the day
+  its registry entry does, with no change to this file.
+* **Computed deadlines** (`GET /api/deadline/templates?matter=`, then the
+  existing `/api/deadline/compute`/`/api/deadline/accept` doors): pick a
+  declared template, **Compute** shows the anchor, the result, the district
+  calendar note and the preview token, and **Accept** posts exactly that
+  token back — a preview the store has since moved under is refused by name
+  (`rules.compute`/`accept`'s own comparison), and the page shows the
+  refusal rather than the date it never actually confirmed.
+
+**I-33 — one indicator per pane.** Every pane carries a single `indicator`
+field (`None`, `"overdue"`, `"needs_attention"`, or `"nothing_due"`),
+computed from the pane's own served dates — never a second read, never a
+value above the rung the pane already rendered — and the page draws it from
+one call site (`renderIndicator`, called once by `renderPane` after every
+shape). A pane can show at most one badge by construction: a scalar in, a
+scalar out.
+
 ## What is enforced here today
 
 *The record invariants, carried from `homestead.keep.record` and held more

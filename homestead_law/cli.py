@@ -317,6 +317,20 @@ def _cmd_put(args: Sequence[str]) -> int:
 
     rung = mt.fields[field]
 
+    # The pack's own per-field check, when it declares one (L4-surfaces):
+    # workers_comp's `validate_value` refuses an L4 value over its 200-char
+    # cap, naming the field and never echoing what was typed (I-15) — the
+    # same posture every other refusal in this function already holds.
+    # `hasattr`, not `getattr(..., None)`: a pack without one is the ordinary
+    # case (custody, bankruptcy today), and this door is not itself a surface,
+    # but the check costs nothing and keeps the two doors identical.
+    if hasattr(mt.pack, "validate_value"):
+        try:
+            mt.pack.validate_value(field, value)
+        except ValueError as exc:
+            print(f"refused: {exc}", file=sys.stderr)
+            return 1
+
     derived = None
     if rung.value in ("L3", "L4"):
         # The pack's own declaration, never a second table (decision 3). Two

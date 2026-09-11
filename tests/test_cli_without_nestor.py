@@ -899,3 +899,43 @@ def test_the_queue_prints_no_note_when_there_is_nothing_to_confirm(capsys, monke
 
     assert run_cli(["queue", "--today", "2099-09-01"]) == 0
     assert "note:" not in capsys.readouterr().out
+
+
+# ── validate_value wired into `put` (L4-surfaces) ───────────────────────────
+
+def test_put_refuses_an_over_long_l4_value_naming_the_field_never_echoing(capsys):
+    """`cli._cmd_put` now calls `workers_comp.validate_value` before ever
+    building the `Classified` it would store — the wiring
+    `tests/test_workers_comp.py::test_the_doors_call_validate_value` was
+    waiting on. The refusal names the field and the cap and echoes none of
+    the typed content (I-15); nothing lands on disk."""
+    from homestead_law.packs import workers_comp
+    from homestead_law.store import Sidecar
+
+    secret = "SPINAL STENOSIS AT C5-C6"
+    value = secret + "x" * (workers_comp.MAX_L4_CHARS + 1 - len(secret))
+
+    assert run_cli(["put", "workers_comp", "ime.note", value, "--sub", "2026-10"]) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("refused:")
+    assert "ime.note" in err and str(workers_comp.MAX_L4_CHARS) in err
+    assert secret not in err and "STENOSIS" not in err
+
+    assert not Sidecar().has("workers_comp", "ime.note", "primary.2026-10")
+
+
+def test_put_accepts_an_l4_value_at_exactly_the_cap(capsys):
+    from homestead_law.packs import workers_comp
+
+    assert run_cli(
+        ["put", "workers_comp", "diagnosis", "x" * workers_comp.MAX_L4_CHARS]
+    ) == 0
+    assert "L4" in capsys.readouterr().out
+
+
+def test_put_on_a_pack_with_no_validate_value_is_unaffected(capsys):
+    """custody declares no `validate_value` — `hasattr` reads that as
+    nothing to check, not as a refusal, so a long L4 custody note still
+    stores exactly as it always has."""
+    assert run_cli(["put", "custody", "notes", "x" * 5000]) == 0
+    assert "L4" in capsys.readouterr().out

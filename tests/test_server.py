@@ -93,6 +93,29 @@ def test_the_page_serves_and_carries_the_entry_form(ui):
     assert "/api/store" in page and "/api/deadline" in page
 
 
+def test_the_page_carries_the_matter_instance_switcher(ui):
+    """L4-surfaces: an instance is a label the operator types or picks from
+    what `/api/instances` already knows (I-15) — never a name this page
+    invents by itself."""
+    page = ui.get("/")[1].decode()
+    assert 'id="rinstance"' in page and 'id="rinstancelist"' in page
+    assert 'id="ropenjuris"' in page
+    assert "function openInstance()" in page
+    assert "function currentInstance()" in page
+    assert "/api/matter/open" in page and "/api/instances" in page
+
+
+def test_the_page_carries_the_matter_tab_with_pane_and_deadlines(ui):
+    page = ui.get("/")[1].decode()
+    assert 'id="t-matter"' in page
+    assert "show('matter'" in page
+    assert 'id="paneview"' in page
+    assert 'id="tplname"' in page and 'id="tplresult"' in page
+    assert "function renderPane(" in page
+    assert "/api/pane" in page and "/api/deadline/templates" in page
+    assert "/api/deadline/compute" in page and "/api/deadline/accept" in page
+
+
 def test_matters_lists_every_registered_field_with_its_declared_rung(ui):
     status, data = ui.json("/api/matters")
     assert status == 200
@@ -1251,3 +1274,160 @@ def test_the_queue_endpoint_carries_notices_alongside_items(ui, monkeypatch):
     assert data["items"] == []
     # the line is a reference: no stored value reaches it
     assert "1000" not in json.dumps(data)
+
+
+# ── validate_value wired into /api/store (L4-surfaces) ──────────────────────
+
+def test_store_refuses_an_over_long_l4_value_naming_the_field_never_echoing(ui):
+    """The browser door's half of the wiring `cli._cmd_put`'s twin test
+    proves: `_post_store` calls `mt.pack.validate_value` before building the
+    `Classified` it would store."""
+    from homestead_law.packs import workers_comp
+
+    secret = "SPINAL STENOSIS AT C5-C6"
+    value = secret + "x" * (workers_comp.MAX_L4_CHARS + 1 - len(secret))
+
+    status, data = ui.json(
+        "/api/store",
+        {"matter": "workers_comp", "field": "ime.note", "value": value, "sub": "2026-10"},
+    )
+    assert status == 400 and data["ok"] is False
+    assert "ime.note" in data["error"] and str(workers_comp.MAX_L4_CHARS) in data["error"]
+    assert secret not in data["error"] and "STENOSIS" not in data["error"]
+
+    status, data = ui.json("/api/records?matter=workers_comp")
+    assert data["rows"] == []
+
+
+def test_store_accepts_an_l4_value_at_exactly_the_cap(ui):
+    from homestead_law.packs import workers_comp
+
+    status, data = ui.json(
+        "/api/store",
+        {"matter": "workers_comp", "field": "diagnosis", "value": "x" * workers_comp.MAX_L4_CHARS},
+    )
+    assert status == 200 and data["ok"] is True and data["rung"] == "L4"
+
+
+def test_store_on_a_pack_with_no_validate_value_is_unaffected(ui):
+    status, data = ui.json(
+        "/api/store", {"matter": "custody", "field": "notes", "value": "x" * 5000})
+    assert status == 200 and data["ok"] is True
+
+
+# ── /api/pane and /api/deadline/templates (L4-surfaces) ─────────────────────
+
+def test_pane_composes_the_custody_pane_with_children_absent_and_derived_present(ui):
+    ui.json("/api/store", {"matter": "custody", "field": "child.name",
+                           "value": "Alex Rivera", "sub": "c1"})
+    ui.json("/api/store", {"matter": "custody",
+                           "field": "registration_contest_deadline",
+                           "value": "2026-09-01"})
+
+    status, data = ui.json("/api/pane?matter=custody&id=primary")
+    assert status == 200
+    assert data["matter"] == "custody" and data["instance"] == "primary"
+    child = data["children"][0]
+    assert child["sub"] == "c1"
+    assert child["fields"]["child.name"]["text"] == "A child's name is on file"
+    assert "Alex Rivera" not in json.dumps(data)
+    timeline = {t["item_type"]: t["text"] for t in data["timeline"]}
+    assert timeline["registration_contest_deadline"] == "2026-09-01"
+    assert data["indicator"] in (None, "overdue", "needs_attention", "nothing_due")
+
+
+def test_pane_composes_the_bankruptcy_pane_with_notice_and_bar_dates(ui):
+    ui.json("/api/store", {"matter": "bankruptcy", "field": "claims_bar_date",
+                           "value": "2026-01-01"})
+    status, data = ui.json("/api/pane?matter=bankruptcy&id=primary")
+    assert status == 200
+    assert data["notice"].startswith("This pack keeps dates and references")
+    assert data["bar_dates"][0]["field"] == "claims_bar_date"
+    assert data["bar_dates"][0]["overdue"] is True
+
+
+def test_pane_carries_the_plan_period_line_when_present(ui, monkeypatch):
+    from homestead.keep.rungs import Rung
+    from homestead_law import registry as registry_mod
+    import types as _types
+
+    fake = _types.ModuleType("homestead_law.packs._fake_signal_pane")
+    fake.MATTER = "_fake_signal_pane"
+    fake.JURISDICTION = "US-NM"
+    fake.JURISDICTIONS = ("US-NM",)
+    fake.FIELDS = {"award_amount": Rung.L3}
+    fake.SCHEMA = {"award_amount": {"rung": Rung.L3, "matter": "_fake_signal_pane",
+                                    "derived": "An award amount is on file"}}
+    monkeypatch.setitem(registry_mod.REGISTRY, "_fake_signal_pane", registry_mod._entry(fake))
+
+    ui.json("/api/store", {"matter": "bankruptcy", "field": "plan_confirmation_date",
+                           "value": "2026-01-01"})
+    ui.json("/api/store", {"matter": "_fake_signal_pane", "field": "award_amount",
+                           "value": "1000", "id": "grant-1"})
+
+    status, data = ui.json("/api/pane?matter=bankruptcy&id=primary")
+    assert status == 200
+    assert len(data["plan_period"]) == 1
+    assert data["plan_period"][0].startswith("bankruptcy/primary:")
+    assert "1000" not in json.dumps(data)
+
+
+def test_pane_falls_back_to_generic_for_an_unregistered_matter(ui):
+    status, data = ui.json("/api/pane?matter=bogus&id=primary")
+    assert status == 400 and "bogus" in data["error"]
+
+
+def test_pane_refuses_a_malformed_instance_id_never_echoing_it(ui):
+    hostile = "<script>alert(1)</script>"
+    status, data = ui.json(f"/api/pane?matter=custody&id={hostile}")
+    assert status == 400
+    assert hostile not in data["error"]
+
+
+def test_deadline_templates_endpoint_lists_a_packs_declared_templates(ui, monkeypatch):
+    _with_notice_template(monkeypatch)
+    status, data = ui.json("/api/deadline/templates?matter=custody")
+    assert status == 200
+    names = {t["name"]: t for t in data["templates"]}
+    assert names["notice"]["status"] == "VERIFIED"
+    assert "NMSA" in names["notice"]["source"]
+
+
+def test_deadline_templates_endpoint_refuses_an_unknown_matter(ui):
+    status, data = ui.json("/api/deadline/templates?matter=bogus")
+    assert status == 400 and "bogus" in data["error"]
+
+
+# ── XSS: a script-shaped id is refused by shape; a script-shaped value ──────
+# reaches the page only through esc() (L4-surfaces' switcher and pane)
+
+def test_matter_open_refuses_a_script_shaped_instance_id_never_echoing_it(ui):
+    hostile = "<script>alert(1)</script>"
+    status, data = ui.json(
+        "/api/matter/open",
+        {"matter": "custody", "id": hostile, "jurisdiction": "US-NM"})
+    assert status == 400 and data["ok"] is False
+    assert hostile not in data["error"]
+
+    status, data = ui.json("/api/instances?matter=custody")
+    assert data["instances"] == []
+
+
+def test_pane_field_rows_reach_the_page_only_through_esc(ui):
+    """The pane's own row markup (`fieldRow` in the page's JS) escapes the
+    same way `loadRecords()`'s rows already do — a value the pack schema
+    lets through as a real payload (an L1/L3 timeline field) can carry
+    `<script>`, and the JSON API hands it back unmangled (the store and this
+    endpoint are not escapers); what must not happen is that markup landing
+    in the page unescaped."""
+    hostile = "<script>alert(1)</script>"
+    ui.json("/api/store", {"matter": "custody", "field": "custody_order_date", "value": hostile})
+
+    status, data = ui.json("/api/pane?matter=custody&id=primary")
+    assert status == 200
+    timeline = {t["item_type"]: t["text"] for t in data["timeline"]}
+    assert timeline["custody_order_date"] == hostile   # the API does not escape
+
+    page = ui.get("/")[1].decode()
+    assert "esc(f.text)" in page, "fieldRow must escape the served text"
+    assert "esc(card.sub)" in page, "fieldRow must escape a sub id too"

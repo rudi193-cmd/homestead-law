@@ -16,8 +16,9 @@ from __future__ import annotations
 from homestead.keep.rungs import Classified, Disposition, Rung
 from homestead_law import instances
 from homestead_law import queue as queue_mod
+from homestead_law.app import panes as panes_mod
 from homestead_law.app.window import Ref, Window
-from homestead_law.packs import custody
+from homestead_law.packs import bankruptcy, custody, workers_comp
 from homestead_law.store import Sidecar
 
 MATTER = custody.MATTER  # "custody"
@@ -145,3 +146,75 @@ def compose_queue(store: Sidecar, today: str = TODAY) -> str:
     # the true one the day a second pack lands.
     lines.append(f"cover (resting): {resting or 'Nothing is open (I-31)'}")
     return "\n".join(lines)
+
+
+# ── panes (L4-surfaces) — every registered pack, seeded minimally ───────────
+#
+# Separate from `seed()`'s `_DEMO` dict on purpose: that dict and the tests
+# pinned to its exact field texts predate this bite, and adding a pane demo
+# on top of it risks nothing already asserted. Custody already carries the
+# fields its own pane reads (`registration_contest_deadline`, one child);
+# bankruptcy and workers' comp get just enough of their own to show every
+# pane shape — creditors/bar-dates/NOTICE, and an IME sub-record — composing
+# through the real gate, invented content at the real rungs, same posture
+# `seed()`'s own docstring states.
+
+_PANE_INSTANCE = "primary"
+
+
+def seed_pane_demo(store: Sidecar) -> None:
+    """Add just enough to `seed()`'s custody matter, plus a minimal
+    bankruptcy and workers' comp instance, so `compose_panes` has something
+    of every shape to compose. Idempotent, like `seed()`."""
+    store.put(
+        custody.MATTER, "registration_contest_deadline", _PANE_INSTANCE,
+        Classified(Rung.L1, "2026-08-30"), overwrite=True,
+    )
+    store.put(
+        custody.MATTER, "child.name", instances.item_id(_PANE_INSTANCE, "c1"),
+        Classified(Rung.L4, "A. Rivera", custody.SCHEMA["child.name"]["derived"]),
+        overwrite=True,
+    )
+
+    store.put(
+        bankruptcy.MATTER, "petition_date", _PANE_INSTANCE,
+        Classified(Rung.L1, "2026-01-15"), overwrite=True,
+    )
+    store.put(
+        bankruptcy.MATTER, "claims_bar_date", _PANE_INSTANCE,
+        Classified(Rung.L1, "2026-03-26"), overwrite=True,
+    )
+    store.put(
+        bankruptcy.MATTER, "creditor.name",
+        instances.item_id(_PANE_INSTANCE, "cred1"),
+        Classified(Rung.L3, "First National Bank",
+                   bankruptcy.SCHEMA["creditor.name"]["derived"]),
+        overwrite=True,
+    )
+
+    store.put(
+        workers_comp.MATTER, "hcp_selection_date", _PANE_INSTANCE,
+        Classified(Rung.L4, "2026-02-01",
+                   workers_comp.SCHEMA["hcp_selection_date"]["derived"]),
+        overwrite=True,
+    )
+    store.put(
+        workers_comp.MATTER, "ime.date",
+        instances.item_id(_PANE_INSTANCE, "2026-05"),
+        Classified(Rung.L4, "2026-05-12", workers_comp.SCHEMA["ime.date"]["derived"]),
+        overwrite=True,
+    )
+
+
+def compose_panes(store: Sidecar, today: str = TODAY) -> str:
+    """`app.panes.pane_for`, for every registered pack this demo seeds —
+    headless proof that every pack composes a pane, and that the shape
+    (children/creditors/exams) picks the rendering the same way
+    `server.py`'s JS does, without a matter name literal anywhere in that
+    dispatch (I-23)."""
+    seed_pane_demo(store)
+    sections = [
+        panes_mod.pane_text(panes_mod.pane_for(store, mt.MATTER, _PANE_INSTANCE, today=today))
+        for mt in (custody, bankruptcy, workers_comp)
+    ]
+    return "panes:\n" + "\n".join(sections)

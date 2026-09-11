@@ -38,6 +38,7 @@ from homestead.keep.rungs import Disposition
 from homestead_law import instances
 from homestead_law import queue as queue_mod
 from homestead_law.app import advisories, demo
+from homestead_law.app import panes as panes_mod
 from homestead_law.app.window import Window
 from homestead_law.registry import all_matters
 from homestead_law.store import Sidecar
@@ -236,9 +237,44 @@ def run() -> int:
 
         listbox.bind("<Double-Button-1>", on_open)
         ttk.Button(content, text="Open", command=on_open).pack(anchor="w", pady=(12, 0))
+
+        # L4-surfaces: the instance switcher — one more listbox, no new
+        # widget kind — and the per-pack pane text for whichever instance is
+        # selected, composed headlessly by `app.panes` exactly as the
+        # browser's `/api/pane` composes it.
+        try:
+            found_instances = instances.instances_of(store, matter_name)
+        except instances.UnreadableStoredId:
+            found_instances = ()
+        shown_instances = found_instances or (instances.DEFAULT_INSTANCE,)
+        ttk.Label(content, text="Instances", style="Muted.TLabel").pack(
+            anchor="w", pady=(16, 0))
+        instance_box = tk.Listbox(content, height=min(4, len(shown_instances)))
+        theme.style_listbox(instance_box)
+        instance_box.pack(fill="x")
+        for inst in shown_instances:
+            instance_box.insert("end", inst)
+        instance_box.selection_set(0)
+
+        pane_label = ttk.Label(
+            content, text="", style="Muted.TLabel", wraplength=520, justify="left")
+        pane_label.pack(anchor="w", pady=(4, 0))
+
+        def refresh_pane(_event: object = None) -> None:
+            selection = instance_box.curselection()
+            chosen = (
+                instance_box.get(selection[0]) if selection
+                else instances.DEFAULT_INSTANCE
+            )
+            pane = panes_mod.pane_for(store, matter_name, chosen, today=today)
+            pane_label.config(text=panes_mod.pane_text(pane))
+
+        instance_box.bind("<<ListboxSelect>>", refresh_pane)
+        refresh_pane()
+
         ttk.Button(
             content, text="Close", style="Secondary.TButton", command=show_cover,
-        ).pack(anchor="w", pady=(4, 0))
+        ).pack(anchor="w", pady=(12, 0))
 
     def show_detail(ref, back) -> None:
         # `back` is the pane this detail was opened from — a matter's list or the

@@ -210,6 +210,7 @@ textarea:focus{outline:2px solid var(--accent);border-color:transparent}
 <nav>
   <button class="tb on" onclick="show('records',this)">Records</button>
   <button class="tb" onclick="show('intake',this)">Intake</button>
+  <button class="tb" onclick="show('matter',this)">Matter</button>
   <button class="tb" onclick="show('queue',this)">Queue</button>
   <button class="tb" onclick="show('entities',this)">Entities</button>
   <button class="tb" onclick="show('orders',this)">Orders</button>
@@ -217,15 +218,26 @@ textarea:focus{outline:2px solid var(--accent);border-color:transparent}
 <main>
 
 <section id="t-records" class="tab on">
-  <!-- L2b-instances: /api/store and /api/deadline accept id/sub (matter
-       instance / repeatable sub-id) below the surface (decision 2); this
-       form still always writes the "primary" instance — an instance picker
-       here, and /api/instances + /api/matter/open wired into it, are
-       L4-surfaces work, deferred to keep this bite's page diff small. -->
-  <h2>Enter a record</h2>
+  <!-- L4-surfaces: the matter/instance switcher. Every form and list below
+       reads currentMatter()/currentInstance() rather than a literal
+       "primary" — an instance is a label the operator picks or types
+       (I-15), never a name this page invents. -->
+  <h2>Matter &amp; instance</h2>
   <div class="card">
     <div class="rf">
       <select id="rmatter" onchange="fillFields()"></select>
+      <input id="rinstance" list="rinstancelist" value="primary"
+             placeholder="Instance (e.g. primary)&#8230;" onchange="loadRecords()">
+      <datalist id="rinstancelist"></datalist>
+      <select id="ropenjuris"></select>
+      <button class="btn bs" onclick="openInstance()">Open instance</button>
+    </div>
+    <div id="rimsg"></div>
+  </div>
+
+  <h2>Enter a record</h2>
+  <div class="card">
+    <div class="rf">
       <select id="rfield" onchange="showRung()"></select>
       <span class="rb" id="rrung"></span>
       <!-- Shown only for a field the pack declares REPEATABLE, which
@@ -273,6 +285,28 @@ textarea:focus{outline:2px solid var(--accent);border-color:transparent}
   <div id="res" style="margin-top:16px"></div>
 </section>
 
+<section id="t-matter" class="tab">
+  <!-- L4-surfaces: the per-pack pane (children/relocation timeline for
+       custody, creditors/bar-dates/NOTICE/plan-period for bankruptcy,
+       treatment/IME timeline for workers' comp) for currentMatter()'s
+       currentInstance(), and the computed-deadlines pane beside it. Neither
+       section names a matter by literal string — the shape of what
+       /api/pane returns picks the rendering, exactly the way the registry
+       picks the composer server-side (I-23). -->
+  <h2 id="mtitle">Pane</h2>
+  <div id="paneview"></div>
+
+  <h2>Computed deadlines</h2>
+  <div class="card">
+    <div class="rf">
+      <select id="tplname"></select>
+      <label><input type="checkbox" id="tplmail"> +3 mail days</label>
+      <button class="btn bp bs" onclick="computeTemplate()">Compute</button>
+    </div>
+    <div id="tplresult"></div>
+  </div>
+</section>
+
 <section id="t-queue" class="tab">
   <h2>What's due</h2>
   <div id="qlist"></div>
@@ -307,6 +341,7 @@ function show(name, btn) {
   document.getElementById('t-'+name).classList.add('on');
   btn.classList.add('on');
   if(name==='records') loadRecords();
+  if(name==='matter') loadMatterTab();
   if(name==='queue') loadQueue();
   if(name==='orders') loadOrders();
 }
@@ -336,15 +371,63 @@ function currentMatter() {
   return _matterNames.length?_matterNames[0]:'';
 }
 
+// The instance every form and list on this page reads (decision 2). Typed
+// or picked from the datalist `loadInstances()` fills — never a name this
+// page invents (I-15) — defaulting to "primary" for a household with only
+// one instance of a matter, unchanged from before this bite.
+function currentInstance() {
+  var el=document.getElementById('rinstance');
+  var value=el?el.value.trim():'';
+  return value||'primary';
+}
+
 function fillFields() {
   var m=_matters[document.getElementById('rmatter').value];
   var sel=document.getElementById('rfield'); sel.innerHTML='';
-  if(!m) return;
-  m.fields.forEach(function(f){
+  if(m) m.fields.forEach(function(f){
     var o=document.createElement('option'); o.value=f.name;
     o.textContent=f.name.replace(/_/g,' ')+' ('+f.rung+')'; sel.appendChild(o);
   });
   showRung();
+  loadInstances();
+}
+
+// This matter's known instances (the datalist an operator picks from) and
+// its published jurisdictions (the "Open instance" select) — both read live
+// off the registry's own data (I-23), never a copy this page keeps.
+function loadInstances() {
+  var matter=currentMatter();
+  var list=document.getElementById('rinstancelist');
+  var jsel=document.getElementById('ropenjuris');
+  list.innerHTML=''; jsel.innerHTML='';
+  var m=_matters[matter];
+  if(m) m.jurisdictions.forEach(function(j){
+    var o=document.createElement('option'); o.value=j; o.textContent=j; jsel.appendChild(o);
+  });
+  if(!matter) return;
+  fetch('/api/instances?matter='+encodeURIComponent(matter)).then(function(r){return r.json()}).then(function(data){
+    (data.instances||[]).forEach(function(i){
+      var o=document.createElement('option'); o.value=i.id; list.appendChild(o);
+    });
+  });
+}
+
+function openInstance() {
+  var matter=currentMatter();
+  var id=currentInstance();
+  var jurisdiction=document.getElementById('ropenjuris').value;
+  var msg=document.getElementById('rimsg');
+  if(!matter){msg.innerHTML='<span class="sm s-err">No matter is registered</span>';return;}
+  if(!jurisdiction){msg.innerHTML='<span class="sm s-err">Pick a jurisdiction</span>';return;}
+  fetch('/api/matter/open',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({matter:matter,id:id,jurisdiction:jurisdiction})})
+  .then(function(r){return r.json()}).then(function(data){
+    if(data.ok){
+      msg.innerHTML='<span class="sm s-ok">Opened '+esc(id)+' ('+esc(jurisdiction)+')'
+        +(data.replaced?' &#8212; replaced the previous jurisdiction':'')+'</span>';
+      loadInstances(); loadRecords();
+    } else {msg.innerHTML='<span class="sm s-err">'+esc(data.error||'Failed')+'</span>';}
+  }).catch(function(){msg.innerHTML='<span class="sm s-err">Error</span>';});
 }
 
 function showRung() {
@@ -369,7 +452,7 @@ function storeField() {
   var msg=document.getElementById('rmsg');
   if(!matter){msg.innerHTML='<span class="sm s-err">No matter is registered</span>';return;}
   if(!value){msg.innerHTML='<span class="sm s-err">Type a value first</span>';return;}
-  var body={matter:matter,field:field,value:value};
+  var body={matter:matter,field:field,value:value,id:currentInstance()};
   var sub=document.getElementById('rsub');
   if(sub&&sub.className!=='hide'&&sub.value.trim())body.sub=sub.value.trim();
   fetch('/api/store',{method:'POST',headers:{'Content-Type':'application/json'},
@@ -386,18 +469,23 @@ function storeField() {
 
 function storeDeadline() {
   var matter=currentMatter();
-  var id=document.getElementById('did').value.trim();
+  var name=document.getElementById('did').value.trim();
   var date=document.getElementById('ddate').value.trim();
   var rung=document.getElementById('drung').value;
   var instr=document.getElementById('dinstr').value.trim();
   var msg=document.getElementById('dmsg');
   if(!matter){msg.innerHTML='<span class="sm s-err">No matter is registered</span>';return;}
-  if(!id||!date){msg.innerHTML='<span class="sm s-err">An id and a date are needed</span>';return;}
+  if(!name||!date){msg.innerHTML='<span class="sm s-err">An id and a date are needed</span>';return;}
+  // Instance-addressed (decision 2): `id` names currentInstance(), `sub` the
+  // deadline's own short name within it — "primary.hearing" for a household
+  // with only one instance, unchanged from before this bite.
+  var body={matter:matter,id:currentInstance(),sub:name,date:date,rung:rung,
+            instruction:instr||null};
   fetch('/api/deadline',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({matter:matter,id:id,date:date,rung:rung,instruction:instr||null})})
+    body:JSON.stringify(body)})
   .then(function(r){return r.json()}).then(function(data){
     if(data.ok){
-      msg.innerHTML='<span class="sm s-ok">Deadline '+esc(id)+' added ('+data.rung+')</span>';
+      msg.innerHTML='<span class="sm s-ok">Deadline '+esc(name)+' added ('+data.rung+')</span>';
       document.getElementById('did').value='';document.getElementById('ddate').value='';
       document.getElementById('dinstr').value='';
       loadRecords();
@@ -407,10 +495,12 @@ function storeDeadline() {
 
 function loadRecords() {
   var matter=currentMatter();
+  var instance=currentInstance();
   var div=document.getElementById('rlist');
   document.getElementById('rdetail').innerHTML='';
   if(!matter){div.innerHTML='';return;}
-  fetch('/api/records?matter='+encodeURIComponent(matter)).then(function(r){return r.json()}).then(function(data){
+  fetch('/api/records?matter='+encodeURIComponent(matter)+'&id='+encodeURIComponent(instance))
+  .then(function(r){return r.json()}).then(function(data){
     if(!data.rows||!data.rows.length){
       div.innerHTML='<p class="empty">Nothing on file for '+esc(matter)+' yet.</p>';return;}
     var html='';
@@ -533,6 +623,168 @@ function storeItem(idx) {
     else{card.innerHTML+='<span class="sm s-err">'+esc(data.error||'Failed')+'</span>';}
   })
   .catch(function(){card.innerHTML+='<span class="sm s-err">Error</span>';});
+}
+
+// ── the Matter tab: the per-pack pane and computed deadlines ────────────────
+
+// A row that names its own reference, opened the same way loadRecords()'s
+// rows already are (data- attributes, bound afterwards — never an id spliced
+// into onclick). Shared by every pane shape below.
+function fieldRow(f) {
+  return '<div class="qi rw" data-matter="'+esc(f.matter)+'" data-type="'
+    +esc(f.item_type)+'" data-id="'+esc(f.item_id)+'">'
+    +'<span class="rb r-'+esc(f.rung)+'">'+esc(f.rung)+'</span>'
+    +'<span class="rk">'+esc(f.item_type.replace(/\\./g,' ').replace(/_/g,' '))+'</span>'
+    +'<span class="qs">'+esc(f.text)+'</span></div>';
+}
+
+function bindOpenableRows(container) {
+  Array.prototype.forEach.call(container.querySelectorAll('.rw'), function(el){
+    el.addEventListener('click', function(){
+      openRecord(el.getAttribute('data-matter'), el.getAttribute('data-type'),
+                 el.getAttribute('data-id'));
+    });
+  });
+}
+
+// I-33: one indicator per pane. Called exactly once by renderPane below —
+// a single scalar in, a single badge out, so the pane can never carry two.
+var INDICATOR_LABEL={overdue:'overdue',needs_attention:'needs attention',
+                     nothing_due:'nothing due'};
+function renderIndicator(ind) {
+  if(!ind) return '';
+  return '<span class="sm s-'+(ind==='overdue'?'err':ind==='needs_attention'?'err':'ok')
+    +' ind ind-'+esc(ind)+'">'+esc(INDICATOR_LABEL[ind]||ind)+'</span>';
+}
+
+// The pane's own shape picks the rendering — never a matter name literal
+// (I-23's habit, held here too): custody-shaped data carries `children`,
+// bankruptcy-shaped carries `creditors`, workers'-comp-shaped carries
+// `exams`, and anything else is the generic fallback's `rows`.
+function renderPane(data) {
+  var html='';
+  if(data.children){
+    html+='<h3>Children</h3>';
+    if(!data.children.length) html+='<p class="empty">No children on file.</p>';
+    data.children.forEach(function(card){
+      html+='<div class="card"><strong>Child '+esc(card.sub)+'</strong>';
+      Object.keys(card.fields).sort().forEach(function(ft){
+        html+=fieldRow(card.fields[ft]);
+      });
+      html+='</div>';
+    });
+    html+='<h3>Relocation timeline</h3>';
+    data.timeline.forEach(function(t){ html+=fieldRow(t); });
+  } else if(data.creditors){
+    html+='<div class="dt">'+esc(data.notice)+'</div>';
+    html+='<h3>Creditors</h3>';
+    if(!data.creditors.length) html+='<p class="empty">No creditors on file.</p>';
+    data.creditors.forEach(function(card){
+      html+='<div class="card"><strong>Creditor '+esc(card.sub)+'</strong>';
+      Object.keys(card.fields).sort().forEach(function(ft){
+        html+=fieldRow(card.fields[ft]);
+      });
+      html+='</div>';
+    });
+    html+='<h3>Bar dates</h3>';
+    data.bar_dates.forEach(function(b){
+      var txt=b.gap?'date unreadable':(b.overdue?Math.abs(b.days_until)+'d overdue':'in '+b.days_until+'d');
+      html+='<div class="qi"><span class="rk">'+esc(b.field.replace(/_/g,' '))+'</span>'
+        +'<span class="qs">'+esc(b.date)+'</span><span class="qu">'+esc(txt)+'</span></div>';
+    });
+    if(data.plan_period.length){
+      html+='<h3>Plan period</h3>';
+      data.plan_period.forEach(function(l){ html+='<div class="why">'+esc(l)+'</div>'; });
+    }
+  } else if(data.exams){
+    html+='<h3>Treatment timeline</h3>';
+    data.timeline.forEach(function(t){ html+=fieldRow(t); });
+    html+='<h3>Independent medical exams</h3>';
+    if(!data.exams.length) html+='<p class="empty">No exams on file.</p>';
+    data.exams.forEach(function(card){
+      html+='<div class="card"><strong>Exam '+esc(card.sub)+'</strong>';
+      Object.keys(card.fields).sort().forEach(function(ft){
+        html+=fieldRow(card.fields[ft]);
+      });
+      html+='</div>';
+    });
+  } else {
+    if(!data.rows.length) html+='<p class="empty">Nothing on file.</p>';
+    data.rows.forEach(function(r){ html+=fieldRow(r); });
+  }
+  html+=renderIndicator(data.indicator);
+  return html;
+}
+
+function loadPane() {
+  var matter=currentMatter(), instance=currentInstance();
+  var div=document.getElementById('paneview');
+  if(!matter){div.innerHTML='';return;}
+  fetch('/api/pane?matter='+encodeURIComponent(matter)+'&id='+encodeURIComponent(instance))
+  .then(function(r){return r.json()}).then(function(data){
+    if(data.error){div.innerHTML='<p class="sm s-err">'+esc(data.error)+'</p>';return;}
+    div.innerHTML=renderPane(data);
+    bindOpenableRows(div);
+  }).catch(function(){div.innerHTML='<p class="sm s-err">Failed to load the pane</p>';});
+}
+
+function loadTemplates() {
+  var matter=currentMatter();
+  var sel=document.getElementById('tplname'); sel.innerHTML='';
+  document.getElementById('tplresult').innerHTML='';
+  if(!matter) return;
+  fetch('/api/deadline/templates?matter='+encodeURIComponent(matter))
+  .then(function(r){return r.json()}).then(function(data){
+    (data.templates||[]).forEach(function(t){
+      var o=document.createElement('option'); o.value=t.name;
+      o.textContent=t.name+' ['+t.status+']'; sel.appendChild(o);
+    });
+  });
+}
+
+function loadMatterTab() {
+  loadPane();
+  loadTemplates();
+}
+
+// Compute stores nothing; the token below is exactly what was shown, and
+// Accept posts that same token back — a preview the store has since moved
+// under is refused by rules.compute/accept's own comparison, by name.
+var _lastComputed=null;
+function computeTemplate() {
+  var matter=currentMatter(), instance=currentInstance();
+  var template=document.getElementById('tplname').value;
+  var mail=document.getElementById('tplmail').checked;
+  var div=document.getElementById('tplresult');
+  _lastComputed=null;
+  if(!matter||!template){div.innerHTML='<span class="sm s-err">Pick a matter and a template</span>';return;}
+  fetch('/api/deadline/compute',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({matter:matter,id:instance,template:template,mail:mail})})
+  .then(function(r){return r.json()}).then(function(data){
+    if(!data.ok){div.innerHTML='<span class="sm s-err">'+esc(data.error||'Failed')+'</span>';return;}
+    _lastComputed=data;
+    var html='<div class="dt">';
+    html+='<div>anchor: '+esc(data.anchor_field)+' = '+esc(data.anchor_iso)+'</div>';
+    html+='<div>result: '+esc(data.result_iso)+'</div>';
+    html+='<div>source: '+esc(data.source)+'</div>';
+    if(data.district_state) html+='<div class="adv">district holidays: '+esc(data.district_state)+'</div>';
+    html+='<div class="adv">token: '+esc(data.token)+'</div>';
+    html+='</div><button class="btn bg bs" onclick="acceptTemplate()">Accept</button>';
+    div.innerHTML=html;
+  }).catch(function(){div.innerHTML='<span class="sm s-err">Error</span>';});
+}
+
+function acceptTemplate() {
+  var matter=currentMatter(), instance=currentInstance();
+  var template=document.getElementById('tplname').value;
+  var div=document.getElementById('tplresult');
+  if(!_lastComputed){div.innerHTML+='<div class="sm s-err">Compute first</div>';return;}
+  fetch('/api/deadline/accept',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({matter:matter,id:instance,template:template,token:_lastComputed.token})})
+  .then(function(r){return r.json()}).then(function(data){
+    if(data.ok){div.innerHTML+='<div class="sm s-ok">Accepted</div>'; loadPane();}
+    else{div.innerHTML+='<div class="sm s-err">'+esc(data.error||'Failed')+'</div>';}
+  }).catch(function(){div.innerHTML+='<div class="sm s-err">Error</div>';});
 }
 
 function loadQueue() {
@@ -728,6 +980,10 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
                 return self._get_records(qs)
             if p.path == "/api/record":
                 return self._get_record(qs)
+            if p.path == "/api/pane":
+                return self._get_pane(qs)
+            if p.path == "/api/deadline/templates":
+                return self._get_deadline_templates(qs)
             if p.path == "/api/queue":
                 return self._get_queue()
             if p.path == "/api/resolve":
@@ -785,19 +1041,78 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
             self._json({"instances": out})
 
         def _get_records(self, qs):
+            """`GET /api/records?matter=[&id=]` — every record of `matter`,
+            or (L4-surfaces) just one instance's when `id` is given, so the
+            switcher's records list scopes to `currentInstance()` the same
+            way every write door already does. Omitting `id` keeps the
+            pre-switcher behaviour — every instance, unscoped — so a caller
+            that never sends it (every existing test, and any client written
+            before this bite) sees no change."""
             matter_name = qs.get("matter", "")
             try:
                 matter(matter_name)
             except KeyError:
                 return self._json({"error": f"unknown matter {matter_name!r}"}, 400)
+            instance = qs.get("id")
+            if instance is None:
+                records = sidecar.records(matter_name)
+            else:
+                try:
+                    records = instances.records_of(sidecar, matter_name, instance)
+                except instances.InvalidId as exc:
+                    return self._json({"error": str(exc)}, 400)
             # Composed through the gate exactly as the window's list pane is:
             # L1–L3 render, L4 shows its derived form, L5 leaves no row.
             window = Window()
-            rows = window.open_list(sidecar.records(matter_name))
+            rows = window.open_list(records)
             self._json({"rows": [
                 {"matter": r.ref[0], "item_type": r.ref[1], "item_id": r.ref[2],
                  "rung": r.rung.value, "text": r.text}
                 for r in rows
+            ]})
+
+        def _get_pane(self, qs):
+            """`GET /api/pane?matter=&id=` — the per-pack pane
+            (`app.panes.pane_for`) for one matter instance, headless data a
+            client renders. `id` defaults to the household's own default
+            instance (`instances.DEFAULT_INSTANCE`), the same default every
+            other door already carries."""
+            from homestead_law.app import panes as panes_mod
+
+            matter_name = qs.get("matter", "")
+            try:
+                matter(matter_name)
+            except KeyError:
+                return self._json({"error": f"unknown matter {matter_name!r}"}, 400)
+            instance = qs.get("id", instances.DEFAULT_INSTANCE)
+            try:
+                instance = instances.item_id(instance)
+            except instances.InvalidId as exc:
+                return self._json({"error": str(exc)}, 400)
+            pane = panes_mod.pane_for(
+                sidecar, matter_name, instance, today=dt.date.today().isoformat())
+            self._json(pane)
+
+        def _get_deadline_templates(self, qs):
+            """`GET /api/deadline/templates?matter=` — this matter's declared
+            templates (name, status, source), for the computed-deadlines
+            pane's picker. Reads only `rules.templates_of`; nothing here
+            touches the store."""
+            from homestead_law import rules
+
+            matter_name = qs.get("matter", "")
+            try:
+                mt = matter(matter_name)
+            except KeyError:
+                return self._json({"error": f"unknown matter {matter_name!r}"}, 400)
+            try:
+                templates = rules.templates_of(mt)
+            except rules.InvalidTemplate as exc:
+                return self._json({"error": str(exc)}, 400)
+            self._json({"templates": [
+                {"name": t.name, "status": t.status, "source": t.source,
+                 "anchor": t.anchor, "jurisdiction": t.jurisdiction, "note": t.note}
+                for t in templates
             ]})
 
         def _get_record(self, qs):
@@ -971,6 +1286,18 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8383):
                 item_id = instances.item_id(id_value, sub_value)
             except instances.InvalidId as exc:
                 return self._json({"ok": False, "error": str(exc)}, 400)
+
+            # The pack's own per-field check, when it declares one
+            # (L4-surfaces): workers_comp's `validate_value` refuses an L4
+            # value over its 200-char cap. `hasattr`, not `getattr(...,
+            # None)`, the same reasoning `cli._cmd_put`'s identical check
+            # gives — a pack without one (custody, bankruptcy today) pays
+            # nothing for the check.
+            if hasattr(mt.pack, "validate_value"):
+                try:
+                    mt.pack.validate_value(field, value)
+                except ValueError as exc:
+                    return self._json({"ok": False, "error": str(exc)}, 400)
 
             rung = mt.fields[field]
             # The pack's own declaration (decision 3), not a second table — see

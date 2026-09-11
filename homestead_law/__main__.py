@@ -93,7 +93,7 @@ def main(argv: list[str] | None = None) -> int:
             server,
             store,
         )
-        from homestead_law.app import advisories, cover, demo, view, window  # noqa: F401
+        from homestead_law.app import advisories, cover, demo, panes, view, window  # noqa: F401
         from homestead_law.packs import custody  # noqa: F401
         print("homestead-law: smoke ok")
         return 0
@@ -111,6 +111,8 @@ def main(argv: list[str] | None = None) -> int:
             print(demo.compose_demo(store))
             print()
             print(demo.compose_queue(store))
+            print()
+            print(demo.compose_panes(store))
         return 0
 
     # CLI commands — real work on real data, through Nestor.

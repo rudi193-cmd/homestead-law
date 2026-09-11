@@ -340,20 +340,13 @@ def test_validate_value_refuses_201_chars_naming_the_field_never_echoing():
     assert isinstance(exc.value, ValueError)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "L4-surfaces (wave 4) is the bite that calls validate_value from "
-        "cli._cmd_put and server /api/store. Until it lands the doors store an "
-        "over-long L4 value unchecked; when it lands this XPASSes, which under "
-        "strict xfail fails the suite by name — the signal to delete the mark "
-        "and keep the test, the same promotion mechanic "
-        "homestead's tests/test_invariants_pending.py uses."
-    ),
-)
 def test_the_doors_call_validate_value():
-    """The contract this pack is waiting on, written as a claim rather than as
-    an assertion that the gap stays open.
+    """L4-surfaces (wave 4) wired `validate_value` into both writing doors:
+    `cli._cmd_put` and `server._post_store` each call `mt.pack.validate_value`
+    when the pack declares one, before ever building the `Classified` that
+    would be stored. Was `xfail(strict=True)` until this landed — the
+    strict-xfail promotion mechanic `homestead`'s own
+    `tests/test_invariants_pending.py` uses, flipped the moment it XPASSed.
 
     ~~`assert "validate_value" not in cli_source`~~ was the shipped shape and
     is struck (audit, 2026-09-11): a test that goes red the day a later bite
