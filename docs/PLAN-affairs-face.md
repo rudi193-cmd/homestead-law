@@ -222,7 +222,7 @@ consumer) and `G2b` (`homestead-ledger`, not this repo).
    `tests/test_packs.py::test_child_name_and_child_dot_name_both_exist_
    until_l4_surfaces_retires_it` deliberately.
 
-   Until it lands, **both names still work, at every door that addresses
+   ~~Until it lands, **both names still work, at every door that addresses
    either** — checked by the audit rather than assumed, 2026-09-11:
    `put`/`show` store and read back both (`child_name` at `primary`,
    `child.name` at `primary.<sub>`), `cli.py`'s `party_fields` and
@@ -234,7 +234,12 @@ consumer) and `G2b` (`homestead-ledger`, not this repo).
    new name from the start, not one that went quiet. The open item is that
    two names address one thing, not that either has stopped working — which
    is exactly why retiring it is a rewrite of three doors and a schema
-   change, not a deletion.
+   change, not a deletion.~~ **Struck 2026-09-11 by this branch's own audit:
+   the paragraph above was the state of the repo before the branch below,
+   and the branch falsified it** — no door names `child_name` any more and
+   `put custody child_name …` is refused. What is still true of it is the
+   read half only, and it is stated where it belongs, in the next paragraph:
+   a record already on disk still lists and still opens.
 
    **`L9-child-name` is built, on branch `claude/law-child-name`, 2026-09-11**
    (no PR and no release yet — this bullet stays unstruck; the orchestrator

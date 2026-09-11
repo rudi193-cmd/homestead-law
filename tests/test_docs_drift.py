@@ -60,6 +60,7 @@ RULES_PY = ROOT / "homestead_law" / "rules.py"
 TEST_PACKS = ROOT / "tests" / "test_packs.py"
 TEST_RULES = ROOT / "tests" / "test_rules.py"
 TEST_CLI_NO_NESTOR = ROOT / "tests" / "test_cli_without_nestor.py"
+PLAN_FACE = ROOT / "docs" / "PLAN-affairs-face.md"
 
 
 def _contains(path: Path, needle: str) -> bool:
@@ -70,6 +71,15 @@ def _live_contains(path: Path, needle: str) -> bool:
     """`needle` appears in `path` outside any `~~struck~~` span — a stale
     claim kept for history inside a strike is not a live one."""
     return needle in live(path.read_text(encoding="utf-8"))
+
+
+def _flat_contains(path: Path, needle: str) -> bool:
+    """`needle` appears in `path` at all, struck or not, reading across the
+    hard wrap. `live()` flattens whitespace *and* drops struck spans; this
+    flattens only, so "the history is still there, inside its strike" can be
+    asserted as well as "the claim is not live"."""
+    flat = re.sub(r"\s+", " ", path.read_text(encoding="utf-8"))
+    return needle in flat
 
 
 # ── 1. the README's pinned bite-3 status banner ──────────────────────────
@@ -170,6 +180,53 @@ def test_the_l4_surfaces_promise_guard_fires_on_a_planted_regression(tmp_path):
     struck_only = tmp_path / "custody_struck.py"
     struck_only.write_text(f"_PLANTED = '''~~{STALE_L4_SURFACES_PROMISE}~~'''\n", "utf-8")
     assert not _live_contains(struck_only, STALE_L4_SURFACES_PROMISE)
+
+
+STALE_BOTH_NAMES_WORK = (
+    "Until it lands, **both names still work, at every door that addresses "
+    "either**"
+)
+
+
+def test_the_plan_does_not_live_assert_that_both_child_names_still_work():
+    """The same drift, one document over (audit, 2026-09-11).
+    `docs/PLAN-affairs-face.md`'s open item 1 carried a paragraph saying
+    that until `L9-child-name` landed, `child_name` and `child.name` both
+    worked at every door. `L9-child-name` landed on this branch and
+    falsified it: no door names `child_name`, and `put custody child_name …`
+    is refused. The paragraph is history now and must stay inside its
+    strike — a document that asserts both halves of a retirement at once is
+    exactly the drift this file exists for."""
+    assert not _live_contains(PLAN_FACE, STALE_BOTH_NAMES_WORK), (
+        "docs/PLAN-affairs-face.md must not live-assert that both child_name "
+        "and child.name still work at every door — the retirement landed; "
+        f"the claim must stay struck: {STALE_BOTH_NAMES_WORK!r}"
+    )
+    # …and the document does still carry it, struck, rather than deleting it.
+    assert _flat_contains(PLAN_FACE, STALE_BOTH_NAMES_WORK), (
+        "house style keeps history struck through, never deleted"
+    )
+
+
+def test_the_both_names_guard_fires_on_a_planted_regression(tmp_path):
+    """The stale paragraph, unstruck in a copy of the real document — and
+    the same paragraph struck, which must not fire."""
+    planted = tmp_path / "plan_live.md"
+    planted.write_text(
+        f"1. An open item.\n\n   {STALE_BOTH_NAMES_WORK} — checked.\n", "utf-8")
+    assert _live_contains(planted, STALE_BOTH_NAMES_WORK)
+
+    struck = tmp_path / "plan_struck.md"
+    struck.write_text(f"1. ~~{STALE_BOTH_NAMES_WORK}~~ Struck 2026-09-11.\n", "utf-8")
+    assert not _live_contains(struck, STALE_BOTH_NAMES_WORK)
+    # the history half, read across a hard wrap the real document has and
+    # these one-line fixtures do not: a deleted paragraph fails it.
+    wrapped = tmp_path / "plan_wrapped.md"
+    wrapped.write_text(
+        "1. ~~Until it lands, **both names still work, at every door that\n"
+        "   addresses either** — checked.~~ Struck 2026-09-11.\n", "utf-8")
+    assert _flat_contains(wrapped, STALE_BOTH_NAMES_WORK)
+    assert not _flat_contains(tmp_path / "plan_struck.md", "deleted outright")
 
 
 # ── 3. rules.accept's "confirm against the court's notice" wording ──────
