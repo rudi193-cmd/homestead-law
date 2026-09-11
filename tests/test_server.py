@@ -940,3 +940,57 @@ def test_the_deadline_door_refuses_a_free_form_id_by_name(bad, ui):
 
     status, data = ui.json("/api/records?matter=custody")
     assert not [r for r in data["rows"] if r["item_type"] == "deadline"]
+
+
+# ── L3-custody-relocation: repeatable fields at the browser door ─────────────
+
+def test_api_matters_says_which_fields_take_a_sub_id(ui):
+    """The form has to know, and it may not keep its own copy of the answer
+    (I-23): `repeatable` comes off the pack's own `REPEATABLE`, live. Without
+    it the page would offer `child.name` in the field list and then be
+    refused by `/api/store` with no way for the operator to comply."""
+    status, data = ui.json("/api/matters")
+    assert status == 200
+    custody = next(m for m in data["matters"] if m["name"] == "custody")
+    flags = {f["name"]: f["repeatable"] for f in custody["fields"]}
+    assert flags["child.name"] is True
+    assert flags["child.dob"] is True
+    assert flags["child.school"] is True
+    assert flags["courthouse"] is False
+    assert flags["child_name"] is False       # the singular field being retired
+    assert "id=\"rsub\"" in ui.get("/")[1].decode()
+
+
+def test_store_refuses_a_repeatable_field_without_a_sub_id(ui):
+    """The browser half of the CLI's refusal. Filing `child.name` at the
+    instance's single slot is the overwrite-the-first-child failure the
+    sub-id exists to abolish, so the door refuses by field name, echoes no
+    value (I-15), and stores nothing."""
+    status, data = ui.json(
+        "/api/store",
+        {"matter": "custody", "field": "child.name", "value": "Alex Rivera"})
+    assert status == 400
+    assert data["ok"] is False
+    assert "child.name" in data["error"] and "sub id" in data["error"]
+    assert "Alex Rivera" not in json.dumps(data)
+
+    status, records = ui.json("/api/records?matter=custody")
+    assert status == 200
+    assert records["rows"] == []
+
+
+def test_store_accepts_a_repeatable_field_with_a_sub_id(ui):
+    """…and the same field with a sub id goes on file under
+    `"<instance>.<sub>"`, one record per child, listed as its derived form
+    because it is L4."""
+    for sub, value in (("c1", "Alex Rivera"), ("c2", "Robin Rivera")):
+        status, data = ui.json(
+            "/api/store",
+            {"matter": "custody", "field": "child.name", "value": value, "sub": sub})
+        assert status == 200 and data["ok"] is True, data
+        assert data["rung"] == "L4"
+
+    status, data = ui.json("/api/records?matter=custody")
+    ids = {r["item_id"] for r in data["rows"] if r["item_type"] == "child.name"}
+    assert ids == {"primary.c1", "primary.c2"}
+    assert "Rivera" not in json.dumps(data)       # L4 lists as its stand-in only
