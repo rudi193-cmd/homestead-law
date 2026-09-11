@@ -41,7 +41,9 @@ from homestead_law.app.window import Window
 from homestead_law.registry import all_matters
 from homestead_law.store import Sidecar
 
-__all__ = ["run", "compose_store", "LawContext", "DEMO_BANNER", "ENTRY_HINT"]
+__all__ = [
+    "run", "compose_store", "matter_buttons", "LawContext", "DEMO_BANNER", "ENTRY_HINT",
+]
 
 #: Shown on the cover in place of the ordinary subheading whenever `run()` fell
 #: back to the throwaway demo store, so demonstration records are never mistaken
@@ -71,6 +73,20 @@ def _has_real_data(store: Sidecar) -> bool:
     """True the moment the real sidecar holds one record for any registered
     matter — iterating the registry (I-23), not a hand-kept list."""
     return any(store.records(name) for name in all_matters())
+
+
+def matter_buttons(store: Sidecar) -> list[tuple[str, str]]:
+    """One `(label, matter name)` pair per registered matter — headless, so the
+    cover's button set can be checked with no display attached.
+
+    Iterates `all_matters()` (I-23) and nothing else, so a newly registered
+    matter gets a button here with no other change to this file — the same
+    guarantee the queue and the briefing already hold. `store` is accepted for
+    symmetry with the rest of this module's cover-composing functions and so a
+    future matter-aware ordering has somewhere to read from; today the button
+    set does not depend on what a matter holds.
+    """
+    return [(f"Open {name} matter", name) for name in all_matters()]
 
 
 def compose_store() -> LawContext:
@@ -127,9 +143,13 @@ def run() -> int:
         summary = ", ".join(f"{n} {k.replace('_', ' ')}" for k, n in resting.items())
         ttk.Label(content, text=summary or "Nothing is open.", style="Muted.TLabel").pack(anchor="w")
         ttk.Button(content, text="What's due", command=show_queue).pack(anchor="w", pady=(24, 0))
-        ttk.Button(
-            content, text="Open custody matter", style="Secondary.TButton", command=show_list,
-        ).pack(anchor="w", pady=(8, 0))
+        # One button per registered matter (I-23) — a newly registered matter
+        # gets a way in with no change here, the same guarantee the queue holds.
+        for label, name in matter_buttons(store):
+            ttk.Button(
+                content, text=label, style="Secondary.TButton",
+                command=lambda matter_name=name: show_list(matter_name),
+            ).pack(anchor="w", pady=(8, 0))
         # The window reads; entry happens in the browser UI or on the command
         # line. Said once, on the cover, so a first-time operator knows where.
         ttk.Label(content, text=ENTRY_HINT, style="Muted.TLabel", wraplength=520).pack(
@@ -138,10 +158,13 @@ def run() -> int:
 
     def show_queue() -> None:
         clear()
-        # Load the matter's records into the window so a queue item opens through
-        # the same gated detail path as the list (the demo is one matter; a
-        # multi-matter app would load each matter the queue spans).
-        window.open_list(store.records(demo.MATTER))
+        # Load every registered matter's records into the window, one
+        # `open_list` over the concatenation, so a queue item from *any* matter
+        # opens through the same gated detail path as the list (I-23 — the
+        # queue spans all matters, so the window it opens into must as well).
+        window.open_list(
+            [record for name in all_matters() for record in store.records(name)]
+        )
         ttk.Label(content, text="What's due", style="Heading.TLabel").pack(anchor="w")
         ttk.Label(
             content, text="showing derived · L4 present", style="Subheading.TLabel"
@@ -172,10 +195,10 @@ def run() -> int:
             content, text="Close", style="Secondary.TButton", command=show_cover,
         ).pack(anchor="w", pady=(4, 0))
 
-    def show_list() -> None:
+    def show_list(matter_name: str) -> None:
         clear()
-        window.open_list(store.records(demo.MATTER))
-        ttk.Label(content, text="custody", style="Heading.TLabel").pack(anchor="w")
+        window.open_list(store.records(matter_name))
+        ttk.Label(content, text=matter_name, style="Heading.TLabel").pack(anchor="w")
         # one indicator per surface, not per row (I-33): the pane says an L4 is
         # present in its derived form, never a badge on every line — each row's
         # own colour (`theme.rung_color`) is the per-row signal.
@@ -197,7 +220,7 @@ def run() -> int:
         def on_open(_event: object = None) -> None:
             selection = listbox.curselection()
             if selection:
-                show_detail(rows[selection[0]].ref, back=show_list)
+                show_detail(rows[selection[0]].ref, back=lambda: show_list(matter_name))
 
         listbox.bind("<Double-Button-1>", on_open)
         ttk.Button(content, text="Open", command=on_open).pack(anchor="w", pady=(12, 0))
@@ -206,12 +229,16 @@ def run() -> int:
         ).pack(anchor="w", pady=(4, 0))
 
     def show_detail(ref, back) -> None:
-        # `back` is the pane this detail was opened from — the custody list or the
-        # queue — so "Back" returns where the operator came from rather than always
-        # the list (the ledger's two-pane view fixed the same assumption).
+        # `back` is the pane this detail was opened from — a matter's list or the
+        # queue, which may span a different matter — so "Back" returns where the
+        # operator came from rather than always the list (the ledger's two-pane
+        # view fixed the same assumption).
         served = window.open_detail(ref)
         clear()
-        ttk.Label(content, text=f"{ref[1]}", style="Heading.TLabel").pack(anchor="w")
+        # Named by matter and item type (`ref[0]`, `ref[1]`) rather than just the
+        # item type: the queue can open a detail from any registered matter, so
+        # the heading says which one, not only what.
+        ttk.Label(content, text=f"{ref[0]} · {ref[1]}", style="Heading.TLabel").pack(anchor="w")
         ttk.Label(content, text=served.rung.value, style="Muted.TLabel").pack(anchor="w", pady=(0, 12))
         body = (
             str(served.value)
