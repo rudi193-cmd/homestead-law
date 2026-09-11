@@ -5,7 +5,7 @@
 
 ### Added
 
-* grant pack — the funder's dates and references, entered never computed ([6f91f35](https://github.com/homestead-affairs/homestead-law/commit/6f91f3547ca34a2a3ecd94d1298272a124b8cd77))
+* grant pack — the funder's dates and references, entered never computed ([4441ea9](https://github.com/homestead-affairs/homestead-law/commit/4441ea9d2568e75dec8b2d1394cd70452de243bb))
 
 
 ### Fixed
