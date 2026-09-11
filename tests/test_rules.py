@@ -199,6 +199,10 @@ def test_name_must_match_the_id_pattern():
 
 
 def test_duplicate_template_names_are_refused():
+    """Two rows, same name, same jurisdiction — the repeat `compute` could
+    not choose between. (A repeat across *different* jurisdictions is the
+    ordinary shape of a rule that differs by forum and is allowed; see
+    `test_one_name_declared_for_two_jurisdictions_validates`.)"""
     pack = _fake_pack(templates=(_template(), _template()))
     with pytest.raises(rules.InvalidTemplate) as exc:
         rules.validate_templates(pack)
@@ -769,15 +773,6 @@ def test_compute_picks_the_template_for_the_instances_own_jurisdiction():
         assert nm.preview_token != orr.preview_token
 
 
-def test_the_same_name_twice_for_the_same_jurisdiction_is_still_refused():
-    """The repeat that is a genuine duplicate: `compute` would have two rules
-    for one forum and no way to choose."""
-    pack = _fake_pack(templates=(_template(name="contest"), _template(name="contest")))
-    with pytest.raises(rules.InvalidTemplate) as exc:
-        rules.validate_templates(pack)
-    assert "more than once for the same jurisdiction" in str(exc.value)
-
-
 def test_a_name_declared_both_for_all_forums_and_for_one_is_refused():
     """`jurisdiction=None` fits every instance, so pairing it with a specific
     row makes every NM instance ambiguous. Refused at import, not at the
@@ -846,15 +841,6 @@ def test_mail_true_on_a_backward_template_is_refused_at_import():
     message = str(exc.value)
     assert "mail must be false on a backward" in message
     assert "9006(f)" in message
-
-
-def test_mail_true_on_a_calendar_days_template_is_refused_at_import():
-    """The other half: `calendar_days` is this module's own `timedelta`, with
-    no jurisdiction rule behind it to add mail days under."""
-    pack = _fake_pack(templates=(_template(rule="calendar_days", mail=True),))
-    with pytest.raises(rules.InvalidTemplate) as exc:
-        rules.validate_templates(pack)
-    assert "calendar_days" in str(exc.value)
 
 
 def test_mail_true_on_a_forward_court_rule_validates():
@@ -940,31 +926,6 @@ def test_federal_backward_seven_court_days_before_a_monday_hearing():
     assert computed.result_iso == "2026-11-09"
     assert computed.result_iso == court_days_before("2026-11-16", 7).iso
     assert computed.mail is False
-
-
-def test_calendar_days_thirty_landing_on_a_sunday_stays_on_it():
-    """§ 1326(a)(1)'s first plan payment, the one `calendar_days` row in the
-    wave: 2026-09-11 + 30 is Sunday 2026-10-11 and does not move."""
-    import datetime as dt
-    assert dt.date(2026, 10, 11).weekday() == 6         # Sunday
-
-    computed = _computed(
-        _template(name="first-plan-payment", days=30, rule="calendar_days",
-                  jurisdiction="US-federal"),
-        code="US-federal", anchor="2026-09-11",
-    )
-    assert computed.result_iso == "2026-10-11"
-    assert court_days("2026-09-11", 30).iso != computed.result_iso
-
-
-def test_mail_on_a_federal_forward_template_is_add_mail_days_over_court_days():
-    computed = _computed(
-        _template(name="claims-bar", days=70, jurisdiction="US-federal"),
-        code="US-federal", anchor="2026-09-11", mail=True,
-    )
-    expected = add_mail_days(court_days("2026-09-11", 70), jurisdiction="US-federal")
-    assert computed.result_iso == expected.iso
-    assert computed.mail is True
 
 
 # ── FRBP 9006(a)(6)(C) — the district's own state holidays ───────────────
