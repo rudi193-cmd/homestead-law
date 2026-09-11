@@ -185,10 +185,13 @@ def test_venture_pane_composes_application_company_and_registrations():
     assert company["entity_type"] == "pbc"
     assert company["formation_state"] == "DE"
     assert company["formation_date"] == "2026-05-01"
-    # public_benefit shown by its schema-level derived sentence, never the
-    # certificate language actually on file.
-    assert company["public_benefit"] == venture.SCHEMA["public_benefit"]["derived"]
-    assert "PLANTEDPURPOSE" not in json.dumps(pane)
+    # public_benefit is L3 and S1_LIST's ceiling is L3, so the gate renders
+    # the payload — the same posture bankruptcy's L3 creditor.name takes on
+    # the pane beside this one. The composer does not re-classify it
+    # (`tests/test_panes.py::test_no_composer_reads_a_pack_schema_or_a_
+    # derived_string`); if the purpose sentence is ever judged too specific
+    # for a list surface, the rung moves in `venture.py`.
+    assert company["public_benefit"] == "PLANTEDPURPOSE"
 
     registration = pane["registrations"][0]
     assert registration["fields"]["registration.kind"]["text"] == "state-tax"
@@ -325,45 +328,15 @@ def test_demo_composes_both_new_panes():
     assert "Phase 1 report" in text  # grant's seeded milestone name (L3, renders)
 
 
-# ── I-33: one scalar indicator, and no second indicator-shaped key ──────────
-
-def _indicator_shaped_keys(pane: dict) -> list[str]:
-    """The same scan `tests/test_i33_one_indicator.py` runs over the three
-    wave-4 composers, run here against the two wave-8 ones."""
-    words = frozenset({"overdue", "needs_attention", "nothing_due"})
-    suspects = []
-    for key, value in pane.items():
-        named_like_one = any(
-            w in key for w in
-            ("indicator", "badge", "status", "urgency", "alert", "flag", "severity")
-        )
-        valued_like_one = isinstance(value, str) and value in words
-        if named_like_one or valued_like_one:
-            suspects.append(key)
-    return suspects
-
-
-@pytest.mark.parametrize("mt", [grant.MATTER, venture.MATTER])
-def test_grant_and_venture_panes_carry_a_single_scalar_indicator(mt):
-    pane = panes.pane_for(Sidecar(), mt, "primary", today=TODAY)
-    assert "indicator" in pane
-    assert not isinstance(pane["indicator"], (list, tuple, set, dict))
-    assert pane["indicator"] is None or isinstance(pane["indicator"], str)
-
-
-@pytest.mark.parametrize("mt", [grant.MATTER, venture.MATTER])
-def test_grant_and_venture_panes_carry_no_second_indicator_shaped_key(mt):
-    store = Sidecar()
-    _put(store, grant, "milestone.due", "m1", "2020-01-01")
-    _put(store, grant, "status", None, "awarded")
-    _put(store, venture, "registration.due", "r1", "2020-01-01")
-    _put(store, venture, "application_status", None, "submitted")
-
-    pane = panes.pane_for(store, mt, "primary", today=TODAY)
-    assert _indicator_shaped_keys(pane) == ["indicator"], (
-        f"{mt}'s pane carries more than one key a renderer could draw as a "
-        f"badge: {_indicator_shaped_keys(pane)}"
-    )
+# ── I-33 ────────────────────────────────────────────────────────────────────
+# Both new panes are covered by `tests/test_i33_one_indicator.py`, which
+# parametrizes over `panes.PANES` itself rather than a list of matters (this
+# bite's audit, 2026-09-12) — the scalar-shape check and the
+# no-second-indicator-shaped-key scan both reach grant and venture there, so
+# the copies that stood here have been dropped rather than left to drift from
+# the canonical ones. `tests/test_panes.py` holds the other half: the
+# `state`/`application_state` key renames are cosmetic, and the row under
+# either key is the pack's own `status`/`application_status` row.
 
 
 # ── the plan-period flag, wired against the two real Wave 8 producers ───────
@@ -437,3 +410,125 @@ def test_a_hostile_milestone_name_reaches_the_pane_json_unescaped_but_the_page_e
 
     assert "esc(f.text)" in server._PAGE
     assert "esc(card.sub)" in server._PAGE
+
+
+# ── renderRefRows escapes, and escapes through the one shared helper ────────
+
+def test_render_ref_rows_places_every_value_through_esc():
+    """`renderRefRows` is the one new page function L8-surfaces adds, and it
+    builds markup by string concatenation like every other renderer on this
+    page. Structural, over the served page: its body assigns nothing to
+    `innerHTML`, and every fragment it appends either goes through `esc()`
+    or through `fieldRow()` — the shared row renderer that escapes each of
+    the five values it places. A raw `+r.text+` would fail both halves."""
+    from homestead_law import server
+
+    page = server._PAGE
+    start = page.index("function renderRefRows(")
+    end = page.index("\n}\n", start)
+    body = page[start:end]
+
+    assert "innerHTML" not in body
+    assert "fieldRow(r)" in body
+    fragments = [line for line in body.splitlines() if "html+=" in line or "return html+" in line]
+    assert fragments, "the scan found no markup in renderRefRows"
+    for fragment in fragments:
+        assert "esc(" in fragment or "fieldRow(" in fragment, fragment
+
+
+def test_a_hostile_safe_signed_date_rides_the_label_and_the_page_escapes_it():
+    """`safe.signed` is the one *served value* `_ref_rows` folds into a row's
+    synthesized label, and no closed set or shape check guards it — so it is
+    the one place a hostile string can reach a reference row's text. It
+    reaches the composer's output unescaped (escaping is the page's job,
+    `tests/test_panes.py`'s pinned contract) and the page places it through
+    `fieldRow`, which escapes it."""
+    from homestead_law import server
+
+    hostile = "<script>alert(1)</script>"
+    store = Sidecar()
+    _put(store, venture, "safe.investor", "s1", "An Investor")
+    _put(store, venture, "safe.signed", "s1", hostile)
+
+    pane = panes.pane_for(store, venture.MATTER, "primary", today=TODAY)
+    (row,) = pane["safes"]
+    assert row["text"] == f"SAFE s1 — signed {hostile}"
+    assert row["rung"] == "L4"          # still the investor row's own ref
+    assert "esc(f.text)" in server._PAGE
+
+
+# ── an accepted template deadline is the queue's, not the pane's ────────────
+
+def test_an_accepted_83b_deadline_reaches_the_queue_not_the_venture_pane():
+    """The audit's own question, answered as a pin rather than a change.
+    `rules.accept` writes `(venture, "deadline", "<inst>.election-83b")`, and
+    **no** pane composes `deadline` records — not custody's, not
+    bankruptcy's, and not these two: the Matter tab draws computed deadlines
+    in its own section under the pane (`/api/deadline/templates`), and
+    `queue.queue()` lists them across every matter with their own urgency.
+    Giving venture alone a deadlines block on the pane would make it the one
+    pack whose accepted deadline is badged twice on one screen. So the
+    contract is that the record is surfaced, and where."""
+    from homestead.keep.rungs import Classified as _Classified
+    from homestead_law import rules
+
+    store = Sidecar()
+    store.put(venture.MATTER, "jurisdiction", "primary", _Classified(Rung.L1, "US-DE"))
+    _put(store, venture, "grant_date", None, "2026-08-01")
+
+    computed = rules.compute(store, venture.MATTER, "primary", "election-83b")
+    rules.accept(store, computed, token=computed.preview_token)
+    assert computed.result_iso == "2026-08-31"      # 30 calendar days, no roll
+
+    pane = panes.pane_for(store, venture.MATTER, "primary", today=TODAY)
+    blob = json.dumps(pane) + panes.pane_text(pane)
+    assert "election-83b" not in blob and computed.result_iso not in blob
+    assert pane["indicator"] is None
+
+    (item,) = [q for q in queue_mod.queue(store, today=TODAY) if q.matter == venture.MATTER]
+    assert item.ref == (venture.MATTER, "deadline", "primary.election-83b")
+    assert item.shown == computed.result_iso
+    assert item.days_until == 21 and item.overdue is False
+
+
+# ── a pane judges only what it shows ────────────────────────────────────────
+
+def test_every_date_the_indicator_judges_is_a_date_the_pane_renders():
+    """The audit's finding, pinned. `venture_pane` used to read
+    `annual_report_due`, `franchise_tax_due` and `business_license_due` for
+    its badge while rendering none of them, so an instance carrying only a
+    franchise-tax date drew a bare `[overdue]` over an empty pane — an
+    urgency the operator could neither see nor act on. Every field either
+    composer feeds to `_indicator_for_dates` is now a field its own rows
+    render, proved by planting a distinct date in each and finding all of
+    them in the pane's text."""
+    dates = {}
+    store = Sidecar()
+    for i, field in enumerate(panes._VENTURE_INDICATOR_DATES):
+        dates[field] = f"2027-0{i + 1}-15"
+        _put(store, venture, field, None, dates[field])
+    dates["registration.due"] = "2027-05-15"
+    _put(store, venture, "registration.due", "r1", dates["registration.due"])
+
+    text = panes.pane_text(panes.pane_for(store, venture.MATTER, "primary", today=TODAY))
+    for field, value in dates.items():
+        assert value in text, f"{field} feeds the indicator but is not on the pane"
+
+    grant_dates = {"milestone.due": "2027-06-15", "report.due": "2027-07-15"}
+    gstore = Sidecar()
+    _put(gstore, grant, "milestone.due", "m1", grant_dates["milestone.due"])
+    _put(gstore, grant, "report.due", "q3", grant_dates["report.due"])
+    gtext = panes.pane_text(panes.pane_for(gstore, grant.MATTER, "primary", today=TODAY))
+    for field, value in grant_dates.items():
+        assert value in gtext, f"{field} feeds the indicator but is not on the pane"
+
+
+def test_a_lone_franchise_tax_date_now_shows_the_row_behind_its_badge():
+    """The exact instance the bug produced: one statutory date and nothing
+    else. The badge and the row it is about must both be on the pane."""
+    store = Sidecar()
+    _put(store, venture, "franchise_tax_due", None, "2020-01-01")
+    pane = panes.pane_for(store, venture.MATTER, "primary", today=TODAY)
+    assert pane["indicator"] == "overdue"
+    assert [c["item_type"] for c in pane["company"]] == ["franchise_tax_due"]
+    assert "2020-01-01" in panes.pane_text(pane)

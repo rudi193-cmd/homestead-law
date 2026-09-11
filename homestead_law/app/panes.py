@@ -19,13 +19,38 @@ a pack but no dedicated pane gets the same generic list a wholly unknown name
 would, so a newly registered pack renders *something* the day it lands, with
 no change to this file required to avoid a crash.
 
+**A composer consumes a `Row`, and nothing else from a pack.** `Row.text`,
+`Row.ref` and `Row.rung` are the whole of what these functions read: the
+gate has already decided what a field renders as at `S1_LIST`, and a
+composer that reaches past it into `pack.SCHEMA[...]["derived"]` is
+re-deciding a classification the pack made — quietly, in one surface, with
+no `why` beside it and no other surface following. A pack's `NOTICE` is the
+one pack attribute a composer may name (it is a fixed sentence about the
+pack, not about any record), and `PANES` reads each pack's `MATTER`. The
+guard is `tests/test_panes.py`'s
+`test_no_composer_reads_a_pack_schema_or_a_derived_string`, with the exact
+bypass this module once shipped planted back in to prove it fires.
+
+**A pane key may be renamed away from an indicator-shaped word.**
+`grant.status` is carried as `"state"` and `venture.application_status` as
+`"application_state"`, because `tests/test_i33_one_indicator.py`'s key scan
+treats any key containing `status` (or `badge`, `flag`, `urgency`, …) as
+something a renderer could draw as a badge, and its rule is that **exactly
+one** key per pane may look like one. The rename is cosmetic and is not a
+way around the rule: the value under either key is the served row for the
+field, item type and all, `pane_text` labels it by its real field name, and
+the only scalar a renderer can badge is still `"indicator"`.
+
 **I-33 — one indicator per pane.** Every composer below returns exactly one
 `"indicator"` key: `None`, or one of `"overdue"`, `"needs_attention"`,
 `"nothing_due"` — a single scalar, not a list, so the shape itself rules out
 a pane showing two badges. It is computed from dates *this pane already
 served* (registration-contest and mediation dates for custody; the two bar
 dates for bankruptcy) — never a second read of anything, and never a value
-above the rung the pane's own rows already rendered.
+above the rung the pane's own rows already rendered. **And never a date the
+pane does not itself show** (audit, 2026-09-12): a badge whose cause is off
+screen is an urgency the operator cannot act on, so every field a composer
+hands to `_indicator_for_dates` is a field its own rows render.
 """
 from __future__ import annotations
 
@@ -258,10 +283,14 @@ def _ref_rows(
     field: `founder.name`/`safe.investor`/`equity_grant.grantee`) supplies
     the reference this row opens; a sub-record missing it is skipped, since
     there is then nothing to open. `date_field`, when given and on file, is
-    a low-rung administrative date (`safe.signed`, L1) safe to fold into the
+    a low-rung administrative date (`safe.signed`, `L2`) safe to fold into the
     label itself — the label is synthesized text, never the served value of
     the field the ref actually points at, so the L4 content it names still
-    renders only when that ref is opened on `S1_DETAIL`."""
+    renders only when that ref is opened on `S1_DETAIL`. It is also the one
+    *served value* that reaches a row's text here, and no closed set guards
+    it: the page escapes it like every other row value, through `fieldRow`
+    (`tests/test_panes_wave8.py::test_a_hostile_safe_signed_date_rides_the_
+    label_and_the_page_escapes_it`)."""
     out = []
     for sub in sorted(groups):
         fields = groups[sub]
@@ -324,12 +353,35 @@ def grant_pane(
 
 #: The application's own timeline, in the order it runs.
 _VENTURE_APPLICATION_TIMELINE = ("application_submitted", "interview_date", "decision_date")
-#: The company card's flat fields, beside `public_benefit` (handled on its
-#: own — see `venture_pane`) and the repeatable groups.
-_VENTURE_COMPANY_FIELDS = ("entity_type", "formation_state", "formation_date", "benefit_report_due")
+#: The company card's flat fields, beside the repeatable groups.
+#: `public_benefit` is one of them and is served like every other: it is
+#: `L3`, and `S1_LIST`'s ceiling is `L3`, so the gate renders its payload —
+#: the same posture `bankruptcy.creditor.name` (also `L3`) already takes on
+#: the pane beside this one. A composer does not get to classify: the pane
+#: **used to** append this one field with `venture.SCHEMA[...]["derived"]`
+#: read straight off the pack, which both re-decided a rung the pack had
+#: already decided and bypassed the gate the whole module exists to go
+#: through. If the purpose sentence is ever judged too specific for a list
+#: surface, the honest fix is to raise the field to `L4` in `venture.py` —
+#: where the rung, its `why` and its derived form live together — and every
+#: surface follows at once. `tests/test_panes.py`'s
+#: `test_no_composer_reads_a_pack_schema_or_a_derived_string` is the guard.
+_VENTURE_COMPANY_FIELDS = (
+    "entity_type", "public_benefit", "formation_state", "formation_date",
+    "benefit_report_due", "annual_report_due", "franchise_tax_due",
+    "business_license_due",
+)
 #: Compliance dates with no `REPEATABLE` sibling of their own — each is one
 #: fixed statutory date, so the indicator treats every one of them as
 #: perpetually "undone" (there is no field recording that it was filed).
+#:
+#: **Every one of them is on the company card above** (audit, 2026-09-12).
+#: Three of these four used to feed the badge without being rendered
+#: anywhere, so a venture instance carrying only a franchise-tax date drew a
+#: bare `[overdue]` over an otherwise empty pane — an urgency with nothing
+#: on screen to act on. A pane judges only what it shows;
+#: `tests/test_panes_wave8.py::test_every_date_the_indicator_judges_is_a_
+#: date_the_pane_renders` holds every composer here to it.
 _VENTURE_INDICATOR_DATES = (
     "annual_report_due", "franchise_tax_due", "business_license_due", "benefit_report_due",
 )
@@ -338,15 +390,16 @@ _VENTURE_INDICATOR_DATES = (
 def venture_pane(
     store: Sidecar, matter_name: str, instance: str, *, today: str,
 ) -> dict:
-    """The application timeline and its `application_state`; the company
-    card (`entity_type`/`formation_state`/`formation_date`/
-    `benefit_report_due`, served, plus `public_benefit` shown by its
-    schema-level derived sentence rather than its served payload — the one
-    field this pane deliberately keeps off the summary card even though it
-    is `L3` and would otherwise render in full at `S1_LIST`'s `L3` ceiling,
-    because a certificate's stated purpose is exactly the kind of specific
-    language the module docstring calls out as different from a coarse
-    tag); the registrations calendar (`registration.kind`/`due`/`done`,
+    """The application timeline and its `application_state` (the pack's
+    `application_status` field, under a key renamed for the same reason
+    `grant_pane`'s `state` is — see that composer's docstring; the row it
+    carries is the served `application_status` row, unchanged, and
+    `pane_text` still labels it by its real field name); the company card
+    (`_VENTURE_COMPANY_FIELDS` — formation, the stated public benefit and
+    the four statutory compliance dates, all served through the gate at
+    `S1_LIST`, and that constant's own comment says why `public_benefit` is
+    not special-cased and why every date the badge judges is on the card);
+    the registrations calendar (`registration.kind`/`due`/`done`,
     served); and founders/SAFEs/equity grants as reference rows only
     (`_ref_rows`) — never their own fields, which render only when a row's
     ref is opened on `S1_DETAIL`. `ein` is `L5` and never reaches `_rows` at
@@ -368,13 +421,6 @@ def venture_pane(
     )
 
     company = [_row_dict(plain[f]) for f in _VENTURE_COMPANY_FIELDS if f in plain]
-    if "public_benefit" in plain:
-        row = plain["public_benefit"]
-        company.append({
-            "matter": row.ref[0], "item_type": row.ref[1], "item_id": row.ref[2],
-            "rung": row.rung.value,
-            "text": venture.SCHEMA["public_benefit"]["derived"],
-        })
 
     candidates = _undone_dates(registrations, "registration.due", "registration.done")
     candidates += [plain[f].text for f in _VENTURE_INDICATOR_DATES if f in plain]

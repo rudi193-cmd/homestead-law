@@ -582,9 +582,12 @@ The *Matter* tab composes two things for `currentMatter()`/
   verbatim, and the plan-period reference line when one is on file; workers'
   comp's treatment/IME timeline; the grant's milestones, reports and
   disbursements by reference, its award timeline and the `NOTICE`; the
-  venture's application timeline and registrations calendar, its founders
-  and SAFEs as reference rows only (opened, like every pane row, one record
-  at a time on the detail below). The pane's own shape — `children`,
+  venture's application timeline, its company card (entity type, formation,
+  the certificate's stated public benefit — `L3`, and so rendered like every
+  other `L3` the pane draws rather than derived by the composer — and the
+  four statutory compliance dates the pane's own badge is computed from) and
+  registrations calendar, its founders and SAFEs as reference rows only
+  (opened, like every pane row, one record at a time on the detail below). The pane's own shape — `children`,
   `creditors`, `exams`, `milestones`, `application_timeline`, or the
   generic `rows` — picks the rendering; nothing in the page names a matter
   to choose between them (I-23's habit, held here too), so a sixth pack

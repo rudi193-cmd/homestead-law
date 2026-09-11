@@ -438,3 +438,142 @@ def test_the_demo_composes_a_pane_for_every_registered_matter(monkeypatch):
     for name in registry_mod.all_matters():
         assert f"{name}/primary" in text, f"{name} composes no pane in the demo"
     assert f"{fake.MATTER}/primary" in text
+
+
+# ── the composer contract: a Row in, plain data out (L8-surfaces audit) ──────
+#
+# The L4 audit's ruling, now a guard: a composer consumes `Row.text`,
+# `Row.ref` and `Row.rung` and nothing else a pack declares about a record.
+# L8-surfaces shipped one bypass — `venture_pane` appended `public_benefit`
+# to its company card with `venture.SCHEMA["public_benefit"]["derived"]` read
+# straight off the pack, so one `L3` field rendered as its derived sentence
+# on a surface whose ceiling is `L3` and whose every other `L3` field (
+# `bankruptcy.creditor.name`, `grant.milestone.name`) renders in full. Two
+# things were wrong with it and only one is about leakage: the composer was
+# re-deciding a rung the pack had already decided, in one surface, with no
+# `why` beside it and no other surface following. The ruling is that a rung
+# is changed in the pack (where the rung, its `why` and its derived form live
+# together) or not at all; the scan below makes the shortcut a build failure.
+
+
+def _pack_attribute_reads(source: str) -> list[str]:
+    """Every place `source` reaches into a pack's declaration tables rather
+    than reading the `Row` the gate handed it: an attribute named `SCHEMA`
+    or `FIELDS`, a `derived_of(...)` call, or a subscript by the literal
+    `"derived"`. `MATTER` and `NOTICE` are deliberately *not* in the list —
+    `MATTER` is the registry key `PANES` is built from (I-23) and `NOTICE`
+    is a fixed sentence about the pack, not a classification of any
+    record."""
+    import ast
+
+    banned_attrs = {"SCHEMA", "FIELDS", "REPEATABLE", "TEMPLATES"}
+    hits = []
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Attribute) and node.attr in banned_attrs:
+            hits.append(f"{node.lineno}: reads pack.{node.attr}")
+        elif isinstance(node, ast.Name) and node.id == "derived_of":
+            hits.append(f"{node.lineno}: calls derived_of")
+        elif (
+            isinstance(node, ast.Subscript)
+            and isinstance(node.slice, ast.Constant)
+            and node.slice.value == "derived"
+        ):
+            hits.append(f'{node.lineno}: subscripts ["derived"]')
+    return sorted(hits)
+
+
+def _panes_source() -> str:
+    from pathlib import Path
+
+    return Path(panes.__file__).read_text("utf-8")
+
+
+def test_no_composer_reads_a_pack_schema_or_a_derived_string():
+    """Every composer in `app/panes.py` renders what the gate served it. No
+    `SCHEMA`/`FIELDS` read, no `derived_of` call, no `["derived"]`
+    subscript — a pack's own classification reaches a pane only by having
+    been applied when the record was served."""
+    assert _pack_attribute_reads(_panes_source()) == [], (
+        "a pane composer reaches past the gate into a pack's declaration "
+        "tables. A composer consumes Row.text/.ref/.rung; if a field's rung "
+        "is wrong for a list surface, change the rung in the pack, not the "
+        "rendering in one composer."
+    )
+
+
+@pytest.mark.parametrize(
+    "bypass",
+    [
+        # the exact line L8-surfaces shipped, put back
+        '            "text": venture.SCHEMA["public_benefit"]["derived"],',
+        # the same shortcut spelled through the engine's own helper
+        '            "text": derived_of(venture.SCHEMA, "public_benefit"),',
+        # and through the rung table rather than the derived one
+        '            "rung": venture.FIELDS["public_benefit"].value,',
+    ],
+)
+def test_the_composer_contract_scan_fires_on_each_planted_bypass(bypass):
+    """A scan that has never fired has not been shown to check anything.
+    Each plant is grafted into the real module's source at the exact place
+    the shipped bypass sat — inside `venture_pane`'s company card — and the
+    real scan must report it."""
+    source = _panes_source()
+    assert _pack_attribute_reads(source) == []
+
+    anchor = "    company = [_row_dict(plain[f]) for f in _VENTURE_COMPANY_FIELDS if f in plain]"
+    assert anchor in source, "the plant's anchor moved; update this test"
+    planted = source.replace(
+        anchor,
+        anchor + "\n    company.append({\n" + bypass + "\n    })",
+        1,
+    )
+    assert planted != source, "the plant did not graft"
+    assert _pack_attribute_reads(planted), f"the scan missed {bypass!r}"
+
+
+def test_public_benefit_renders_like_every_other_l3_field_on_the_pane():
+    """The ruling that replaced the bypass. `public_benefit` is `L3`
+    (`tests/test_venture.py::test_the_public_benefit_derived_form_is_the_
+    fixed_sentence` pins the rung and the sentence), `S1_LIST`'s ceiling is
+    `L3`, and so the pane renders the payload — exactly as it renders
+    `bankruptcy.creditor.name`, also `L3`, in the test above. The derived
+    sentence is what `S2`/`S3` get, and the gate is what decides that."""
+    store = Sidecar()
+    store.put(
+        venture_pack.MATTER, "public_benefit", "primary",
+        Classified(Rung.L3, "PLANTEDPURPOSE",
+                   venture_pack.SCHEMA["public_benefit"]["derived"]),
+    )
+    pane = panes.pane_for(store, venture_pack.MATTER, "primary", today=TODAY)
+    company = {c["item_type"]: c for c in pane["company"]}
+    assert company["public_benefit"]["text"] == "PLANTEDPURPOSE"
+    assert company["public_benefit"]["rung"] == "L3"
+    assert venture_pack.SCHEMA["public_benefit"]["derived"] not in panes.pane_text(pane)
+
+
+# ── the renamed keys are cosmetic, not a way around the I-33 key scan ────────
+
+@pytest.mark.parametrize(
+    "pack,field,key",
+    [
+        (grant_pack, "status", "state"),
+        (venture_pack, "application_status", "application_state"),
+    ],
+)
+def test_a_renamed_pane_key_still_carries_the_packs_own_field(pack, field, key):
+    """`tests/test_i33_one_indicator.py`'s key scan calls any key containing
+    `status` indicator-shaped, and its rule is that exactly one key per pane
+    may look like one. These two composers rename theirs rather than spend
+    that one on a field that is not a badge — so the rename must be proven
+    cosmetic: the value under the new key is the served row for the real
+    field, item type and all, and `pane_text` labels it by that real
+    name."""
+    store = Sidecar()
+    store.put(pack.MATTER, field, "primary", Classified(pack.FIELDS[field], "submitted"))
+    pane = panes.pane_for(store, pack.MATTER, "primary", today=TODAY)
+
+    assert field not in pane, f"{field} is both renamed and kept"
+    assert pane[key]["item_type"] == field
+    assert pane[key]["item_id"] == "primary"
+    assert pane[key]["text"] == "submitted"
+    assert f"{field}: submitted" in panes.pane_text(pane)
