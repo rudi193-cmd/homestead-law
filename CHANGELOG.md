@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.6.0](https://github.com/homestead-affairs/homestead-law/compare/v0.5.0...v0.6.0) (2026-09-11)
+
+
+### Added
+
+* sync a consented scope to the fleet — CLI and Sync tab ([6d05d08](https://github.com/homestead-affairs/homestead-law/commit/6d05d0892917744ab2b4e7957bfa47933ab52ff5))
+
+
+### Fixed
+
+* the Send click confirms the preview it was shown, not whatever deliver builds ([532dd7a](https://github.com/homestead-affairs/homestead-law/commit/532dd7a9734f5b3c6461eaa8f18faba335100fdb))
+
+
+### Changed
+
+* import cover_counts from the engine, retire the vendored copy ([8087f9f](https://github.com/homestead-affairs/homestead-law/commit/8087f9fc7a34960ee446bcea55647ca66e7d473e))
+
 ## [0.5.0](https://github.com/homestead-affairs/homestead-law/compare/v0.4.0...v0.5.0) (2026-09-11)
 
 

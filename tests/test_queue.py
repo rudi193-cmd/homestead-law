@@ -171,6 +171,30 @@ def test_the_cover_shows_a_count_spread_across_two_matters(tmp_path, monkeypatch
     assert cover(store, today=TODAY) == {"overdue": 2}
 
 
+def test_the_cover_drops_a_count_not_actually_spread_across_matters(
+    tmp_path, monkeypatch
+):
+    """Engine #58's `by_matter` tightening, exercised through `queue.cover()`:
+    two open matters (the old roster-only gate's whole check) is not enough
+    when both overdue items sit in one of them. Before this bite, `cover()`
+    handed `cover_counts` only the roster and the raw aggregate — 2 matters,
+    `overdue=2` — and both cleared, showing "2 overdue" for a count that was
+    really `(2, 0)`. With `by_matter` supplied, Gate 2 reads that only
+    `custody` contributed to `overdue`, one matter short of `K`, and drops it."""
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    store = Sidecar()
+    _register_second_matter(monkeypatch)
+    _deadline(store, "custody", "response", Rung.L1, "2026-08-05", "overdue")
+    _deadline(store, "custody", "answer", Rung.L1, "2026-08-04", "overdue")
+    _deadline(store, "_fake_second", "meeting", Rung.L1, "2026-08-12", "due soon")
+
+    assert len({it.matter for it in queue(store, today=TODAY)}) == 2, "two open matters"
+    assert counts(store, today=TODAY) == {"overdue": 2, "due_soon": 1}
+    # Both anonymity gates the old code checked still clear (2 matters, count
+    # of 2) — only the distribution check this bite adds catches the leak.
+    assert cover(store, today=TODAY) == {}
+
+
 # ── L2b-instances: QueueItem names matter + instance, by reference ──────────
 
 def test_queue_item_names_the_instance_split_from_its_own_ref(tmp_path, monkeypatch):
