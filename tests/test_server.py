@@ -1574,17 +1574,83 @@ def test_accept_of_a_mail_preview_without_the_mail_flag_is_refused_by_name(ui):
     assert mailed["result_iso"] not in data["error"]
 
 
+#: The live controls `acceptTemplate` must never read: the matter/instance
+#: pickers and the two template inputs. Any of them read after Compute is a
+#: field posted from the page's *current* state rather than from the preview
+#: the operator was actually shown, and the token covers all five.
+_LIVE_CONTROL_READS = (
+    "currentMatter()", "currentInstance()",
+    "getElementById('tplname')", "getElementById('tplmail')",
+)
+
+#: Every field the Accept post must take off `_lastComputed`.
+_SHOWN_FIELDS = ("matter", "instance", "template", "mail", "token")
+
+
+def _accept_body(page: str) -> str:
+    """`acceptTemplate`'s own function body, out of the served page — the
+    window the structural check below is asked about. Refuses rather than
+    returning the whole page if the function is gone, so a rename fails by
+    name instead of quietly making every assertion vacuous."""
+    start = page.find("function acceptTemplate(")
+    assert start != -1, "the served page defines no acceptTemplate() — renamed?"
+    body = page[start:]
+    end = body.find("\n}\n")
+    assert end != -1, "acceptTemplate() has no closing brace at column 0"
+    return body[:end]
+
+
+def _accept_offences(page: str) -> list[str]:
+    """What is wrong with `acceptTemplate`, or `[]`: a live control it reads,
+    or a shown field it fails to post.
+
+    Factored out of the test below by the X7-drift audit (2026-09-11). Inline
+    in a test body it ran only over the real, already-correct page, so it had
+    never been shown to catch the very regression it was written for — and
+    `tests/test_scans_fire.py` cannot see a scan that is not a helper."""
+    body = _accept_body(page)
+    offences = [f"reads the live control {c}" for c in _LIVE_CONTROL_READS if c in body]
+    offences += [
+        f"does not post the shown {f}"
+        for f in _SHOWN_FIELDS
+        if f"_lastComputed.{f}" not in body
+    ]
+    return offences
+
+
 def test_the_page_accept_reads_only_the_shown_preview(ui):
     """Structural, over the served page: `acceptTemplate` names no live
     control — every field it posts comes off `_lastComputed`."""
+    assert _accept_offences(ui.get("/")[1].decode()) == []
+
+
+def test_the_accept_structural_check_fires_on_each_planted_bypass(ui):
+    """The plant the check above always needed, in both directions it
+    guards. The real page, edited: first with the live matter picker read
+    back into the post — the exact regression that made every mail preview
+    refuse itself — and then with one shown field dropped."""
     page = ui.get("/")[1].decode()
-    body = page[page.index("function acceptTemplate("):]
-    body = body[:body.index("\n}\n")]
-    assert "currentMatter()" not in body and "currentInstance()" not in body
-    assert "getElementById('tplname')" not in body
-    assert "getElementById('tplmail')" not in body
-    for field in ("matter", "instance", "template", "mail", "token"):
-        assert f"_lastComputed.{field}" in body, f"Accept does not post the shown {field}"
+    assert _accept_offences(page) == [], "the plants edit a page that starts clean"
+
+    body = _accept_body(page)
+    planted_live = page.replace(
+        body, body.replace("_lastComputed.matter", "currentMatter()"), 1)
+    assert _accept_offences(planted_live) == [
+        "reads the live control currentMatter()",
+        "does not post the shown matter",
+    ]
+
+    planted_missing = page.replace(
+        body, body.replace("_lastComputed.mail", "false"), 1)
+    assert _accept_offences(planted_missing) == ["does not post the shown mail"]
+
+
+def test_the_accept_window_refuses_rather_than_reading_the_whole_page():
+    """Fail closed (I-11): if `acceptTemplate` is renamed away, the helper
+    refuses by name instead of handing back a window that would make every
+    assertion above vacuously true. Planted as a page without it."""
+    with pytest.raises(AssertionError, match="acceptTemplate"):
+        _accept_body("<html><script>function computeTemplate(){}\n}\n</script>")
 
 
 # ── a pane row opens into the Matter tab, not the hidden Records one ────────

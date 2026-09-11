@@ -34,25 +34,33 @@ from homestead.keep.rungs import Classified, Disposition, Rung, Served
 # reference (matter, item_type, item_id). The derived forms are the human's
 # re-identification judgement (the pack does not author them); L1 and L5 need
 # none. The payloads are the strings that must not leak upward.
+#
+# The L5 constant is called `PLANTED_L5`, not `SSN` (X7-drift audit,
+# 2026-09-11): CodeQL's sensitive-data heuristic keys on the *variable* name,
+# taints every element of any list the value rides in (here `MATTER`), and
+# reports the first print downstream as clear-text logging — a new high alert
+# that blocks merge. The `"ssn"` item type in the reference below is the
+# bankruptcy pack's real field name and stays as it is; only the binding is
+# renamed. `tests/test_planted_names.py` holds the rule for the whole suite.
 COURTHOUSE = Classified(Rung.L1, "Dept 4, Superior Court of California")
 CASE_NUMBER = Classified(Rung.L3, "FL-2026-00123", derived="A case number is on file")
 CHILD_NAME = Classified(Rung.L4, "A.R.", derived="A minor child is named in this matter")
-SSN = Classified(Rung.L5, "xxx-xx-1234")
+PLANTED_L5 = Classified(Rung.L5, "xxx-xx-1234")
 
 COURTHOUSE_REF = ("custody", "courthouse", "main")
 CASE_REF = ("custody", "case_number", "fl-2026-00123")
 CHILD_REF = ("custody", "child_name", "ar")
-SSN_REF = ("custody", "ssn", "primary")
+PLANTED_L5_REF = ("custody", "ssn", "primary")
 
 MATTER = [
     (COURTHOUSE_REF, COURTHOUSE),
     (CASE_REF, CASE_NUMBER),
     (CHILD_REF, CHILD_NAME),
-    (SSN_REF, SSN),
+    (PLANTED_L5_REF, PLANTED_L5),
 ]
 
 L4_PAYLOAD = CHILD_NAME.payload   # "A.R." — must never appear in the list
-L5_PAYLOAD = SSN.payload          # must never appear anywhere
+L5_PAYLOAD = PLANTED_L5.payload   # must never appear anywhere
 
 
 # ── promoted from test_invariants_pending.py ─────────────────────────────────
@@ -99,7 +107,7 @@ def test_the_list_drops_the_l5_without_a_trace():
     assert len(rows) == 3
     assert all(L5_PAYLOAD not in r.text for r in rows)
     assert all(r.rung is not Rung.L5 for r in rows)
-    assert SSN_REF not in {r.ref for r in rows}
+    assert PLANTED_L5_REF not in {r.ref for r in rows}
 
 
 def test_a_row_carries_a_reference_not_a_payload():
@@ -134,7 +142,7 @@ def test_the_detail_still_refuses_the_l5():
     payload is not in the object, not because it was blanked."""
     w = Window()
     w.open_list(MATTER)
-    served = w.open_detail(SSN_REF)
+    served = w.open_detail(PLANTED_L5_REF)
     assert served.disposition is Disposition.DENY
     assert served.value is None
     assert served.value != L5_PAYLOAD

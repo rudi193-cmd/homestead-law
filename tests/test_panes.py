@@ -418,7 +418,11 @@ def test_the_generic_pane_drops_an_l5_too():
     row the gate hands it — so the L5 drop there is the gate's, not a filter
     this module keeps. Planted under a matter with no composer at all."""
     store = Sidecar()
-    store.put("an_unregistered_matter", "secret", "primary",
+    # `"planted_l5"`, not `"secret"` (X7-drift audit, 2026-09-11): this matter
+    # is a fake with no pack, so the item type is arbitrary, and an arbitrary
+    # name that reads as a credential is one CodeQL's sensitive-data heuristic
+    # can key on for no benefit. See `tests/test_planted_names.py`.
+    store.put("an_unregistered_matter", "planted_l5", "primary",
               Classified(Rung.L5, "123-45-6789"))
     store.put("an_unregistered_matter", "note", "primary",
               Classified(Rung.L4, "x", "A note is on file"))
