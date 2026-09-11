@@ -9,7 +9,8 @@ is `oos_provider_affidavit_date`.
 **The health boundary (decision 7).** *"Workers' comp is a law pack; medical
 content stays in health."* Every field touching the claimant's medical facts
 (`date_of_injury`, `body_part`, `diagnosis`, `impairment_rating`, `mmi_date`,
-`treating_physician`, `ime`, `oos_provider_affidavit_date`) holds only a
+`treating_physician`, `hcp_selection_date`, `ime.*`,
+`oos_provider_affidavit_date`) holds only a
 **date or a short reference** — never the exam note or the treatment
 narrative, which belong in `homestead-health`'s own packs (see
 `homestead_health/packs/immunizations.py`'s `vaccine`/`notes` split for the
@@ -28,45 +29,92 @@ income precision rather than a protected category. `tt_benefit_start` is a
 bare date kept beside them rather than argued down, because it ties a date to
 the claimant's medical incapacity to work (over-classify, not a guess).
 
-**`ime` — one record per exam (decision 2), no bespoke writer.** `REPEATABLE`
-addresses one exam per `--sub`, e.g. `put workers_comp ime "2026-10-05 -- Dr.
-R. Chen -- no permanent restrictions" --id primary --sub 2026-10`. Date,
-examiner and note all resolve to the claimant's medical evaluation, so the
-field classifies once at its most protected fact's rung — the same reasoning
-`immunizations.vaccine` gives for not splitting by sub-field name. The
-existing generic `put`/`show` doors already carry a plain `L4` value through
-`--id`/`--sub`; this bite adds no writer module (`doses.py`'s composed shape
-is the general model decision 2 names, not a mandate here).
+**`ime.date` / `ime.examiner` / `ime.note` — three dotted sub-fields, one
+independent medical exam per `--sub` (decision 2).** `REPEATABLE` names the
+three dotted fields, not the bare word `ime`, because that is the only shape
+this module's own write door can drive: `cli._cmd_put` checks `field not in
+mt.repeatable` against the *exact* string the operator typed, and
+`registry._validate`'s `unknown_repeatable` guard checks each `REPEATABLE`
+member against `FIELDS`, so a bare `"ime"` entry needs a bare `"ime"` field in
+`SCHEMA` and there is no CLI syntax that composes three arguments into one
+record (`homestead_health.doses.add_dose` does that from a *Python* caller,
+not from a door). `put workers_comp ime.date 2026-10-05 --id primary --sub
+2026-10`, then `ime.examiner` and `ime.note` under the same `--sub`.
+`homestead_law.packs.custody` reached the identical conclusion for
+`child.name`/`child.dob`/`child.school` (struck 2026-09-11 in its own
+docstring); the two packs use one convention deliberately — ~~a single `ime`
+field carrying `"date -- examiner -- note"` as one string~~ was this bite's
+first shape and is struck: it made `ime` a *second* free-text field beside
+`notes`, which is exactly the drift toward narrative decision 7 and
+`MAX_L4_CHARS` exist to stop, and it spent one 200-character budget on three
+facts instead of three. All three sit at `L4`: splitting by name changes the
+*shape*, never the rung, and each one resolves to the claimant's medical
+evaluation on its own.
 
-**`hcp_selection_date` reclassified `L1` (documented override).** The plan's
-field list carries it at `L4`, among the medical-adjacent dates.
-`L3-deadline-templates`' contract requires every `anchor` to render `L1`
-(`compute()` reads it through the gate first), and the 60-day HCP-selection
-window has no other candidate anchor. Reclassified here, on
-`hcp_change_notice_date`'s footing: it records *when* a selection was made —
-administrative, not the treatment relationship itself (`treating_physician`,
-`L4`, is where that lives). Dropping the template instead (as
-`notice_of_accident` is dropped, below) was rejected: unlike the 15-day
-notice rule, this is the one deadline the claim actually needs tracked, and
-its anchor is not itself the guarded medical fact.
+**`hcp_selection_date` stays `L4`, and its 60-day window is entered, not
+computed (audit ruling, 2026-09-11).** ~~Reclassified from the plan's `L4` to
+`L1` so the 60-day template would have an anchor.~~ Struck. Running the five
+steps on the *harm of disclosure*, which is the only thing they answer:
 
-**`notice_of_accident` — entered, not computed.** The 15-day rule (§ 52-1-29)
-anchors on `date_of_injury` (`L4` — the medical fact this matter exists to
-describe). Anchors must be `L1`, so no computed entry exists for it; a
-household enters it directly, into `notes` or a `deadline` record.
+* **Step 1 — public in this matter's forum?** No. This pack has already ruled
+  that its forum does not post: `wca_case_number` is `L3` because "a WCA claim
+  sits nearer the family posture than a bankruptcy's public docket", and
+  `hearing_date`/`mediation_date` are `L3` because a WCA calendar "is not
+  treated as posted-public from here". A provider-selection date is less
+  public than either. Step 1 cannot answer yes for this field while answering
+  no for the hearing it schedules.
+* **Step 2 — resolves to a person?** Yes, to the claimant. So at least `L3`.
+* **Step 3 — a category the law follows?** Yes: the date states that a *health
+  care provider* was chosen for an identified person and when their treatment
+  was organised. That is a health-care fact about an identified individual —
+  the same thing `oos_provider_affidavit_date` is `L4` for one field below
+  ("the date resolves to an active treatment relationship"), and the same
+  over-classify default `tt_benefit_start` and `mmi_date` already take for a
+  bare date. `treating_physician` holding the *name* does not make the date
+  administrative; both are facts about one treatment relationship.
+* **Step 4 — key material, refusal, privilege, sealing order?** No. `L4`.
+* **Step 5 — recorded with matter and jurisdiction**, as every `_field` here is.
 
-**Both templates ship `UNCERTAIN`.** Both named sources were unreachable on
-2026-09-11: `law.justia.com/.../section-52-1-49/` returned `EGRESS_BLOCKED`;
-`wca.state.nm.us` failed DNS (`ETIMEOUT`). Three further tries — the
-2025-edition Justia page, the official compiler `nmonesource.com`, and a
-`web.archive.org` snapshot of the first — were each blocked the same way. A
-general web search corroborates the 60-day figure in prose but is not a
-dated, quoted fetch, so it does not carry a PROVENANCE this house style
-accepts as `VERIFIED` — refuse to compute, never guess (I-2's rule, applied
-to a counting rule instead of a date).
+So the honest rung is `L4`, and it is the template that goes, not the rung: a
+computed template's anchor must render `L1` because `compute()` reads it
+through the gate on `S1_LIST` before any arithmetic, and an `L4` value
+`DERIVE`s there — `compute()` could not read this date even if the contract
+allowed it. ~~`hcp_change_notice_date`, an `L1` field added by this bite to
+anchor the second template~~ is struck for the same reason and is gone: it
+existed only to be an anchor, it would have taken `L4` on this identical
+analysis, and `hcp_change_objection_deadline` (`L3`) already records the
+objection date once the WCA or counsel confirms it.
+
+**Nothing in this pack is a computed template; `TEMPLATES` is empty.** All
+three candidate NM rules anchor above `L1`:
+
+* the 60-day HCP-change window (NMSA 1978 § 52-1-49(B)-(C)) on
+  `hcp_selection_date` (`L4`, above);
+* the 3-day objection window to a provider change, on a notice date that is
+  `L4` by the same analysis;
+* the 15-day notice-of-accident rule (§ 52-1-29) on `date_of_injury` (`L4` —
+  the medical fact this matter exists to describe).
+
+Each is entered by the household — `hcp_change_objection_deadline`,
+`notice_of_accident_date` and the `deadline` record `cli.deadline` already
+writes — never derived here. The citations stay on the fields' own `why`
+strings so the reference is not lost with the arithmetic.
+
+**And the counting rules were never verified anyway.** Every named source was
+unreachable on 2026-09-11: `law.justia.com/.../section-52-1-49/` returned
+`EGRESS_BLOCKED`; `wca.state.nm.us` failed DNS (`ETIMEOUT`); the 2025-edition
+Justia page, the official compiler `nmonesource.com` and a `web.archive.org`
+snapshot of the first were each blocked the same way. A general web search
+corroborates the 60-day figure in prose but is not a dated, quoted fetch, so
+it carries no PROVENANCE this house style accepts as `VERIFIED`. Even with an
+`L1` anchor these would have shipped `UNCERTAIN` and refused to compute
+(I-2's rule, applied to a counting rule instead of a date) — the rung ruling
+above is what removes them, and the missing provenance is why nothing is lost
+by it.
 """
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from homestead.keep.rungs import Rung, classify_schema
@@ -87,9 +135,14 @@ JURISDICTION = "US-NM"
 #: treated. Nothing here tracks a second jurisdiction because there is not one.
 JURISDICTIONS: tuple[str, ...] = ("US-NM",)
 
-#: One repeatable field: `ime` (decision 2). See the module docstring's "`ime`
-#: — one composed record per exam" section for why no other field needs one.
-REPEATABLE: frozenset[str] = frozenset({"ime"})
+#: The dotted sub-fields that may carry a sub-id (`homestead_law.instances`,
+#: decision 2) — one independent medical exam per `--sub`. Three field names,
+#: not the bare word `"ime"`: `cli._cmd_put` and `registry._validate`'s
+#: `unknown_repeatable` guard both hold a `REPEATABLE` member against the
+#: literal field string, and nothing here declares a bare `"ime"`. The same
+#: convention `homestead_law.packs.custody` uses for `child.*`; see the module
+#: docstring for why the two packs converged on it.
+REPEATABLE: frozenset[str] = frozenset({"ime.date", "ime.examiner", "ime.note"})
 
 
 def _field(rung: Rung, why: str, *, derived: str | None = None) -> dict[str, Any]:
@@ -110,35 +163,18 @@ SCHEMA: dict[str, dict[str, Any]] = {
         "value is one of JURISDICTIONS and is read by deadline arithmetic "
         "(decision 1).",
     ),
-    "hcp_change_notice_date": _field(
-        Rung.L1,
-        "the date a change-of-provider notice was given — a procedural fact "
-        "of the claim's own paperwork, not itself medical content (step 1: "
-        "treated as public-in-this-forum the way a filed notice's timestamp "
-        "is, so it can anchor a computed template, which reads only L1 "
-        "anchors); step 3 no — a notice date carries no category. Added by "
-        "this bite specifically because `hcp_change_objection`'s template "
-        "needed an L1 anchor and the plan's own field list did not carry one.",
-    ),
-    "hcp_selection_date": _field(
-        Rung.L1,
-        "when the employer/insurer's initial health care provider selection "
-        "was made — administrative (who chose, and when), not the clinical "
-        "relationship itself (step 3 no: resolves to the claim's procedural "
-        "posture, not a protected category). Reclassified from the plan's "
-        "original L4 to L1 because it is the anchor the `hcp_selection` "
-        "template reads (NMSA 1978 § 52-1-49(B)-(C)'s 60-day window), and an "
-        "anchor must render at L1 — see the module docstring's own section "
-        "on this override. The treating relationship this date sets in "
-        "motion is still L4, via `treating_physician`.",
-    ),
     "wca_case_number": _field(
         Rung.L3,
         "resolves to the claimant and the claim's parties (step 2 yes), no "
         "protected category by itself (step 3 no) — the model's own worked "
         "example, one case number sealed in a family matter and public in a "
         "bankruptcy; a WCA claim sits nearer the family posture than a "
-        "bankruptcy's public docket, so L3, not L1.",
+        "bankruptcy's public docket, so L3, not L1. Not L4 either (audit, "
+        "2026-09-11): a docket number takes its rung from how public its "
+        "forum is, not from what the matter is about — the model puts a "
+        "bankruptcy case number at L1 even though insolvency is a category "
+        "the law follows — and the derived form on a list says only what the "
+        "matter name already says.",
         derived="A WCA case number is on file",
     ),
     "claim_number": _field(
@@ -174,8 +210,8 @@ SCHEMA: dict[str, dict[str, Any]] = {
         "and the claimant (step 2), no category by itself (step 3 no). Not "
         "an anchor for a computed template: the 15-day notice window (§ "
         "52-1-29) would need `date_of_injury` as its anchor, and that field "
-        "is L4 — the template cannot exist as computed (see the module "
-        "docstring); this field is entered, never derived.",
+        "is L4, while a computed template may only anchor on an L1 field "
+        "(see the module docstring); this field is entered, never derived.",
         derived="A notice of accident date is on file",
     ),
     "hcp_change_objection_deadline": _field(
@@ -183,10 +219,12 @@ SCHEMA: dict[str, dict[str, Any]] = {
         "the confirmed date, once known (from the WCA or counsel), that an "
         "objection to a health care provider change is due — resolves to "
         "the claim's procedural posture (step 2), no category (step 3 no). "
-        "Distinct from TEMPLATES['hcp_change_objection'], an unverified "
-        "computed *estimate* off hcp_change_notice_date (status UNCERTAIN) "
-        "— this field is where the operator records the number once it is "
-        "actually confirmed.",
+        "Entered, never computed: the objection window's own anchor (the "
+        "date the change notice was given) is an L4 health-care fact and a "
+        "computed template may only anchor on L1, and the counting rule "
+        "itself — 3 days, calendar or working — was never verifiable from "
+        "here (see the module docstring). This field is where the operator "
+        "records the date once it is actually confirmed.",
         derived="A health care provider change objection deadline is on file",
     ),
     "mediation_date": _field(
@@ -257,6 +295,25 @@ SCHEMA: dict[str, dict[str, Any]] = {
         "homestead-health (decision 7); this field holds only the date.",
         derived="A maximum medical improvement date is on file",
     ),
+    "hcp_selection_date": _field(
+        Rung.L4,
+        "when the initial health care provider selection was made under NMSA "
+        "1978 § 52-1-49(B)-(C) — a date that states a health care provider "
+        "was chosen for this claimant and when their treatment was organised. "
+        "Step 1 no: this pack's forum does not post (see wca_case_number and "
+        "hearing_date). Step 2 yes, to the claimant. Step 3 yes: a "
+        "health-care fact about an identified person, the same posture "
+        "oos_provider_affidavit_date and treating_physician already hold, and "
+        "the over-classify default mmi_date and tt_benefit_start take for a "
+        "bare date. Only the date is here: who the provider is and what "
+        "they treat live in treating_physician and in homestead-health "
+        "(decision 7). ~~L1, so the 60-day window could be a computed "
+        "template~~ — struck 2026-09-11 by audit: the rung answers the harm "
+        "of disclosure, not what a template needs, so the template went (see "
+        "the module docstring). The 60-day window is still the figure to "
+        "confirm with the WCA; it is entered, never derived here.",
+        derived="A health care provider selection date is on file",
+    ),
     "treating_physician": _field(
         Rung.L4,
         "names a person providing medical care to the claimant — a "
@@ -266,21 +323,39 @@ SCHEMA: dict[str, dict[str, Any]] = {
         "holds a short reference to who they are.",
         derived="A treating physician is named",
     ),
-    "ime": _field(
+    "ime.date": _field(
         Rung.L4,
-        "a repeatable field: one record per independent medical exam, "
-        "addressed by --sub (decision 2). An exam's date, its examiner and "
-        "any note about it all resolve to the claimant's medical evaluation "
-        "(step 3 yes), so the field is classified once, at the rung its "
-        "most protected fact requires — the same over-classify-rather-than-"
-        "split-by-name reasoning custody.diagnosis and health's "
-        "immunizations.vaccine already carry. The exam's clinical findings "
-        "belong in homestead-health (decision 7); an ime entry here is a "
-        "short reference (date, examiner, one-line note), never the "
-        "underlying report, and validate_value/MAX_L4_CHARS is the "
-        "structural nudge toward that until L4-surfaces wires it into the "
-        "doors.",
-        derived="An independent medical exam is on file",
+        "the date of one independent medical exam, addressed by --sub "
+        "(decision 2, one exam per sub-id). Resolves to the claimant (step 2) "
+        "and states that a medical evaluation of this person happened on that "
+        "day — a health-care fact about an identified person (step 3 yes), "
+        "the same posture mmi_date holds for a bare date. Declared per "
+        "sub-field, not as one `ime` blob, so a second exam does not overwrite "
+        "the first and no one field has to hold a whole exam; the convention "
+        "custody's child.name/child.dob/child.school also uses. The exam's "
+        "findings belong in homestead-health (decision 7); only the date is "
+        "here.",
+        derived="An independent medical exam date is on file",
+    ),
+    "ime.examiner": _field(
+        Rung.L4,
+        "names the physician who performed that exam — a person providing a "
+        "medical evaluation of the claimant (step 2 yes, step 3 yes), the "
+        "same posture as treating_physician. A short reference to who they "
+        "are; the exam's findings belong in homestead-health (decision 7).",
+        derived="An independent medical examiner is named",
+    ),
+    "ime.note": _field(
+        Rung.L4,
+        "one line about that exam — an appointment kept, a report received, a "
+        "restriction the operator wants beside the date. Resolves to the "
+        "claimant and routinely carries the medical category the exam is "
+        "about (step 3 yes). The exam report itself belongs in "
+        "homestead-health (decision 7); MAX_L4_CHARS/validate_value is the "
+        "structural fence keeping this a reference rather than a narrative, "
+        "and it is one budget per exam rather than one shared with the date "
+        "and the examiner.",
+        derived="A note about an independent medical exam is on file",
     ),
     "aww": _field(
         Rung.L4,
@@ -418,6 +493,14 @@ TEMPLATE_RULES = frozenset({"court_days", "court_days_before", "business_days", 
 #: applied to a counting rule instead of a date).
 TEMPLATE_STATUSES = frozenset({"VERIFIED", "UNCERTAIN"})
 
+#: An id, by `homestead_law.instances.ID_PATTERN`'s own rule (decision 2) —
+#: copied rather than imported so a pack stays a leaf that imports only the
+#: engine's `rungs`, with `tests/test_workers_comp.py` asserting the two
+#: patterns have not drifted. A template's `name` becomes the `<sub>` half of
+#: the `"<instance>.<template>"` item_id an accepted deadline is stored under,
+#: so a name with an underscore in it could never be written back.
+_TEMPLATE_NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,39}$")
+
 #: A template's required keys — the shape `_validate_templates` checks below.
 _TEMPLATE_KEYS = frozenset(
     {"name", "anchor", "days", "direction", "rule", "mail", "jurisdiction", "source", "status", "note"}
@@ -457,6 +540,13 @@ def _validate_templates(
 
         if not isinstance(entry["name"], str) or not entry["name"].strip():
             raise TemplateShapeError(f"{label}: 'name' must be a non-empty string")
+        if not _TEMPLATE_NAME.match(entry["name"]):
+            raise TemplateShapeError(
+                f"{label}: a template name is stored as a repeatable sub-id "
+                f"(the `<instance>.<template>` item_id an accepted deadline "
+                f"takes), so it must match {_TEMPLATE_NAME.pattern} — no "
+                "underscore, no dot, no capital."
+            )
 
         anchor = entry["anchor"]
         if not isinstance(anchor, str) or anchor not in fields:
@@ -503,58 +593,17 @@ def _validate_templates(
             raise TemplateShapeError(f"{label}: 'note' must be a non-empty string")
 
 
-#: Two candidate deadline templates. `notice_of_accident` (15 days from
-#: date_of_injury, § 52-1-29) is deliberately absent — see the module
-#: docstring's "notice_of_accident — entered, not computed" section; its
-#: anchor is L4 and a computed template's anchor must be L1.
-TEMPLATES: tuple[dict[str, Any], ...] = (
-    {
-        "name": "hcp_selection",
-        "anchor": "hcp_selection_date",
-        "days": 60,
-        "direction": "forward",
-        "rule": "calendar_days",
-        "mail": False,
-        "jurisdiction": "US-NM",
-        "source": (
-            "NMSA 1978 § 52-1-49(B)-(C): the party that did not make the "
-            "initial selection may change the health care provider after 60 "
-            "days; confirm with the WCA"
-        ),
-        "status": "UNCERTAIN",
-        "note": (
-            "No PROVENANCE: law.justia.com's 2021 and 2025 chapter-52 pages, "
-            "nmonesource.com (the official compiler) and web.archive.org's "
-            "snapshot of the first were each unreachable from this "
-            "environment on 2026-09-11 (EGRESS_BLOCKED, DNS timeout, or the "
-            "fetch tool's own refusal). A general web search corroborates "
-            "the 60-day figure in prose but is not a dated, quoted fetch of "
-            "the statute, so this ships UNCERTAIN until a builder with reach "
-            "can quote it directly."
-        ),
-    },
-    {
-        "name": "hcp_change_objection",
-        "anchor": "hcp_change_notice_date",
-        "days": 3,
-        "direction": "forward",
-        "rule": "calendar_days",
-        "mail": False,
-        "jurisdiction": "US-NM",
-        "source": (
-            "NMSA 1978 § 52-1-49 area — an objection window to a change of "
-            "health care provider; the counting rule itself (forward vs. "
-            "backward, calendar vs. business days, any mail allowance) is "
-            "not verified from here"
-        ),
-        "status": "UNCERTAIN",
-        "note": (
-            "direction/rule above are placeholders only, present to satisfy "
-            "the shape check — status UNCERTAIN refuses computation "
-            "regardless of what they say, so they must not be read as "
-            "verified values by any caller."
-        ),
-    },
-)
+#: Empty, and the module docstring says why at length: all three candidate NM
+#: rules (the 60-day HCP-change window, the 3-day objection window, the 15-day
+#: notice of accident) anchor on a field this pack declares at `L4`, and a
+#: computed template may only anchor on `L1` — `compute()` reads the anchor
+#: through the gate on `S1_LIST`, where an `L4` value renders as its derived
+#: form and no date reaches the arithmetic at all. Each of the three is
+#: entered by the household instead; the citations stay on the anchoring
+#: fields' own `why` strings. An empty tuple is not an omission: a pack that
+#: declares no template is the ordinary case (`custody` shipped that way), and
+#: `_validate_templates` below still runs, so the day anything is added here
+#: it is held to the shape and to the `L1` anchor rule at import.
+TEMPLATES: tuple[dict[str, Any], ...] = ()
 
 _validate_templates(TEMPLATES, SCHEMA, FIELDS, JURISDICTIONS)
