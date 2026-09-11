@@ -306,3 +306,130 @@ def test_pane_text_covers_every_shape_without_raising():
     for mt in (custody.MATTER, bankruptcy.MATTER, workers_comp.MATTER, "an_unregistered_one"):
         text = panes.pane_text(panes.pane_for(store, mt, "primary", today=TODAY))
         assert mt in text
+
+
+# ── the rung ruling (audit, 2026-09-11) ─────────────────────────────────────
+#
+# **A pane is a list surface, not a detail one.** The pane composes *many*
+# records for one instance, so it serves on `S1_LIST` (ceiling L3): L1–L3
+# render, L4 shows its derived form, L5 leaves no row. `S1_DETAIL` is where
+# an L4 payload renders, and the engine offers exactly one way to reach it —
+# `Window.open_detail(ref)`, **one record, named by its reference**, because
+# the act of opening that record *is* the purpose declaration (by widget).
+# Serving a whole instance at `S1_DETAIL` would turn a tab switch into a bulk
+# reveal of every L4 in the matter, under a default instance nobody chose;
+# the pane's rows carry refs instead, and the page opens one at a time.
+#
+# So: child names, dates of birth and the workers' comp timeline are *derived*
+# here and rendered on the detail the operator opens from a pane row.
+
+def test_the_pane_never_carries_an_l4_payload_only_its_derived_form():
+    """The ruling, pinned. Every L4 field the three panes read shows the
+    pack's own derived sentence; not one of the planted payloads appears
+    anywhere in the composed pane."""
+    import json
+
+    store = Sidecar()
+    planted = {
+        (custody.MATTER, "child.name", instances.item_id("primary", "c1"),
+         custody.SCHEMA["child.name"]["derived"]): "Alex Rivera",
+        (custody.MATTER, "child.dob", instances.item_id("primary", "c1"),
+         custody.SCHEMA["child.dob"]["derived"]): "2018-04-01",
+        (workers_comp.MATTER, "diagnosis", "primary",
+         workers_comp.SCHEMA["diagnosis"]["derived"]): "L5-S1 disc herniation",
+        (workers_comp.MATTER, "hcp_selection_date", "primary",
+         workers_comp.SCHEMA["hcp_selection_date"]["derived"]): "2026-02-01",
+    }
+    for (mt, field, item, derived), payload in planted.items():
+        store.put(mt, field, item, Classified(Rung.L4, payload, derived))
+
+    for mt in (custody.MATTER, workers_comp.MATTER):
+        pane = panes.pane_for(store, mt, "primary", today=TODAY)
+        blob = json.dumps(pane) + "\n" + panes.pane_text(pane)
+        for payload in planted.values():
+            assert payload not in blob, f"{mt}: an L4 payload reached the pane"
+
+
+def test_the_same_record_renders_its_payload_on_the_detail_the_row_opens():
+    """The other half of the ruling — the L4 is not *lost*, it is one
+    explicit open away. A pane row carries the record's ref; handing that ref
+    to `Window.open_detail` (what clicking the row does, through
+    `/api/record`) renders the payload the pane withheld."""
+    from homestead_law.app.window import Window
+
+    store = Sidecar()
+    ref = (custody.MATTER, "child.name", instances.item_id("primary", "c1"))
+    store.put(*ref, Classified(Rung.L4, "Alex Rivera",
+                               custody.SCHEMA["child.name"]["derived"]))
+
+    pane = panes.pane_for(store, custody.MATTER, "primary", today=TODAY)
+    row = pane["children"][0]["fields"]["child.name"]
+    assert row["text"] == "A child's name is on file"
+    assert (row["matter"], row["item_type"], row["item_id"]) == ref
+
+    window = Window()
+    window.open_list(instances.records_of(store, custody.MATTER, "primary"))
+    assert window.open_detail(ref).value == "Alex Rivera"
+
+
+# ── L5 leaves no trace on any pane surface ──────────────────────────────────
+
+def test_an_l5_record_never_reaches_the_pane_the_text_or_the_demo():
+    """A planted `ssn` (the bankruptcy pack's one L5 field) must be absent
+    from the composed pane, from `pane_text`, and from the demo's own pane
+    section — L5 has no override anywhere (I-13) and leaves no row, not even
+    a placeholder saying something was withheld (product decision 2)."""
+    import json
+
+    from homestead_law.app import demo
+
+    store = Sidecar()
+    ssn = "123-45-6789"
+    store.put(bankruptcy.MATTER, "ssn", "primary", Classified(Rung.L5, ssn))
+    store.put(bankruptcy.MATTER, "claims_bar_date", "primary",
+              Classified(Rung.L1, "2026-09-01"))
+
+    pane = panes.pane_for(store, bankruptcy.MATTER, "primary", today=TODAY)
+    blob = json.dumps(pane)
+    assert ssn not in blob and "ssn" not in blob
+    text = panes.pane_text(pane)
+    assert ssn not in text and "ssn" not in text
+    # the row that *is* readable still renders, so this is not a pane that
+    # simply failed to compose
+    assert any(b["field"] == "claims_bar_date" for b in pane["bar_dates"])
+
+    assert ssn not in demo.compose_panes(store, today=TODAY)
+
+
+def test_the_generic_pane_drops_an_l5_too():
+    """The fallback composer has no field list of its own — it renders every
+    row the gate hands it — so the L5 drop there is the gate's, not a filter
+    this module keeps. Planted under a matter with no composer at all."""
+    store = Sidecar()
+    store.put("an_unregistered_matter", "secret", "primary",
+              Classified(Rung.L5, "123-45-6789"))
+    store.put("an_unregistered_matter", "note", "primary",
+              Classified(Rung.L4, "x", "A note is on file"))
+
+    pane = panes.pane_for(store, "an_unregistered_matter", "primary", today=TODAY)
+    assert [r["item_type"] for r in pane["rows"]] == ["note"]
+    assert "123-45-6789" not in panes.pane_text(pane)
+
+
+def test_the_demo_composes_a_pane_for_every_registered_matter(monkeypatch):
+    """I-23 one level down (audit, 2026-09-11): `demo.compose_panes` used to
+    iterate the three packs it happens to seed — a hand-kept list of module
+    objects rather than of strings, invisible to `test_registry.py`'s scan
+    because that one reads constants. It now iterates `all_matters()`, so a
+    fourth registered pack appears through the generic fallback with no edit
+    to `demo.py`. Planted: a fake pack in the registry must show up.
+    """
+    from homestead_law.app import demo
+
+    fake = _signal_pack("_fake_demo_pane")
+    monkeypatch.setitem(registry_mod.REGISTRY, fake.MATTER, registry_mod._entry(fake))
+
+    text = demo.compose_panes(Sidecar(), today=TODAY)
+    for name in registry_mod.all_matters():
+        assert f"{name}/primary" in text, f"{name} composes no pane in the demo"
+    assert f"{fake.MATTER}/primary" in text
