@@ -5,7 +5,6 @@
 
 ### Added
 
-* retire the singular child_name — child.name under a sub-id is the one name ([8ab9f03](https://github.com/homestead-affairs/homestead-law/commit/8ab9f03cbde5f1662a00badbab056cc83075d881))
 * retire the singular child_name field for the repeatable child.name ([d37cce4](https://github.com/homestead-affairs/homestead-law/commit/d37cce42e48781516effb6ea784b5a97221490d5))
 
 
