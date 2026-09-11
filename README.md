@@ -145,6 +145,71 @@ doors onto the same two functions; `/api/store` and `/api/deadline` accept
 offer an instance picker — that UI wiring is left to a later (surfaces) bite;
 today they always write the `primary` instance, exactly as before this one.
 
+## Bankruptcy (Chapter 13)
+
+`homestead_law/packs/bankruptcy.py` is the second real pack, the first with
+`JURISDICTION`/`JURISDICTIONS` fixed to `("US-federal",)` — a Chapter 13 case
+does not move between forums the way a custody order can. 34 fields: case
+administrivia (`district`, `courthouse`, `chapter`, `case_number`, `trustee`)
+and every procedural date this case has (`petition_date` the anchor,
+`creditor_meeting_date`, `plan_filed_date`, `first_plan_payment_due`,
+`claims_bar_date`, `governmental_claims_bar_date`, `confirmation_hearing_date`,
+`objection_deadline`, `plan_confirmation_date`, `plan_completion_date`,
+`debtor_education_date`, `discharge_date`, repeatable `plan_modification`) at
+`L1`; `plan_payment_amount`/`income`/`assets` at `L3` (the same posture the
+engine's own bankruptcy pack gives `income`/`assets` — resolves to the
+debtor's finances, no further protected category); repeatable `creditor.*`
+(name/amount_scheduled/claim_amount `L3`, secured/claim_filed_date/
+claim_number `L1`, note `L4` — the per-creditor decomposition of the engine
+pack's aggregate `creditors` field, decision 2's repeatable shape); `attorney`
+`L2`; `notes` `L4`; `ssn` `L5`. `account_number` is refused as a field name at
+import (`_refuse_account_number`) — an account number is ledger content, one
+`L5` record per account instance (provisional I-43), never a law field.
+
+**`NOTICE`** — rendered by every surface that opens this matter: *"This pack
+keeps dates and references for a Chapter 13 case. It drafts nothing, files
+nothing, and does not say which chapter fits."* Provisional **I-44**
+(`tests/test_i44_no_drafting.py`) fails the build if `Purpose.DRAFTING` or
+`Purpose.FILING` is ever referenced under `homestead_law/`, and separately if
+any string literal in the tree carries an advice-shaped phrase (a filing
+command, a chapter recommendation).
+
+**`TEMPLATES`** — five deadlines, as data (`name`, `anchor`, `days`,
+`direction`, `rule`, `mail`, `jurisdiction`, `source`, `status`, `note`); the
+sibling `rules.py` bite (L3-deadline-templates) reads this table and does the
+counting — nothing here imports it or `homestead.keep.dates`. All five
+anchor on an `L1` field of this pack and are `VERIFIED` (converging secondary
+sources — see each `source`'s dated PROVENANCE sentence; every primary host
+this environment could try was refused by the egress proxy):
+
+| template | anchor | days | direction / rule | mail | citation |
+|---|---|---|---|---|---|
+| `plan_filed` | `petition_date` | 14 | forward, court days | no | FRBP 3015(b) |
+| `first_plan_payment` | `petition_date` | 30 | forward, calendar days | no | 11 U.S.C. § 1326(a)(1) |
+| `claims_bar` | `petition_date` | 70 | forward, court days | no | FRBP 3002(c) |
+| `governmental_claims_bar` | `petition_date` | 180 | forward, court days | no | FRBP 3002(c)(1) |
+| `objection` | `confirmation_hearing_date` | 7 | backward, court days | yes | FRBP 3015(f) |
+
+`creditor_meeting_date` (the § 341 meeting) is deliberately **never
+computed** — its 21–50-day window is set administratively by the U.S.
+Trustee, not by a rule this pack can count.
+
+**The plan-period interaction flag** (`homestead_law.plan_period`). While a
+bankruptcy instance is confirmed (`plan_confirmation_date` on file) and not
+yet discharged (`discharge_date` absent), the presence of a
+`SIGNAL_FIELDS` record — `award_amount`, `disbursement`, `safe`,
+`equity_grant`, `revenue_start` — in *any other* registered matter (Wave 8's
+still-unbuilt `grant`/`venture` packs) yields one reference line:
+
+> `bankruptcy/<instance>: income or assets arising during the plan: confirm
+> with your attorney (11 U.S.C. §§ 541(a)(7), 1306(a), 1329; disclosure
+> duties under the plan and local rules)`
+
+Never a value, never a number, and it never blocks a `put`, a `deadline`, or
+anything else — a flag, not a refusal. `queue.notices(store)` is the one
+queue hook: a tuple of such lines, alongside — not inside — the dated
+`QueueItem` list, since a reference line has no date to sort or gap-check.
+
 ## What is enforced here today
 
 *The record invariants, carried from `homestead.keep.record` and held more

@@ -238,3 +238,30 @@ def test_queue_item_instance_is_a_reference_off_the_ref(tmp_path, monkeypatch):
     assert item.matter == "custody"
     assert item.instance == "or-order"
     assert item.ref == ("custody", "deadline", "or-order.hearing")
+
+
+# ── L3-bankruptcy-ch13: the one hook — plan-period reference lines ──────────
+
+def test_notices_is_the_plan_period_flag_hook(tmp_path, monkeypatch):
+    """`queue.notices` is the smallest change that puts
+    `plan_period.flag`'s lines on the same screen as the queue, without
+    stretching `QueueItem` (which has no way to carry a line with no date).
+    Held here as a behavioural pass-through rather than a re-test of
+    `plan_period`'s own scenarios (`tests/test_plan_period.py` covers those)."""
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    store = Sidecar()
+
+    assert queue_mod.notices(store) == ()
+
+    from homestead_law import plan_period
+
+    _deadline(store, "bankruptcy", "primary", Rung.L1, "2026-06-01", "n/a")
+    store.put("bankruptcy", "plan_confirmation_date", "primary", Classified(Rung.L1, "2026-06-01"))
+    _register_second_matter(monkeypatch, name="_fake_signal")
+    store.put(
+        "_fake_signal", "award_amount", "grant-1",
+        Classified(Rung.L3, "1000", derived="An award amount is on file"),
+    )
+
+    assert queue_mod.notices(store) == plan_period.flag(store)
+    assert len(queue_mod.notices(store)) == 1

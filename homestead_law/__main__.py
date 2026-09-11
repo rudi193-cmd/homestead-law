@@ -84,6 +84,7 @@ def main(argv: list[str] | None = None) -> int:
             nestor_seam,
             nestor_store,
             patterns,
+            plan_period,
             queue,
             registry,
             server,

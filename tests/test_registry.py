@@ -708,12 +708,18 @@ def test_a_repeatable_name_the_pack_does_not_have_fails_the_build():
 
 
 def test_a_repeatable_naming_a_real_field_passes():
+    """Registry-relative `on_disk`: `_discover_packs()` plus the one fake pack
+    this test adds, not a hardcoded `{"custody": ...}` — the exact hand-kept
+    on-disk set that broke the instant a second real pack (bankruptcy) landed,
+    which is L2c's own exit criterion (`test_registering_a_second_matter_
+    breaks_no_test` above already gets this right; this test had not, until a
+    second real pack proved it)."""
     good_pack = _fake_pack("workers_comp")
     good_pack.REPEATABLE = frozenset({"case_number"})
     entry = registry_mod._entry(good_pack)
     registry_mod._validate(
         {**REGISTRY, "workers_comp": entry},
-        {"custody": custody, "workers_comp": good_pack},
+        {**registry_mod._discover_packs(), "workers_comp": good_pack},
     )
 
 

@@ -70,7 +70,7 @@ from typing import Any, Mapping
 
 from homestead_law import packs
 from homestead.keep.rungs import Rung
-from homestead_law.packs import custody
+from homestead_law.packs import bankruptcy, custody
 
 __all__ = ["MatterType", "REGISTRY", "all_matters", "matter"]
 
@@ -145,6 +145,7 @@ def _entry(pack: ModuleType) -> MatterType:
 #: no other change. Only `custody` is built (bankruptcy, workers' comp: Phase 5).
 REGISTRY: dict[str, MatterType] = {
     custody.MATTER: _entry(custody),
+    bankruptcy.MATTER: _entry(bankruptcy),
 }
 
 
