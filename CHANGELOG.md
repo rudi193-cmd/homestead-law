@@ -5,7 +5,6 @@
 
 ### Added
 
-* matter and instance switcher, per-pack panes, computed-deadlines pane with Accept ([3929914](https://github.com/homestead-affairs/homestead-law/commit/392991470e8d44fa5943eef942e66edaad307a07))
 * matter/instance switcher, per-pack panes, computed-deadlines UI ([bfff2d9](https://github.com/homestead-affairs/homestead-law/commit/bfff2d9b4f0cd6031e2a0c739a8b328b33a63c51))
 
 
