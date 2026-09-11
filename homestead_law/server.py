@@ -6,16 +6,30 @@ no CDN).  Imports of ``http.server`` and ``urllib.parse`` are **local** to
 ``import homestead_law`` stays import-pure.
 
 The server is a thin dispatch over existing modules: ``intake.extract()``
-for text extraction, the sidecar store and Nestor seam for persisting,
-``queue`` for the deadline dashboard.
+for text extraction, the sidecar store for persisting, ``app.window.Window``
+for reading records back, ``queue`` for the deadline dashboard, and the
+Nestor seam — optional, and absent without the ``entity`` extra — for
+entity lookup and court orders.
 
-**Chokepoint**: this module never accesses ``.payload``.  Queue items reach
-the browser through ``Due.shown`` (the gated display form).  Entity and
-decision data come through Nestor's public API (dicts, not ``Classified``).
+**This is where a household enters its own information.** The *Records* tab
+is a plain form: pick the matter and the field, type the value, store it at
+the rung the pack declares (never a rung chosen here); a second form adds a
+deadline.  The same tab lists what is on file, composed through the gate —
+the list pane's view of each record, and the detail pane's on a click.  The
+*Intake* tab is the other way in: paste a notice and store what the
+extractor finds.
+
+**Chokepoint**: this module never accesses ``.payload``.  Records reach the
+browser as ``Row.text`` / ``Served.value`` from ``Window``, queue items as
+``Due.shown``, and entity/decision data as dicts from Nestor's public API.
+
+``build_server()`` returns the bound ``HTTPServer`` without serving, so a
+test can drive the real handlers on an ephemeral port; ``serve()`` is the
+operator's door and blocks until Ctrl+C.
 """
 from __future__ import annotations
 
-__all__ = ["serve"]
+__all__ = ["build_server", "serve"]
 
 
 # ── the page ──────────────────────────────────────────────────────────────
@@ -112,6 +126,11 @@ textarea:focus{outline:2px solid var(--accent);border-color:transparent}
 .sealed{background:var(--ok-l);color:var(--ok)}
 .draft{background:var(--warn-l);color:var(--warn)}
 .empty{color:var(--text-2);font-style:italic;padding:24px 0;text-align:center}
+.why{font-size:12px;color:var(--text-2);margin-top:6px}
+.rw{cursor:pointer}.rw:hover{background:var(--accent-l)}
+.rk{font-size:13px;color:var(--text-2);min-width:140px}
+.dt{padding:14px 16px;background:var(--accent-l);border-radius:var(--r);margin-top:8px}
+.dt .adv{font-size:13px;color:var(--warn);margin-top:6px}
 </style>
 </head>
 <body>
@@ -120,14 +139,54 @@ textarea:focus{outline:2px solid var(--accent);border-color:transparent}
   <span class="sub">intake &amp; dashboard</span>
 </header>
 <nav>
-  <button class="tb on" onclick="show('intake',this)">Intake</button>
+  <button class="tb on" onclick="show('records',this)">Records</button>
+  <button class="tb" onclick="show('intake',this)">Intake</button>
   <button class="tb" onclick="show('queue',this)">Queue</button>
   <button class="tb" onclick="show('entities',this)">Entities</button>
   <button class="tb" onclick="show('orders',this)">Orders</button>
 </nav>
 <main>
 
-<section id="t-intake" class="tab on">
+<section id="t-records" class="tab on">
+  <h2>Enter a record</h2>
+  <div class="card">
+    <div class="rf">
+      <select id="rmatter" onchange="fillFields()"></select>
+      <select id="rfield" onchange="showRung()"></select>
+      <span class="rb" id="rrung"></span>
+    </div>
+    <div class="rf">
+      <input id="rvalue" placeholder="Value&#8230;" onkeydown="if(event.key==='Enter')storeField()">
+      <button class="btn bg" onclick="storeField()">Store</button>
+    </div>
+    <div class="why" id="rwhy"></div>
+    <div id="rmsg"></div>
+  </div>
+
+  <h2>Add a deadline</h2>
+  <div class="card">
+    <div class="rf">
+      <input id="did" placeholder="Short id (e.g. hearing, answer)" style="max-width:220px">
+      <input id="ddate" placeholder="YYYY-MM-DD" style="max-width:150px">
+      <select id="drung">
+        <option value="L1">L1 &#8212; public date</option>
+        <option value="L3">L3 &#8212; resolves to the parties</option>
+        <option value="L4">L4 &#8212; protected; queue shows the instruction</option>
+      </select>
+    </div>
+    <div class="rf">
+      <input id="dinstr" placeholder="Instruction shown on the queue (e.g. Custody hearing)" onkeydown="if(event.key==='Enter')storeDeadline()">
+      <button class="btn bg" onclick="storeDeadline()">Add</button>
+    </div>
+    <div id="dmsg"></div>
+  </div>
+
+  <h2>On file</h2>
+  <div id="rlist"></div>
+  <div id="rdetail"></div>
+</section>
+
+<section id="t-intake" class="tab">
   <h2>Dump text</h2>
   <textarea id="raw" placeholder="Paste a court notice, call notes, a letter &#8212; anything with dates, names, case numbers, or citations.  The system extracts what it finds."></textarea>
   <div class="acts">
@@ -169,9 +228,120 @@ function show(name, btn) {
   document.querySelectorAll('.tb').forEach(function(el){el.classList.remove('on')});
   document.getElementById('t-'+name).classList.add('on');
   btn.classList.add('on');
+  if(name==='records') loadRecords();
   if(name==='queue') loadQueue();
   if(name==='orders') loadOrders();
 }
+
+var _matters={};
+
+function loadMatters() {
+  return fetch('/api/matters').then(function(r){return r.json()}).then(function(data){
+    _matters={};
+    var sel=document.getElementById('rmatter'); sel.innerHTML='';
+    data.matters.forEach(function(m){
+      _matters[m.name]=m;
+      var o=document.createElement('option'); o.value=m.name; o.textContent=m.name; sel.appendChild(o);
+    });
+    fillFields();
+  });
+}
+
+function fillFields() {
+  var m=_matters[document.getElementById('rmatter').value];
+  var sel=document.getElementById('rfield'); sel.innerHTML='';
+  if(!m) return;
+  m.fields.forEach(function(f){
+    var o=document.createElement('option'); o.value=f.name;
+    o.textContent=f.name.replace(/_/g,' ')+' ('+f.rung+')'; sel.appendChild(o);
+  });
+  showRung();
+}
+
+function showRung() {
+  var m=_matters[document.getElementById('rmatter').value];
+  var fname=document.getElementById('rfield').value;
+  var f=m?m.fields.filter(function(x){return x.name===fname})[0]:null;
+  var badge=document.getElementById('rrung');
+  badge.className='rb r-'+(f?f.rung:'');
+  badge.textContent=f?f.rung:'';
+  document.getElementById('rwhy').textContent=f?f.why:'';
+}
+
+function storeField() {
+  var matter=document.getElementById('rmatter').value;
+  var field=document.getElementById('rfield').value;
+  var value=document.getElementById('rvalue').value.trim();
+  var msg=document.getElementById('rmsg');
+  if(!value){msg.innerHTML='<span class="sm s-err">Type a value first</span>';return;}
+  fetch('/api/store',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({matter:matter,field:field,value:value})})
+  .then(function(r){return r.json()}).then(function(data){
+    if(data.ok){
+      msg.innerHTML='<span class="sm s-ok">Stored '+esc(field)+' ('+data.rung+')'
+        +(data.replaced?' &#8212; replaced the previous value':'')+'</span>';
+      document.getElementById('rvalue').value='';
+      loadRecords();
+    } else {msg.innerHTML='<span class="sm s-err">'+esc(data.error||'Failed')+'</span>';}
+  }).catch(function(){msg.innerHTML='<span class="sm s-err">Error</span>';});
+}
+
+function storeDeadline() {
+  var matter=document.getElementById('rmatter').value;
+  var id=document.getElementById('did').value.trim();
+  var date=document.getElementById('ddate').value.trim();
+  var rung=document.getElementById('drung').value;
+  var instr=document.getElementById('dinstr').value.trim();
+  var msg=document.getElementById('dmsg');
+  if(!id||!date){msg.innerHTML='<span class="sm s-err">An id and a date are needed</span>';return;}
+  fetch('/api/deadline',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({matter:matter,id:id,date:date,rung:rung,instruction:instr||null})})
+  .then(function(r){return r.json()}).then(function(data){
+    if(data.ok){
+      msg.innerHTML='<span class="sm s-ok">Deadline '+esc(id)+' added ('+data.rung+')</span>';
+      document.getElementById('did').value='';document.getElementById('ddate').value='';
+      document.getElementById('dinstr').value='';
+      loadRecords();
+    } else {msg.innerHTML='<span class="sm s-err">'+esc(data.error||'Failed')+'</span>';}
+  }).catch(function(){msg.innerHTML='<span class="sm s-err">Error</span>';});
+}
+
+function loadRecords() {
+  var matter=document.getElementById('rmatter').value;
+  var div=document.getElementById('rlist');
+  document.getElementById('rdetail').innerHTML='';
+  if(!matter){div.innerHTML='';return;}
+  fetch('/api/records?matter='+encodeURIComponent(matter)).then(function(r){return r.json()}).then(function(data){
+    if(!data.rows||!data.rows.length){
+      div.innerHTML='<p class="empty">Nothing on file for '+esc(matter)+' yet.</p>';return;}
+    var html='';
+    data.rows.forEach(function(row){
+      var where=row.item_id==='primary'?row.item_type:row.item_type+' / '+row.item_id;
+      html+='<div class="qi rw" onclick="openRecord(\''+esc(row.matter)+'\',\''+esc(row.item_type)+'\',\''+esc(row.item_id)+'\')">'
+        +'<span class="rb r-'+row.rung+'">'+row.rung+'</span>'
+        +'<span class="rk">'+esc(where.replace(/_/g,' '))+'</span>'
+        +'<span class="qs">'+esc(row.text)+'</span>'
+        +'</div>';
+    });
+    div.innerHTML=html;
+  }).catch(function(){div.innerHTML='<p class="sm s-err">Failed to load records</p>';});
+}
+
+function openRecord(matter,item_type,item_id) {
+  var div=document.getElementById('rdetail');
+  fetch('/api/record?matter='+encodeURIComponent(matter)+'&item_type='+encodeURIComponent(item_type)
+    +'&item_id='+encodeURIComponent(item_id)).then(function(r){return r.json()}).then(function(data){
+    if(data.error){div.innerHTML='<p class="sm s-err">'+esc(data.error)+'</p>';return;}
+    var html='<div class="dt"><strong>'+esc(item_type.replace(/_/g,' '))+'</strong> '
+      +'<span class="rb r-'+data.rung+'">'+data.rung+'</span><div>'
+      +(data.rendered?esc(data.value):'This record is sealed and is not shown here.')+'</div>';
+    (data.advisories||[]).forEach(function(a){html+='<div class="adv">'+esc(a)+'</div>';});
+    html+='</div>';
+    div.innerHTML=html;
+  });
+}
+
+loadMatters().then(loadRecords);
 
 function esc(s) {
   var d=document.createElement('div'); d.textContent=s; return d.innerHTML;
@@ -226,10 +396,10 @@ function storeItem(idx) {
   var endpoint,body;
   if(field==='__deadline__'){
     endpoint='/api/deadline';
-    body={matter:'custody',id:'intake-'+Date.now(),date:item.value,instruction:item.text};
+    body={matter:document.getElementById('rmatter').value||'custody',id:'intake-'+Date.now(),date:item.value,instruction:item.text};
   } else {
     endpoint='/api/store';
-    body={matter:'custody',field:field,value:item.value};
+    body={matter:document.getElementById('rmatter').value||'custody',field:field,value:item.value};
   }
   fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify(body)})
@@ -320,17 +490,25 @@ function loadOrders() {
 
 # ── server ────────────────────────────────────────────────────────────────
 
-def serve(*, host: str = "127.0.0.1", port: int = 8383) -> None:
-    """Start the intake UI on localhost.  Blocks until Ctrl+C."""
+def build_server(*, host: str = "127.0.0.1", port: int = 8383):
+    """Bind the UI's ``HTTPServer`` on ``host:port`` and return it, unserved.
+
+    Everything the handlers need is bound here — the household root, the
+    sidecar, the (optional) Nestor seam — so ``serve()`` and a test share one
+    construction. ``port=0`` asks the OS for a free port; read it back from
+    ``server.server_address``.
+    """
     import datetime as dt
     import http.server
     import json
     import urllib.parse
-    import webbrowser
 
     from homestead.keep import paths
+    from homestead.keep.rungs import Disposition
     from homestead_law import nestor_seam
     from homestead_law import queue as queue_mod
+    from homestead_law.app import advisories
+    from homestead_law.app.window import Window
     from homestead_law.intake import extract
     from homestead_law.nestor_store import get_store
     from homestead_law.registry import all_matters, matter
@@ -340,11 +518,7 @@ def serve(*, host: str = "127.0.0.1", port: int = 8383) -> None:
     root.mkdir(parents=True, exist_ok=True)
     (root / "keep").mkdir(parents=True, exist_ok=True)
 
-    try:
-        nestor_seam.bind(root)
-        nestor_ok = True
-    except Exception:
-        nestor_ok = False
+    nestor_ok = nestor_seam.bind(root) is not None
 
     sidecar = Sidecar()
 
@@ -393,6 +567,14 @@ def serve(*, host: str = "127.0.0.1", port: int = 8383) -> None:
 
             if p.path == "/":
                 return self._html(_PAGE)
+            if p.path == "/api/status":
+                return self._json({"nestor": nestor_ok, "matters": list(all_matters())})
+            if p.path == "/api/matters":
+                return self._get_matters()
+            if p.path == "/api/records":
+                return self._get_records(qs)
+            if p.path == "/api/record":
+                return self._get_record(qs)
             if p.path == "/api/queue":
                 return self._get_queue()
             if p.path == "/api/resolve":
@@ -400,6 +582,59 @@ def serve(*, host: str = "127.0.0.1", port: int = 8383) -> None:
             if p.path == "/api/orders":
                 return self._get_orders()
             self.send_error(404)
+
+        def _get_matters(self):
+            # The registry, live (I-23) — the form's matter and field lists
+            # come from the packs, never from a copy kept in this file.
+            out = []
+            for name in all_matters():
+                mt = matter(name)
+                out.append({
+                    "name": name,
+                    "fields": [
+                        {"name": f, "rung": rung.value, "why": mt.schema[f].get("why", "")}
+                        for f, rung in mt.fields.items()
+                    ],
+                })
+            self._json({"matters": out})
+
+        def _get_records(self, qs):
+            matter_name = qs.get("matter", "")
+            try:
+                matter(matter_name)
+            except KeyError:
+                return self._json({"error": f"unknown matter {matter_name!r}"}, 400)
+            # Composed through the gate exactly as the window's list pane is:
+            # L1–L3 render, L4 shows its derived form, L5 leaves no row.
+            window = Window()
+            rows = window.open_list(sidecar.records(matter_name))
+            self._json({"rows": [
+                {"matter": r.ref[0], "item_type": r.ref[1], "item_id": r.ref[2],
+                 "rung": r.rung.value, "text": r.text}
+                for r in rows
+            ]})
+
+        def _get_record(self, qs):
+            matter_name = qs.get("matter", "")
+            item_type = qs.get("item_type", "")
+            item_id = qs.get("item_id", "primary")
+            try:
+                matter(matter_name)
+                ref = (matter_name, item_type, item_id)
+                if not sidecar.has(*ref):
+                    return self._json({"error": "no such record"}, 404)
+            except (KeyError, ValueError) as exc:
+                return self._json({"error": str(exc)}, 400)
+            window = Window()
+            window.open_list(sidecar.records(matter_name))
+            served = window.open_detail(ref)
+            rendered = served.disposition is Disposition.RENDER
+            self._json({
+                "rung": served.rung.value,
+                "rendered": rendered,
+                "value": served.value if rendered else None,
+                "advisories": list(advisories.advisory_lines(sidecar, ref)),
+            })
 
         def _get_queue(self):
             today = dt.date.today().isoformat()
@@ -484,10 +719,14 @@ def serve(*, host: str = "127.0.0.1", port: int = 8383) -> None:
                 return self._json(
                     {"ok": False, "error": f"unknown field {field!r}"}, 400)
 
+            value = str(value).strip()
+            if not value:
+                return self._json({"ok": False, "error": "a value is required"}, 400)
+
             rung = mt.fields[field]
             derived = _derived(field, value) if rung.value in ("L3", "L4") else None
             item = Classified(rung, value, derived)
-            sidecar.put(matter_name, field, "primary", item, overwrite=True)
+            replaced = sidecar.put(matter_name, field, "primary", item, overwrite=True)
 
             if field in ("opposing_party", "child_name") and nestor_ok:
                 try:
@@ -497,28 +736,59 @@ def serve(*, host: str = "127.0.0.1", port: int = 8383) -> None:
                 except Exception:
                     pass
 
-            self._json({"ok": True, "rung": rung.value})
+            self._json({"ok": True, "rung": rung.value, "replaced": replaced is not None})
 
         def _post_deadline(self, body):
+            from homestead.keep.dates import UnparseableDate, parse_deadline
             from homestead.keep.rungs import Classified, Rung
+            from homestead.keep.store import InvalidKey
 
             matter_name = body.get("matter", "custody")
-            item_id = body.get("id", "")
-            date = body.get("date", "")
-            instruction = body.get("instruction")
+            item_id = str(body.get("id", "")).strip()
+            date = str(body.get("date", "")).strip()
+            instruction = body.get("instruction") or None
+            rung_value = body.get("rung", "L1")
 
             try:
                 matter(matter_name)
             except KeyError:
                 return self._json(
                     {"ok": False, "error": f"unknown matter {matter_name!r}"}, 400)
+            if not item_id:
+                return self._json({"ok": False, "error": "an id is required"}, 400)
+            try:
+                rung = Rung(rung_value)
+            except ValueError:
+                return self._json({"ok": False, "error": f"unknown rung {rung_value!r}"}, 400)
+            if rung is Rung.L5:
+                return self._json(
+                    {"ok": False, "error": "an L5 deadline would never appear on the queue"}, 400)
+            # The one strict parser (BUG-1): a date the queue could not read
+            # is refused here, where the operator can fix it, not stored as a
+            # gap they will meet later.
+            try:
+                date = parse_deadline(date).iso
+            except UnparseableDate as exc:
+                return self._json({"ok": False, "error": str(exc)}, 400)
+            if rung in (Rung.L3, Rung.L4) and not instruction:
+                instruction = "A deadline is on file"
 
-            item = Classified(Rung.L1, date, instruction)
-            sidecar.put(matter_name, "deadline", item_id, item, overwrite=True)
-            self._json({"ok": True, "rung": "L1"})
+            item = Classified(rung, date, instruction)
+            try:
+                sidecar.put(matter_name, "deadline", item_id, item, overwrite=True)
+            except InvalidKey as exc:
+                return self._json({"ok": False, "error": str(exc)}, 400)
+            self._json({"ok": True, "rung": rung.value})
 
-    srv = http.server.HTTPServer((host, port), _H)
-    url = f"http://{host}:{port}"
+    return http.server.HTTPServer((host, port), _H)
+
+
+def serve(*, host: str = "127.0.0.1", port: int = 8383) -> None:
+    """Start the UI on localhost, open a browser on it, and block until Ctrl+C."""
+    import webbrowser
+
+    srv = build_server(host=host, port=port)
+    url = f"http://{host}:{srv.server_address[1]}"
     print(f"  homestead-law ui: {url}")
     print(f"  press Ctrl+C to stop")
 

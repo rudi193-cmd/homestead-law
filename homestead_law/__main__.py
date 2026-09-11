@@ -13,9 +13,10 @@ Four ways in, plus `--help`:
   * `--demo` — seed a synthetic custody matter into a throwaway store and print
     the list and a detail, composed through the gate. The pipeline, headless, on
     SQLite.
-  * a CLI command (resolve, propose, orders, put, deadline, queue, verify) —
-    real work on real data, wired through Nestor's entity resolution and
-    decision memory. Operates on the household root, not a throwaway.
+  * a CLI command (put, deadline, show, queue, ui; and with the `entity`
+    extra, resolve, propose, orders, verify) — real work on real data in the
+    household root, not a throwaway. Entering and reading records needs only
+    the engine; the Nestor-backed commands say so when the extra is missing.
   * default — open the tkinter view on the cover. On a box with no tkinter or
     no display, this fails legibly: a one-line message pointing at `--demo` and
     `--smoke`, and a non-zero exit — never a raw `ModuleNotFoundError` or
@@ -34,18 +35,23 @@ usage: python -m homestead_law [--help] [--smoke | --demo]
   --demo       seed a synthetic custody matter and print it, headless
   (default)    open the tkinter view on the cover
 
-commands (real data, requires nestor-meaning):
+commands (real data, in the household root — $HOMESTEAD_HOME or ~/.homestead):
+  put          put <matter> <field> <value> — store a record
+  deadline     deadline <matter> <id> <date> [--rung L1|L3|L4] [instruction]
+  show         show [matter] [item [id]] — read records back, through the gate
+  queue        queue [--today YYYY-MM-DD] — what's due
+  ui           ui [--port N] — entry forms, intake and dashboard in the browser
+
+commands that need the `entity` extra (pip install 'homestead-law[entity]'):
   resolve      resolve <domain> <surface> — entity resolution
   propose      propose <domain> <surface> <canonical> — propose an alias
   orders       orders <propose|check|list> — court decisions
-  put          put <matter> <field> <value> — store a record
-  deadline     deadline <matter> <id> <date> — add a deadline
-  queue        queue — what's due
   verify       verify — check the Nestor ledger chain
-  ui           ui [--port N] — intake and dashboard in the browser
 """
 
-_CLI_COMMANDS = {"resolve", "propose", "orders", "put", "deadline", "queue", "verify", "ui"}
+_CLI_COMMANDS = {
+    "resolve", "propose", "orders", "put", "deadline", "show", "queue", "verify", "ui",
+}
 
 
 def main(argv: list[str] | None = None) -> int:

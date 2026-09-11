@@ -123,12 +123,32 @@ from typing import Any, Optional
 from homestead.keep import paths
 
 __all__ = [
+    "available",
     "bind",
     "resolver_for",
     "decisions_for",
     "verify_ledger",
     "SeamNotBoundError",
 ]
+
+#: What to tell an operator who reaches a Nestor-backed feature without the extra.
+NOT_INSTALLED = (
+    "nestor-meaning is not installed -- entity resolution and decision memory "
+    "are an optional extra: pip install 'homestead-law[entity]'"
+)
+
+
+def available() -> bool:
+    """Whether the ``entity`` extra is importable.
+
+    Checked by name, never by importing at module load (the seam stays a no-op
+    without the extra). A caller that wants a Nestor feature asks this first and
+    degrades to *feature absent* on ``False`` -- the record store, the queue and
+    the surfaces never depended on Nestor and keep working without it.
+    """
+    import importlib.util
+
+    return importlib.util.find_spec("nestor") is not None
 
 
 class SeamNotBoundError(RuntimeError):
@@ -144,7 +164,7 @@ _bound: bool = False
 _ledger_path: Optional[Path] = None
 
 
-def bind(household_root: Path | None = None) -> Path:
+def bind(household_root: Path | None = None) -> Path | None:
     """Pin Nestor's ledger inside the household root.  Call once, before use.
 
     ``household_root`` defaults to ``homestead.keep.paths.home()`` -- the one
@@ -159,9 +179,21 @@ def bind(household_root: Path | None = None) -> Path:
     ledger path that is now pinned.
 
     Nestor is imported here, not at module load, so a checkout without the
-    ``entity`` extra still imports this module cleanly.
+    ``entity`` extra still imports this module cleanly. **Without the extra,
+    ``bind()`` returns ``None`` and binds nothing** -- the seam degrades to
+    feature-absent, as its contract promises, and the CLI and the UI go on
+    storing and showing records without it.
     """
     global _bound, _ledger_path
+
+    if not available():
+        # Feature absent, not a crash: a household that never installed the
+        # ``entity`` extra still enters records, lists them and reads its queue.
+        # Nothing is bound, so every Nestor-backed call still refuses with
+        # ``SeamNotBoundError`` rather than reaching an unpinned ledger.
+        _bound = False
+        _ledger_path = None
+        return None
 
     from nestor.cascade import set_ledger_path
 

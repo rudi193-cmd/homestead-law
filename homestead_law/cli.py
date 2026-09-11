@@ -7,6 +7,11 @@ is opened at ``<root>/nestor-law.db`` before any command runs.
 **Covenant**: no command here seals anything.  ``resolve`` proposes; ``orders
 propose`` proposes.  Sealing is a human act, done through ``nestor ui`` or a
 caller that passes a ``verifier=`` — never through this CLI.
+
+**Nestor is optional.** ``put``, ``deadline``, ``show`` and ``queue`` — the
+commands a household uses to enter and read its own records — need only the
+engine.  ``resolve``, ``propose``, ``orders`` and ``verify`` need the ``entity``
+extra and say so, in one line, when it is missing.
 """
 from __future__ import annotations
 
@@ -19,7 +24,6 @@ from homestead.keep import paths
 
 from homestead_law import nestor_seam
 from homestead_law.nestor_store import get_store
-from homestead_law.packs import custody
 from homestead_law.registry import all_matters, matter
 from homestead_law.store import Sidecar
 
@@ -33,6 +37,14 @@ def _boot(household_root: Path | None = None) -> None:
     root.mkdir(parents=True, exist_ok=True)
     (root / "keep").mkdir(parents=True, exist_ok=True)
     nestor_seam.bind(root)
+
+
+def _needs_nestor() -> bool:
+    """True when the Nestor-backed command can run; otherwise says why not."""
+    if nestor_seam.available():
+        return True
+    print(f"  {nestor_seam.NOT_INSTALLED}", file=sys.stderr)
+    return False
 
 
 # ── resolve ─────────────────────────────────────────────────────────────────
@@ -53,6 +65,8 @@ def _cmd_resolve(args: Sequence[str]) -> int:
     valid = ("party", "court", "citation", "jurisdiction")
     if domain not in valid:
         print(f"unknown domain {domain!r} — one of {valid}", file=sys.stderr)
+        return 1
+    if not _needs_nestor():
         return 1
 
     _boot()
@@ -92,6 +106,8 @@ def _cmd_propose(args: Sequence[str]) -> int:
     if domain not in valid:
         print(f"unknown domain {domain!r} — one of {valid}", file=sys.stderr)
         return 1
+    if not _needs_nestor():
+        return 1
 
     _boot()
     store = get_store()
@@ -123,6 +139,8 @@ def _cmd_orders(args: Sequence[str]) -> int:
     sub = args[0]
     rest = args[1:]
 
+    if not _needs_nestor():
+        return 1
     _boot()
     store = get_store()
     dm = nestor_seam.decisions_for("court", store)
@@ -214,7 +232,8 @@ def _cmd_put(args: Sequence[str]) -> int:
     if len(args) < 3:
         print("usage: homestead-law put <matter> <field> <value>", file=sys.stderr)
         print(f"  matters: {', '.join(all_matters())}", file=sys.stderr)
-        print(f"  fields (custody): {', '.join(custody.FIELDS)}", file=sys.stderr)
+        for name in all_matters():
+            print(f"  fields ({name}): {', '.join(matter(name).fields)}", file=sys.stderr)
         return 1
 
     matter_name = args[0]
@@ -272,7 +291,7 @@ def _default_derived(field: str, value: str) -> str:
 def _maybe_propose_party(field: str, value: str) -> None:
     """If the field is a party name, propose it to the entity resolver."""
     party_fields = {"opposing_party", "child_name"}
-    if field not in party_fields:
+    if field not in party_fields or not nestor_seam.available():
         return
 
     try:
@@ -349,6 +368,71 @@ def _cmd_deadline(args: Sequence[str]) -> int:
     return 0
 
 
+# ── show (read back, through the gate) ─────────────────────────────────────
+
+def _cmd_show(args: Sequence[str]) -> int:
+    """``show [matter] [item_type [item_id]]`` — read a matter's records back.
+
+    With no argument, lists every registered matter and how many records each
+    holds.  With a matter, lists that matter's records as the list pane would
+    draw them (``S1_LIST``: L1–L3 payloads, the derived form for L4, nothing for
+    L5 — I-16 holds here exactly as on the window).  With an item, opens it in
+    the detail pane (``S1_DETAIL``: L4 renders, L5 is still refused) and prints
+    any advisory beneath it.  ``item_id`` defaults to ``primary``, the id
+    ``put`` files a field under.
+    """
+    from homestead_law.app import advisories
+    from homestead_law.app.window import Window
+
+    _boot()
+    sidecar = Sidecar()
+
+    if not args:
+        for name in all_matters():
+            n = len(sidecar.records(name))
+            print(f"  {name}: {n} record(s)")
+        return 0
+
+    matter_name = args[0]
+    try:
+        matter(matter_name)
+    except KeyError:
+        print(f"unknown matter {matter_name!r} — registered: {', '.join(all_matters())}", file=sys.stderr)
+        return 1
+
+    window = Window()
+    rows = window.open_list(sidecar.records(matter_name))
+
+    if len(args) == 1:
+        if not rows:
+            print(f"  {matter_name}: nothing on file — `homestead-law put {matter_name} <field> <value>`")
+            return 0
+        print(f"  {matter_name}:")
+        for row in rows:
+            _, item_type, item_id = row.ref
+            where = item_type if item_id == "primary" else f"{item_type}/{item_id}"
+            print(f"  [{row.rung.value}]  {where}: {row.text}")
+        return 0
+
+    item_type = args[1]
+    item_id = args[2] if len(args) > 2 else "primary"
+    ref = (matter_name, item_type, item_id)
+    if not sidecar.has(*ref):
+        print(f"  {matter_name}/{item_type}/{item_id}: no such record", file=sys.stderr)
+        return 1
+    served = window.open_detail(ref)
+    from homestead.keep.rungs import Disposition
+
+    print(f"  {matter_name}/{item_type}/{item_id}  [{served.rung.value}]")
+    if served.disposition is Disposition.RENDER:
+        print(f"  {served.value}")
+    else:
+        print("  This record is sealed and is not shown here.")
+    for line in advisories.advisory_lines(sidecar, ref):
+        print(f"  ~ {line}")
+    return 0
+
+
 # ── queue (real) ───────────────────────────────────────────────────────────
 
 def _cmd_queue(args: Sequence[str]) -> int:
@@ -390,6 +474,8 @@ def _cmd_queue(args: Sequence[str]) -> int:
 
 def _cmd_verify(args: Sequence[str]) -> int:
     """``verify`` — verify the Nestor ledger chain."""
+    if not _needs_nestor():
+        return 1
     _boot()
     ok = nestor_seam.verify_ledger()
     if ok:
@@ -424,6 +510,7 @@ COMMANDS = {
     "orders": (_cmd_orders, "orders <propose|check|list> — court decisions"),
     "put": (_cmd_put, "put <matter> <field> <value> — store a record"),
     "deadline": (_cmd_deadline, "deadline <matter> <id> <date> — add a deadline"),
+    "show": (_cmd_show, "show [matter] [item [id]] — read records back, gated"),
     "queue": (_cmd_queue, "queue — what's due"),
     "verify": (_cmd_verify, "verify — check the Nestor ledger chain"),
     "ui": (_cmd_ui, "ui — intake and dashboard in the browser"),
